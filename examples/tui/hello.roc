@@ -8,28 +8,50 @@ app "hello"
     provides [program] {} to pf
 
 init : Bounds -> Model
-init = \_ -> { text: "Luke!" }
+init = \_ -> { 
+    text: "Luke!",
+    cursor: At {row: 5, col: 5}
+}
+
+moveCursor : Model, [Left, Right, Up, Down] -> Model
+moveCursor = \model, direction ->
+    cursor = model.cursor
+    when cursor is
+        Hidden ->
+            model
+        At position ->
+            updatedPos = when direction is 
+                Left -> {position & col: Num.subWrap position.col 1}
+                Right -> {position & col: Num.addWrap position.col 1}
+                Down -> {position & row: Num.addWrap position.row 1}
+                Up -> {position & row: Num.subWrap position.row 1}
+             
+            {model & cursor : At updatedPos}
 
 update : Model, Event -> Model
 update = \model, event ->
     when event is 
         KeyPressed code ->
             when code is 
-                Left -> { text : "" }
-                Right -> { text : "Right" }
-                Up -> { text : "Up" }
-                Down -> { text : "Down" }
-                Scalar key -> {text : Str.concat model.text key}
+                Left -> moveCursor model Left
+                Right -> moveCursor model Right
+                Up -> moveCursor model Up
+                Down -> moveCursor model Down
+                Scalar key -> model
+                # {text : Str.concat model.text key}
                 _ -> model
 
         Resize bounds -> 
-            { text: (boundsToStr bounds)}
+            # { text: (boundsToStr bounds)}
+            model
 
         FocusGained ->
-            { text: "Focus Gained" }
+            # { text: "Focus Gained" }
+            model
 
         Paste content ->
-            { text: content }
+            # { text: content }
+            model
 
         _ ->
             model

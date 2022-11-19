@@ -20,8 +20,11 @@ pub fn run_event_loop(title: &str) {
         width : size.width,
     };
 
+    
+
     // Initialise Roc app
     let (mut model, mut elems) = crate::roc::init_and_render(window_bounds);
+    let mut cursor = getCursor(model);
     
     loop {
 
@@ -81,6 +84,44 @@ pub fn run_event_loop(title: &str) {
                     renderWidget(f, f.size(), &elem)
                 }
             }).expect("Err: Unable to draw to terminal.");
+
+            // Get the new cursor from Roc
+            let mut newCursor = getCursor(model);
+
+            // Check its not outside the terminal boundary
+            let bounds = terminal.size().expect("TODO handle not getting terminal size for cursor");
+            match newCursor {
+                None => {},
+                Some((x,y)) => {
+                    if x >= bounds.width {
+                        newCursor = None;
+                    }
+
+                    if y >= bounds.height {
+                        newCursor = None;
+                    }
+                }
+            }
+
+            // Draw cursor
+            match (cursor, newCursor) {
+                (None, None) => {},
+                (None, Some((x,y))) => {
+                    terminal.set_cursor(x,y);
+                    terminal.show_cursor(); 
+                },
+                (Some((_,_)), None) => {
+                    terminal.hide_cursor(); 
+                },
+                (Some((_,_)), Some((x,y))) => {
+                    terminal.set_cursor(x,y);
+                    terminal.show_cursor(); 
+                }
+            }
+
+            // Remember the last cursor
+            cursor = newCursor;
+            
         }
     }
 
@@ -152,6 +193,18 @@ impl Events {
     /// This function block the current thread.
     pub fn next(&self) -> Result<InputEvent, std::sync::mpsc::RecvError> {
         self.rx.recv()
+    }
+}
+
+fn getCursor(model : *const crate::glue::Model) -> Option<(u16, u16)> {
+    unsafe {
+        match (*model).cursor.discriminant() {
+            crate::glue::DiscriminantCursor::Hidden => None,
+            crate::glue::DiscriminantCursor::At => {
+                let cursorPos = (*model).cursor.as_At();
+                Some((cursorPos.col,cursorPos.row))
+            },
+        }
     }
 }
 
