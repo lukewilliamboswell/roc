@@ -24,7 +24,9 @@ pub fn run_event_loop(title: &str) {
 
     // Initialise Roc app
     let (mut model, mut elems) = crate::roc::init_and_render(window_bounds);
-    let mut cursor = getCursor(model);
+
+    // TODO reinstate cursor functionality
+    // let mut cursor = getCursor(model);
     
     loop {
 
@@ -85,42 +87,43 @@ pub fn run_event_loop(title: &str) {
                 }
             }).expect("Err: Unable to draw to terminal.");
 
-            // Get the new cursor from Roc
-            let mut newCursor = getCursor(model);
+            // TODO Re-implement CURSOR in Paragraph instead
+            // // Get the new cursor from Roc
+            // let mut newCursor = getCursor(model);
 
-            // Check its not outside the terminal boundary
-            let bounds = terminal.size().expect("TODO handle not getting terminal size for cursor");
-            match newCursor {
-                None => {},
-                Some((x,y)) => {
-                    if x >= bounds.width {
-                        newCursor = None;
-                    }
+            // // Check its not outside the terminal boundary
+            // let bounds = terminal.size().expect("TODO handle not getting terminal size for cursor");
+            // match newCursor {
+            //     None => {},
+            //     Some((x,y)) => {
+            //         if x >= bounds.width {
+            //             newCursor = None;
+            //         }
 
-                    if y >= bounds.height {
-                        newCursor = None;
-                    }
-                }
-            }
+            //         if y >= bounds.height {
+            //             newCursor = None;
+            //         }
+            //     }
+            // }
 
-            // Draw cursor
-            match (cursor, newCursor) {
-                (None, None) => {},
-                (None, Some((x,y))) => {
-                    terminal.set_cursor(x,y);
-                    terminal.show_cursor(); 
-                },
-                (Some((_,_)), None) => {
-                    terminal.hide_cursor(); 
-                },
-                (Some((_,_)), Some((x,y))) => {
-                    terminal.set_cursor(x,y);
-                    terminal.show_cursor(); 
-                }
-            }
+            // // Draw cursor
+            // match (cursor, newCursor) {
+            //     (None, None) => {},
+            //     (None, Some((x,y))) => {
+            //         terminal.set_cursor(x,y);
+            //         terminal.show_cursor(); 
+            //     },
+            //     (Some((_,_)), None) => {
+            //         terminal.hide_cursor(); 
+            //     },
+            //     (Some((_,_)), Some((x,y))) => {
+            //         terminal.set_cursor(x,y);
+            //         terminal.show_cursor(); 
+            //     }
+            // }
 
-            // Remember the last cursor
-            cursor = newCursor;
+            // // Remember the last cursor
+            // cursor = newCursor;
             
         }
     }
@@ -196,22 +199,25 @@ impl Events {
     }
 }
 
-fn getCursor(model : *const crate::glue::Model) -> Option<(u16, u16)> {
-    unsafe {
-        match (*model).cursor.discriminant() {
-            crate::glue::DiscriminantCursor::Hidden => None,
-            crate::glue::DiscriminantCursor::At => {
-                let cursorPos = (*model).cursor.as_At();
-                Some((cursorPos.col,cursorPos.row))
-            },
-        }
-    }
-}
+// TODO implement cursor for Paragraph instead, leaving this here as this was working well
+// fn getCursor(model : *const crate::glue::Model) -> Option<(u16, u16)> {
+//     unsafe {
+//         match (*model).cursor.discriminant() {
+//             crate::glue::DiscriminantCursor::Hidden => None,
+//             crate::glue::DiscriminantCursor::At => {
+//                 let cursorPos = (*model).cursor.as_At();
+//                 Some((cursorPos.col,cursorPos.row))
+//             },
+//         }
+//     }
+// }
 
 fn renderWidget<B: tui::backend::Backend>(f: &mut tui::Frame<B>, area : tui::layout::Rect, elem : &crate::glue::Elem){
     match elem.discriminant(){
         crate::glue::DiscriminantElem::Paragraph => renderParagraph(f, area, elem),
         crate::glue::DiscriminantElem::Layout => renderLayout(f, area, elem),
+        crate::glue::DiscriminantElem::Block => renderBlock(f, area, elem),
+        crate::glue::DiscriminantElem::ListItems => {}, //TODO implement renderBlock(f, area, elem),
     }
 }
 
@@ -241,52 +247,78 @@ fn renderLayout<B: tui::backend::Backend>(f: &mut tui::Frame<B>, area : tui::lay
 
 fn renderParagraph<B: tui::backend::Backend>(f: &mut tui::Frame<B>, area : tui::layout::Rect, paragraph : &crate::glue::Elem){
     
-    let (listSpans, config) = unsafe {paragraph.as_Paragraph()};
-
-    // Build pargraph up from nested Span(s)
-    let mut text = Vec::with_capacity(listSpans.len());
-    for aSpans in listSpans {
-        let mut spansElements = Vec::with_capacity(aSpans.len());
-        for span in aSpans {
-            let s = tui::text::Span::styled(span.text.as_str(),getStyle(&span.style));
-            spansElements.push(s);  
-        }
-        text.push(tui::text::Spans::from(spansElements)); 
-    }
-
-    // Get pargraph properties from config etc
-    let title = config.title.as_str();
-    let titleAlignment = getAlignment(config.titleAlignment);
-    let textAlignment = getAlignment(config.textAlignment);
-    let borderType = getBorderType(config.borderType);
-    let borders = getBorders(&config.borders);
+    let (config) = unsafe {paragraph.as_Paragraph()};
 
     // Block window for the paragraph text to live in
+    let borders = getBorders(&config.block.borders);
+    let borderType = getBorderType(config.block.borderType);
+    let borderStyle = getStyle(&config.block.borderStyle);
+    let title = config.block.title.as_str();
+    let titleAlignment = getAlignment(config.block.titleAlignment);
+    let style = &config.block.style;
     let block = tui::widgets::Block::default()
     .title(title)
     .title_alignment(titleAlignment)
     .borders(borders)
-    .border_type(borderType);
+    .border_style(borderStyle)
+    .border_type(borderType)
+    .style(getStyle(style));
+
+    // Build pargraph up from nested Span(s)
+    let mut text = Vec::with_capacity(config.text.len());
+    let mut spansElements = Vec::with_capacity(1);
+    for span in &config.text {
+        let s = tui::text::Span::styled(span.text.as_str(),getStyle(&span.style));
+        spansElements.push(s);  
+    }    
+    text.push(tui::text::Spans::from(spansElements)); 
 
     // Create the paragraph
+    let textAlignment = getAlignment(config.textAlignment);
     let p = tui::widgets::Paragraph::new(text)
     .block(block)
-    .style(getStyle(&config.style))
-    .alignment(textAlignment)
-    .wrap(tui::widgets::Wrap { trim: true });
+    .alignment(textAlignment);
 
     // Render to the frame
     f.render_widget(p,area);
 }
 
-fn getStyle(rocStyle : &crate::glue::Styles) -> tui::style::Style {
+
+fn renderBlock<B: tui::backend::Backend>(f: &mut tui::Frame<B>, area : tui::layout::Rect, block : &crate::glue::Elem){
+    
+    let (config) = unsafe {block.as_Block()};
+
+    // Block window for the paragraph text to live in
+    let borders = getBorders(&config.borders);
+    let borderStyle = getStyle(&config.borderStyle);
+    let borderType = getBorderType(config.borderType);
+    let title = config.title.as_str();
+    let titleAlignment = getAlignment(config.titleAlignment);
+    let style = &config.style;
+    let block = tui::widgets::Block::default()
+    .title(title)
+    .title_alignment(titleAlignment)
+    .borders(borders)
+    .border_style(borderStyle)
+    .border_type(borderType)
+    .style(getStyle(style));
+
+    // Render to the frame
+    f.render_widget(block,area);
+
+    // TODO Can we refactor out Block to re-use in all the other widgets?
+    // this will require creating it separately to rendering. Might change the 
+    // way we recursively do layouts. Requires further investigation. 
+}
+
+fn getStyle(rocStyle : &crate::glue::Style) -> tui::style::Style {
     let mut style = tui::style::Style::default();
 
-    if rocStyle.bg.discriminant() != crate::glue::DiscriminantColor::None {
+    if rocStyle.bg.discriminant() != crate::glue::DiscriminantColor::Default {
         style = style.bg(getColor(rocStyle.bg));
     }
 
-    if rocStyle.fg.discriminant() != crate::glue::DiscriminantColor::None {
+    if rocStyle.fg.discriminant() != crate::glue::DiscriminantColor::Default {
         style = style.fg(getColor(rocStyle.fg));
     }
 
@@ -311,23 +343,17 @@ fn getStyle(rocStyle : &crate::glue::Styles) -> tui::style::Style {
 
 fn getColor(color : crate::glue::Color) -> tui::style::Color {
     match color.discriminant() {
-        crate::glue::DiscriminantColor::None => tui::style::Color::Reset,
+        crate::glue::DiscriminantColor::Default => tui::style::Color::Reset,
+        crate::glue::DiscriminantColor::Rgb => {
+            let (r, g, b) = unsafe {color.as_Rgb()};
+            tui::style::Color::Rgb(*r,*g,*b)
+        },
+        crate::glue::DiscriminantColor::White => tui::style::Color::White,
         crate::glue::DiscriminantColor::Black => tui::style::Color::Black,
         crate::glue::DiscriminantColor::Red => tui::style::Color::Red,
         crate::glue::DiscriminantColor::Green => tui::style::Color::Green,
-        crate::glue::DiscriminantColor::Yellow => tui::style::Color::Yellow,
         crate::glue::DiscriminantColor::Blue => tui::style::Color::Blue,
-        crate::glue::DiscriminantColor::Magenta => tui::style::Color::Magenta,
-        crate::glue::DiscriminantColor::Cyan => tui::style::Color::Cyan,
-        crate::glue::DiscriminantColor::Gray => tui::style::Color::Gray,
-        crate::glue::DiscriminantColor::DarkGray => tui::style::Color::DarkGray,
-        crate::glue::DiscriminantColor::LightRed => tui::style::Color::LightRed,
-        crate::glue::DiscriminantColor::LightGreen => tui::style::Color::LightGreen,
-        crate::glue::DiscriminantColor::LightYellow => tui::style::Color::LightYellow,
-        crate::glue::DiscriminantColor::LightBlue => tui::style::Color::LightBlue,
-        crate::glue::DiscriminantColor::LightMagenta => tui::style::Color::LightMagenta,
-        crate::glue::DiscriminantColor::LightCyan => tui::style::Color::LightCyan,
-        crate::glue::DiscriminantColor::White => tui::style::Color::White,
+        
     }
 }
 

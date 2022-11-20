@@ -15,7 +15,6 @@
 // #![allow(clippy::redundant_static_lifetimes)]
 // #![allow(clippy::needless_borrow)]
 // #![allow(clippy::clone_on_copy)]
-// #[allow(non-camel-case-types)
 
 #[cfg(any(
     target_arch = "arm",
@@ -27,14 +26,18 @@
 #[derive(Clone, Copy, Eq, Ord, Hash, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum DiscriminantElem {
-    Layout = 0,
-    Paragraph = 1,
+    Block = 0,
+    Layout = 1,
+    ListItems = 2,
+    Paragraph = 3,
 }
 
 impl core::fmt::Debug for DiscriminantElem {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Self::Block => f.write_str("DiscriminantElem::Block"),
             Self::Layout => f.write_str("DiscriminantElem::Layout"),
+            Self::ListItems => f.write_str("DiscriminantElem::ListItems"),
             Self::Paragraph => f.write_str("DiscriminantElem::Paragraph"),
         }
     }
@@ -60,23 +63,11 @@ pub struct Elem {
 ))]
 #[repr(C)]
 union UnionElem {
+    Block: core::mem::ManuallyDrop<ElemBlock>,
     Layout: core::mem::ManuallyDrop<ElemLayout>,
+    ListItems: core::mem::ManuallyDrop<ElemListItems>,
     Paragraph: core::mem::ManuallyDrop<ElemParagraph>,
     _sizer: [u8; 4],
-}
-
-#[cfg(any(
-    target_arch = "arm",
-    target_arch = "aarch64",
-    target_arch = "wasm32",
-    target_arch = "x86",
-    target_arch = "x86_64"
-))]
-#[derive(Clone, Debug, Eq, Ord, Hash, PartialEq, PartialOrd)]
-#[repr(C)]
-pub struct Span {
-    pub style: Styles,
-    pub text: roc_std::RocStr,
 }
 
 #[cfg(any(
@@ -128,11 +119,70 @@ pub union Event {
     target_arch = "x86",
     target_arch = "x86_64"
 ))]
-#[derive(Clone, Debug, Eq, Ord, Hash, PartialEq, PartialOrd)]
-#[repr(C)]
+#[derive(Clone, Debug, Default, Eq, Ord, Hash, PartialEq, PartialOrd)]
+#[repr(transparent)]
 pub struct Model {
     pub text: roc_std::RocStr,
-    pub cursor: Cursor,
+}
+
+#[cfg(any(
+    target_arch = "arm",
+    target_arch = "aarch64",
+    target_arch = "wasm32",
+    target_arch = "x86",
+    target_arch = "x86_64"
+))]
+#[derive(Clone, Debug, Eq, Ord, Hash, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct Span {
+    pub style: Style,
+    pub text: roc_std::RocStr,
+}
+
+#[cfg(any(
+    target_arch = "arm",
+    target_arch = "aarch64",
+    target_arch = "wasm32",
+    target_arch = "x86",
+    target_arch = "x86_64"
+))]
+#[derive(Clone, Copy, Eq, Ord, Hash, PartialEq, PartialOrd)]
+#[repr(u8)]
+pub enum DiscriminantConstraint {
+    Length = 0,
+    Max = 1,
+    Min = 2,
+    Percentage = 3,
+    Ratio = 4,
+}
+
+impl core::fmt::Debug for DiscriminantConstraint {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Length => f.write_str("DiscriminantConstraint::Length"),
+            Self::Max => f.write_str("DiscriminantConstraint::Max"),
+            Self::Min => f.write_str("DiscriminantConstraint::Min"),
+            Self::Percentage => f.write_str("DiscriminantConstraint::Percentage"),
+            Self::Ratio => f.write_str("DiscriminantConstraint::Ratio"),
+        }
+    }
+}
+
+#[cfg(any(
+    target_arch = "arm",
+    target_arch = "aarch64",
+    target_arch = "wasm32",
+    target_arch = "x86",
+    target_arch = "x86_64"
+))]
+#[repr(C)]
+pub union Constraint {
+    Length: u16,
+    Max: u16,
+    Min: u16,
+    Percentage: u16,
+    Ratio: Constraint_Ratio,
+    _sizer: [u8; 12],
 }
 
 #[cfg(any(
@@ -201,52 +251,6 @@ impl core::fmt::Debug for TextModifier {
             Self::Underlined => f.write_str("TextModifier::Underlined"),
         }
     }
-}
-
-#[cfg(any(
-    target_arch = "arm",
-    target_arch = "aarch64",
-    target_arch = "wasm32",
-    target_arch = "x86",
-    target_arch = "x86_64"
-))]
-#[derive(Clone, Copy, Eq, Ord, Hash, PartialEq, PartialOrd)]
-#[repr(u8)]
-pub enum DiscriminantConstraint {
-    Length = 0,
-    Max = 1,
-    Min = 2,
-    Percentage = 3,
-    Ratio = 4,
-}
-
-impl core::fmt::Debug for DiscriminantConstraint {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::Length => f.write_str("DiscriminantConstraint::Length"),
-            Self::Max => f.write_str("DiscriminantConstraint::Max"),
-            Self::Min => f.write_str("DiscriminantConstraint::Min"),
-            Self::Percentage => f.write_str("DiscriminantConstraint::Percentage"),
-            Self::Ratio => f.write_str("DiscriminantConstraint::Ratio"),
-        }
-    }
-}
-
-#[cfg(any(
-    target_arch = "arm",
-    target_arch = "aarch64",
-    target_arch = "wasm32",
-    target_arch = "x86",
-    target_arch = "x86_64"
-))]
-#[repr(C)]
-pub union Constraint {
-    Length: u16,
-    Max: u16,
-    Min: u16,
-    Percentage: u16,
-    Ratio: Constraint_Ratio,
-    _sizer: [u8; 12],
 }
 
 #[cfg(any(
@@ -465,10 +469,9 @@ impl core::fmt::Debug for MediaKeyCode {
     target_arch = "x86_64"
 ))]
 #[derive(Clone, Debug, Eq, Ord, Hash, PartialEq, PartialOrd)]
-#[repr(C)]
+#[repr(transparent)]
 struct ElemParagraph {
-    pub f0: roc_std::RocList<roc_std::RocList<Span>>,
-    pub f1: ParagraphConfig,
+    pub f0: ParagraphConfig,
 }
 
 #[cfg(any(
@@ -481,13 +484,268 @@ struct ElemParagraph {
 #[derive(Clone, Debug, Eq, Ord, Hash, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct ParagraphConfig {
-    pub borderStyle: Styles,
-    pub borders: roc_std::RocList<BorderModifier>,
-    pub style: Styles,
-    pub title: roc_std::RocStr,
-    pub titleStyle: Styles,
-    pub borderType: BorderType,
+    pub block: BlockConfig,
+    pub text: roc_std::RocList<Span>,
+    pub cursor: Cursor,
+    pub scroll: CursorPosition,
     pub textAlignment: Alignment,
+}
+
+#[cfg(any(
+    target_arch = "arm",
+    target_arch = "aarch64",
+    target_arch = "wasm32",
+    target_arch = "x86",
+    target_arch = "x86_64"
+))]
+#[derive(Clone, Copy, Eq, Ord, Hash, PartialEq, PartialOrd)]
+#[repr(u8)]
+pub enum DiscriminantCursor {
+    At = 0,
+    Hidden = 1,
+}
+
+impl core::fmt::Debug for DiscriminantCursor {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::At => f.write_str("DiscriminantCursor::At"),
+            Self::Hidden => f.write_str("DiscriminantCursor::Hidden"),
+        }
+    }
+}
+
+#[cfg(any(
+    target_arch = "arm",
+    target_arch = "aarch64",
+    target_arch = "wasm32",
+    target_arch = "x86",
+    target_arch = "x86_64"
+))]
+#[repr(C)]
+pub union Cursor {
+    At: CursorPosition,
+    _sizer: [u8; 6],
+}
+
+#[cfg(any(
+    target_arch = "arm",
+    target_arch = "aarch64",
+    target_arch = "wasm32",
+    target_arch = "x86",
+    target_arch = "x86_64"
+))]
+#[derive(Clone, Copy, Debug, Default, Eq, Ord, Hash, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct CursorPosition {
+    pub col: u16,
+    pub row: u16,
+}
+
+#[cfg(any(
+    target_arch = "arm",
+    target_arch = "aarch64",
+    target_arch = "wasm32",
+    target_arch = "x86",
+    target_arch = "x86_64"
+))]
+#[derive(Clone, Debug, Eq, Ord, Hash, PartialEq, PartialOrd)]
+#[repr(transparent)]
+struct ElemListItems {
+    pub f0: ListConfig,
+}
+
+#[cfg(any(
+    target_arch = "arm",
+    target_arch = "aarch64",
+    target_arch = "wasm32",
+    target_arch = "x86",
+    target_arch = "x86_64"
+))]
+#[derive(Clone, Debug, Eq, Ord, Hash, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct ListConfig {
+    pub block: BlockConfig,
+    pub highlightStyle: Style,
+    pub highlightSymbol: roc_std::RocStr,
+    pub items: roc_std::RocList<Span>,
+    pub style: Style,
+    pub highlightSymbolRepeat: bool,
+    pub startCorner: Corner,
+}
+
+#[cfg(any(
+    target_arch = "arm",
+    target_arch = "aarch64",
+    target_arch = "wasm32",
+    target_arch = "x86",
+    target_arch = "x86_64"
+))]
+#[derive(Clone, Copy, Eq, Ord, Hash, PartialEq, PartialOrd)]
+#[repr(u8)]
+pub enum Corner {
+    BottomLeft = 0,
+    BottomRight = 1,
+    TopLeft = 2,
+    TopRight = 3,
+}
+
+impl core::fmt::Debug for Corner {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::BottomLeft => f.write_str("Corner::BottomLeft"),
+            Self::BottomRight => f.write_str("Corner::BottomRight"),
+            Self::TopLeft => f.write_str("Corner::TopLeft"),
+            Self::TopRight => f.write_str("Corner::TopRight"),
+        }
+    }
+}
+
+#[cfg(any(
+    target_arch = "arm",
+    target_arch = "aarch64",
+    target_arch = "wasm32",
+    target_arch = "x86",
+    target_arch = "x86_64"
+))]
+#[derive(Clone, Debug, Eq, Ord, Hash, PartialEq, PartialOrd)]
+#[repr(C)]
+struct ElemLayout {
+    pub f0: roc_std::RocList<Elem>,
+    pub f1: LayoutConfig,
+}
+
+#[cfg(any(
+    target_arch = "arm",
+    target_arch = "aarch64",
+    target_arch = "wasm32",
+    target_arch = "x86",
+    target_arch = "x86_64"
+))]
+#[derive(Clone, Debug, Eq, Ord, Hash, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct LayoutConfig {
+    pub constraints: roc_std::RocList<Constraint>,
+    pub hMargin: u16,
+    pub popup: PopupConfig,
+    pub vMargin: u16,
+    pub direction: LayoutDirection,
+}
+
+#[cfg(any(
+    target_arch = "arm",
+    target_arch = "aarch64",
+    target_arch = "wasm32",
+    target_arch = "x86",
+    target_arch = "x86_64"
+))]
+#[derive(Clone, Copy, Eq, Ord, Hash, PartialEq, PartialOrd)]
+#[repr(u8)]
+pub enum LayoutDirection {
+    Horizontal = 0,
+    Vertical = 1,
+}
+
+impl core::fmt::Debug for LayoutDirection {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Horizontal => f.write_str("LayoutDirection::Horizontal"),
+            Self::Vertical => f.write_str("LayoutDirection::Vertical"),
+        }
+    }
+}
+
+#[cfg(any(
+    target_arch = "arm",
+    target_arch = "aarch64",
+    target_arch = "wasm32",
+    target_arch = "x86",
+    target_arch = "x86_64"
+))]
+#[derive(Clone, Copy, Eq, Ord, Hash, PartialEq, PartialOrd)]
+#[repr(u8)]
+pub enum DiscriminantPopupConfig {
+    Centered = 0,
+    Default = 1,
+}
+
+impl core::fmt::Debug for DiscriminantPopupConfig {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Centered => f.write_str("DiscriminantPopupConfig::Centered"),
+            Self::Default => f.write_str("DiscriminantPopupConfig::Default"),
+        }
+    }
+}
+
+#[cfg(any(
+    target_arch = "arm",
+    target_arch = "aarch64",
+    target_arch = "wasm32",
+    target_arch = "x86",
+    target_arch = "x86_64"
+))]
+#[repr(C)]
+pub union PopupConfig {
+    Centered: ModalPosition,
+    _sizer: [u8; 6],
+}
+
+#[cfg(any(
+    target_arch = "arm",
+    target_arch = "aarch64",
+    target_arch = "wasm32",
+    target_arch = "x86",
+    target_arch = "x86_64"
+))]
+#[derive(Clone, Copy, Debug, Default, Eq, Ord, Hash, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct ModalPosition {
+    pub percentX: u16,
+    pub percentY: u16,
+}
+
+#[cfg(any(
+    target_arch = "arm",
+    target_arch = "aarch64",
+    target_arch = "wasm32",
+    target_arch = "x86",
+    target_arch = "x86_64"
+))]
+#[derive(Clone, Copy, Debug, Default, Eq, Ord, Hash, PartialEq, PartialOrd)]
+#[repr(C)]
+struct Constraint_Ratio {
+    pub f0: u32,
+    pub f1: u32,
+}
+
+#[cfg(any(
+    target_arch = "arm",
+    target_arch = "aarch64",
+    target_arch = "wasm32",
+    target_arch = "x86",
+    target_arch = "x86_64"
+))]
+#[derive(Clone, Debug, Eq, Ord, Hash, PartialEq, PartialOrd)]
+#[repr(transparent)]
+struct ElemBlock {
+    pub f0: BlockConfig,
+}
+
+#[cfg(any(
+    target_arch = "arm",
+    target_arch = "aarch64",
+    target_arch = "wasm32",
+    target_arch = "x86",
+    target_arch = "x86_64"
+))]
+#[derive(Clone, Debug, Eq, Ord, Hash, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct BlockConfig {
+    pub borderStyle: Style,
+    pub borders: roc_std::RocList<BorderModifier>,
+    pub style: Style,
+    pub title: roc_std::RocStr,
+    pub borderType: BorderType,
     pub titleAlignment: Alignment,
 }
 
@@ -552,7 +810,7 @@ impl core::fmt::Debug for BorderType {
 ))]
 #[derive(Clone, Debug, Eq, Ord, Hash, PartialEq, PartialOrd)]
 #[repr(C)]
-pub struct Styles {
+pub struct Style {
     pub modifiers: roc_std::RocList<TextModifier>,
     pub bg: Color,
     pub fg: Color,
@@ -570,21 +828,11 @@ pub struct Styles {
 pub enum DiscriminantColor {
     Black = 0,
     Blue = 1,
-    Cyan = 2,
-    DarkGray = 3,
-    Gray = 4,
-    Green = 5,
-    LightBlue = 6,
-    LightCyan = 7,
-    LightGreen = 8,
-    LightMagenta = 9,
-    LightRed = 10,
-    LightYellow = 11,
-    Magenta = 12,
-    None = 13,
-    Red = 14,
-    White = 15,
-    Yellow = 16,
+    Default = 2,
+    Green = 3,
+    Red = 4,
+    Rgb = 5,
+    White = 6,
 }
 
 impl core::fmt::Debug for DiscriminantColor {
@@ -592,21 +840,11 @@ impl core::fmt::Debug for DiscriminantColor {
         match self {
             Self::Black => f.write_str("DiscriminantColor::Black"),
             Self::Blue => f.write_str("DiscriminantColor::Blue"),
-            Self::Cyan => f.write_str("DiscriminantColor::Cyan"),
-            Self::DarkGray => f.write_str("DiscriminantColor::DarkGray"),
-            Self::Gray => f.write_str("DiscriminantColor::Gray"),
+            Self::Default => f.write_str("DiscriminantColor::Default"),
             Self::Green => f.write_str("DiscriminantColor::Green"),
-            Self::LightBlue => f.write_str("DiscriminantColor::LightBlue"),
-            Self::LightCyan => f.write_str("DiscriminantColor::LightCyan"),
-            Self::LightGreen => f.write_str("DiscriminantColor::LightGreen"),
-            Self::LightMagenta => f.write_str("DiscriminantColor::LightMagenta"),
-            Self::LightRed => f.write_str("DiscriminantColor::LightRed"),
-            Self::LightYellow => f.write_str("DiscriminantColor::LightYellow"),
-            Self::Magenta => f.write_str("DiscriminantColor::Magenta"),
-            Self::None => f.write_str("DiscriminantColor::None"),
             Self::Red => f.write_str("DiscriminantColor::Red"),
+            Self::Rgb => f.write_str("DiscriminantColor::Rgb"),
             Self::White => f.write_str("DiscriminantColor::White"),
-            Self::Yellow => f.write_str("DiscriminantColor::Yellow"),
         }
     }
 }
@@ -620,60 +858,8 @@ impl core::fmt::Debug for DiscriminantColor {
 ))]
 #[repr(C)]
 pub union Color {
-    _sizer: [u8; 1],
-}
-
-#[cfg(any(
-    target_arch = "arm",
-    target_arch = "aarch64",
-    target_arch = "wasm32",
-    target_arch = "x86",
-    target_arch = "x86_64"
-))]
-#[derive(Clone, Debug, Eq, Ord, Hash, PartialEq, PartialOrd)]
-#[repr(C)]
-struct ElemLayout {
-    pub f0: roc_std::RocList<Elem>,
-    pub f1: LayoutConfig,
-}
-
-#[cfg(any(
-    target_arch = "arm",
-    target_arch = "aarch64",
-    target_arch = "wasm32",
-    target_arch = "x86",
-    target_arch = "x86_64"
-))]
-#[derive(Clone, Debug, Eq, Ord, Hash, PartialEq, PartialOrd)]
-#[repr(C)]
-pub struct LayoutConfig {
-    pub constraints: roc_std::RocList<Constraint>,
-    pub hMargin: u16,
-    pub vMargin: u16,
-    pub direction: LayoutDirection,
-}
-
-#[cfg(any(
-    target_arch = "arm",
-    target_arch = "aarch64",
-    target_arch = "wasm32",
-    target_arch = "x86",
-    target_arch = "x86_64"
-))]
-#[derive(Clone, Copy, Eq, Ord, Hash, PartialEq, PartialOrd)]
-#[repr(u8)]
-pub enum LayoutDirection {
-    Horizontal = 0,
-    Vertical = 1,
-}
-
-impl core::fmt::Debug for LayoutDirection {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::Horizontal => f.write_str("LayoutDirection::Horizontal"),
-            Self::Vertical => f.write_str("LayoutDirection::Vertical"),
-        }
-    }
+    Rgb: Color_Rgb,
+    _sizer: [u8; 4],
 }
 
 #[cfg(any(
@@ -685,59 +871,10 @@ impl core::fmt::Debug for LayoutDirection {
 ))]
 #[derive(Clone, Copy, Debug, Default, Eq, Ord, Hash, PartialEq, PartialOrd)]
 #[repr(C)]
-struct Constraint_Ratio {
-    pub f0: u32,
-    pub f1: u32,
-}
-
-#[cfg(any(
-    target_arch = "arm",
-    target_arch = "aarch64",
-    target_arch = "wasm32",
-    target_arch = "x86",
-    target_arch = "x86_64"
-))]
-#[derive(Clone, Copy, Eq, Ord, Hash, PartialEq, PartialOrd)]
-#[repr(u8)]
-pub enum DiscriminantCursor {
-    At = 0,
-    Hidden = 1,
-}
-
-impl core::fmt::Debug for DiscriminantCursor {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::At => f.write_str("DiscriminantCursor::At"),
-            Self::Hidden => f.write_str("DiscriminantCursor::Hidden"),
-        }
-    }
-}
-
-#[cfg(any(
-    target_arch = "arm",
-    target_arch = "aarch64",
-    target_arch = "wasm32",
-    target_arch = "x86",
-    target_arch = "x86_64"
-))]
-#[repr(C)]
-pub union Cursor {
-    At: CursorPosition,
-    _sizer: [u8; 6],
-}
-
-#[cfg(any(
-    target_arch = "arm",
-    target_arch = "aarch64",
-    target_arch = "wasm32",
-    target_arch = "x86",
-    target_arch = "x86_64"
-))]
-#[derive(Clone, Copy, Debug, Default, Eq, Ord, Hash, PartialEq, PartialOrd)]
-#[repr(C)]
-pub struct CursorPosition {
-    pub col: u16,
-    pub row: u16,
+struct Color_Rgb {
+    pub f0: u8,
+    pub f1: u8,
+    pub f2: u8,
 }
 
 #[cfg(any(
@@ -746,7 +883,9 @@ pub struct CursorPosition {
 ))]
 #[repr(C)]
 union UnionElem {
+    Block: core::mem::ManuallyDrop<ElemBlock>,
     Layout: core::mem::ManuallyDrop<ElemLayout>,
+    ListItems: core::mem::ManuallyDrop<ElemListItems>,
     Paragraph: core::mem::ManuallyDrop<ElemParagraph>,
     _sizer: [u8; 8],
 }
@@ -848,6 +987,82 @@ impl Elem {
         target_arch = "x86",
         target_arch = "x86_64"
     ))]
+    /// Construct a tag named `Block`, with the appropriate payload
+    pub fn Block(arg0: BlockConfig) -> Self {
+            let size = core::mem::size_of::<UnionElem>();
+            let align = core::mem::align_of::<UnionElem>() as u32;
+
+            unsafe {
+                let ptr = roc_std::roc_alloc_refcounted::<UnionElem>();
+
+                *ptr = UnionElem {
+                    Block: core::mem::ManuallyDrop::new(ElemBlock {
+                    f0: arg0,
+                })
+                };
+
+                Self {
+                    pointer: Self::tag_discriminant(ptr, DiscriminantElem::Block),
+                }
+            }
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "wasm32",
+        target_arch = "x86"
+    ))]
+    /// Unsafely assume the given `Elem` has a `.discriminant()` of `Block` and convert it to `Block`'s payload.
+            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+            /// Panics in debug builds if the `.discriminant()` doesn't return `Block`.
+            pub unsafe fn into_Block(mut self) -> BlockConfig {
+                debug_assert_eq!(self.discriminant(), DiscriminantElem::Block);
+        let payload = {
+            let ptr = (self.pointer as usize & !0b11) as *mut UnionElem;
+            let mut uninitialized = core::mem::MaybeUninit::uninit();
+            let swapped = unsafe {
+                core::mem::replace(
+                    &mut (*ptr).Block,
+                    core::mem::ManuallyDrop::new(uninitialized.assume_init()),
+                )
+            };
+
+            core::mem::forget(self);
+
+            core::mem::ManuallyDrop::into_inner(swapped)
+        };
+
+        
+        payload.f0
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "wasm32",
+        target_arch = "x86"
+    ))]
+    /// Unsafely assume the given `Elem` has a `.discriminant()` of `Block` and return its payload.
+            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+            /// Panics in debug builds if the `.discriminant()` doesn't return `Block`.
+            pub unsafe fn as_Block(&self) -> &BlockConfig {
+                debug_assert_eq!(self.discriminant(), DiscriminantElem::Block);
+        let payload = {
+            let ptr = (self.pointer as usize & !0b11) as *mut UnionElem;
+
+            unsafe { &(*ptr).Block }
+        };
+
+        
+        &payload.f0
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
     /// Construct a tag named `Layout`, with the appropriate payload
     pub fn Layout(arg0: roc_std::RocList<Elem>, arg1: LayoutConfig) -> Self {
             let size = core::mem::size_of::<UnionElem>();
@@ -929,8 +1144,84 @@ impl Elem {
         target_arch = "x86",
         target_arch = "x86_64"
     ))]
+    /// Construct a tag named `ListItems`, with the appropriate payload
+    pub fn ListItems(arg0: ListConfig) -> Self {
+            let size = core::mem::size_of::<UnionElem>();
+            let align = core::mem::align_of::<UnionElem>() as u32;
+
+            unsafe {
+                let ptr = roc_std::roc_alloc_refcounted::<UnionElem>();
+
+                *ptr = UnionElem {
+                    ListItems: core::mem::ManuallyDrop::new(ElemListItems {
+                    f0: arg0,
+                })
+                };
+
+                Self {
+                    pointer: Self::tag_discriminant(ptr, DiscriminantElem::ListItems),
+                }
+            }
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "wasm32",
+        target_arch = "x86"
+    ))]
+    /// Unsafely assume the given `Elem` has a `.discriminant()` of `ListItems` and convert it to `ListItems`'s payload.
+            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+            /// Panics in debug builds if the `.discriminant()` doesn't return `ListItems`.
+            pub unsafe fn into_ListItems(mut self) -> ListConfig {
+                debug_assert_eq!(self.discriminant(), DiscriminantElem::ListItems);
+        let payload = {
+            let ptr = (self.pointer as usize & !0b11) as *mut UnionElem;
+            let mut uninitialized = core::mem::MaybeUninit::uninit();
+            let swapped = unsafe {
+                core::mem::replace(
+                    &mut (*ptr).ListItems,
+                    core::mem::ManuallyDrop::new(uninitialized.assume_init()),
+                )
+            };
+
+            core::mem::forget(self);
+
+            core::mem::ManuallyDrop::into_inner(swapped)
+        };
+
+        
+        payload.f0
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "wasm32",
+        target_arch = "x86"
+    ))]
+    /// Unsafely assume the given `Elem` has a `.discriminant()` of `ListItems` and return its payload.
+            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+            /// Panics in debug builds if the `.discriminant()` doesn't return `ListItems`.
+            pub unsafe fn as_ListItems(&self) -> &ListConfig {
+                debug_assert_eq!(self.discriminant(), DiscriminantElem::ListItems);
+        let payload = {
+            let ptr = (self.pointer as usize & !0b11) as *mut UnionElem;
+
+            unsafe { &(*ptr).ListItems }
+        };
+
+        
+        &payload.f0
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
     /// Construct a tag named `Paragraph`, with the appropriate payload
-    pub fn Paragraph(arg0: roc_std::RocList<roc_std::RocList<Span>>, arg1: ParagraphConfig) -> Self {
+    pub fn Paragraph(arg0: ParagraphConfig) -> Self {
             let size = core::mem::size_of::<UnionElem>();
             let align = core::mem::align_of::<UnionElem>() as u32;
 
@@ -940,7 +1231,6 @@ impl Elem {
                 *ptr = UnionElem {
                     Paragraph: core::mem::ManuallyDrop::new(ElemParagraph {
                     f0: arg0,
-                    f1: arg1,
                 })
                 };
 
@@ -958,7 +1248,7 @@ impl Elem {
     /// Unsafely assume the given `Elem` has a `.discriminant()` of `Paragraph` and convert it to `Paragraph`'s payload.
             /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
             /// Panics in debug builds if the `.discriminant()` doesn't return `Paragraph`.
-            pub unsafe fn into_Paragraph(mut self) -> (roc_std::RocList<roc_std::RocList<Span>>, ParagraphConfig) {
+            pub unsafe fn into_Paragraph(mut self) -> ParagraphConfig {
                 debug_assert_eq!(self.discriminant(), DiscriminantElem::Paragraph);
         let payload = {
             let ptr = (self.pointer as usize & !0b11) as *mut UnionElem;
@@ -975,10 +1265,8 @@ impl Elem {
             core::mem::ManuallyDrop::into_inner(swapped)
         };
 
-        (
-            payload.f0, 
-            payload.f1
-        )
+        
+        payload.f0
     }
 
     #[cfg(any(
@@ -989,7 +1277,7 @@ impl Elem {
     /// Unsafely assume the given `Elem` has a `.discriminant()` of `Paragraph` and return its payload.
             /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
             /// Panics in debug builds if the `.discriminant()` doesn't return `Paragraph`.
-            pub unsafe fn as_Paragraph(&self) -> (&roc_std::RocList<roc_std::RocList<Span>>, &ParagraphConfig) {
+            pub unsafe fn as_Paragraph(&self) -> &ParagraphConfig {
                 debug_assert_eq!(self.discriminant(), DiscriminantElem::Paragraph);
         let payload = {
             let ptr = (self.pointer as usize & !0b11) as *mut UnionElem;
@@ -997,10 +1285,8 @@ impl Elem {
             unsafe { &(*ptr).Paragraph }
         };
 
-        (
-            &payload.f0, 
-            &payload.f1
-        )
+        
+        &payload.f0
     }
 
     #[cfg(any(
@@ -1034,6 +1320,53 @@ impl Elem {
     fn union_pointer(&self) -> *mut UnionElem {
         // The discriminant is stored in the unused bytes at the end of the union pointer
         ((self.pointer as usize) & (!0b111 as usize)) as *mut UnionElem
+    }
+
+    #[cfg(any(
+        target_arch = "aarch64",
+        target_arch = "x86_64"
+    ))]
+    /// Unsafely assume the given `Elem` has a `.discriminant()` of `Block` and convert it to `Block`'s payload.
+            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+            /// Panics in debug builds if the `.discriminant()` doesn't return `Block`.
+            pub unsafe fn into_Block(mut self) -> BlockConfig {
+                debug_assert_eq!(self.discriminant(), DiscriminantElem::Block);
+        let payload = {
+            let ptr = (self.pointer as usize & !0b111) as *mut UnionElem;
+            let mut uninitialized = core::mem::MaybeUninit::uninit();
+            let swapped = unsafe {
+                core::mem::replace(
+                    &mut (*ptr).Block,
+                    core::mem::ManuallyDrop::new(uninitialized.assume_init()),
+                )
+            };
+
+            core::mem::forget(self);
+
+            core::mem::ManuallyDrop::into_inner(swapped)
+        };
+
+        
+        payload.f0
+    }
+
+    #[cfg(any(
+        target_arch = "aarch64",
+        target_arch = "x86_64"
+    ))]
+    /// Unsafely assume the given `Elem` has a `.discriminant()` of `Block` and return its payload.
+            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+            /// Panics in debug builds if the `.discriminant()` doesn't return `Block`.
+            pub unsafe fn as_Block(&self) -> &BlockConfig {
+                debug_assert_eq!(self.discriminant(), DiscriminantElem::Block);
+        let payload = {
+            let ptr = (self.pointer as usize & !0b111) as *mut UnionElem;
+
+            unsafe { &(*ptr).Block }
+        };
+
+        
+        &payload.f0
     }
 
     #[cfg(any(
@@ -1091,10 +1424,57 @@ impl Elem {
         target_arch = "aarch64",
         target_arch = "x86_64"
     ))]
+    /// Unsafely assume the given `Elem` has a `.discriminant()` of `ListItems` and convert it to `ListItems`'s payload.
+            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+            /// Panics in debug builds if the `.discriminant()` doesn't return `ListItems`.
+            pub unsafe fn into_ListItems(mut self) -> ListConfig {
+                debug_assert_eq!(self.discriminant(), DiscriminantElem::ListItems);
+        let payload = {
+            let ptr = (self.pointer as usize & !0b111) as *mut UnionElem;
+            let mut uninitialized = core::mem::MaybeUninit::uninit();
+            let swapped = unsafe {
+                core::mem::replace(
+                    &mut (*ptr).ListItems,
+                    core::mem::ManuallyDrop::new(uninitialized.assume_init()),
+                )
+            };
+
+            core::mem::forget(self);
+
+            core::mem::ManuallyDrop::into_inner(swapped)
+        };
+
+        
+        payload.f0
+    }
+
+    #[cfg(any(
+        target_arch = "aarch64",
+        target_arch = "x86_64"
+    ))]
+    /// Unsafely assume the given `Elem` has a `.discriminant()` of `ListItems` and return its payload.
+            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+            /// Panics in debug builds if the `.discriminant()` doesn't return `ListItems`.
+            pub unsafe fn as_ListItems(&self) -> &ListConfig {
+                debug_assert_eq!(self.discriminant(), DiscriminantElem::ListItems);
+        let payload = {
+            let ptr = (self.pointer as usize & !0b111) as *mut UnionElem;
+
+            unsafe { &(*ptr).ListItems }
+        };
+
+        
+        &payload.f0
+    }
+
+    #[cfg(any(
+        target_arch = "aarch64",
+        target_arch = "x86_64"
+    ))]
     /// Unsafely assume the given `Elem` has a `.discriminant()` of `Paragraph` and convert it to `Paragraph`'s payload.
             /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
             /// Panics in debug builds if the `.discriminant()` doesn't return `Paragraph`.
-            pub unsafe fn into_Paragraph(mut self) -> (roc_std::RocList<roc_std::RocList<Span>>, ParagraphConfig) {
+            pub unsafe fn into_Paragraph(mut self) -> ParagraphConfig {
                 debug_assert_eq!(self.discriminant(), DiscriminantElem::Paragraph);
         let payload = {
             let ptr = (self.pointer as usize & !0b111) as *mut UnionElem;
@@ -1111,10 +1491,8 @@ impl Elem {
             core::mem::ManuallyDrop::into_inner(swapped)
         };
 
-        (
-            payload.f0, 
-            payload.f1
-        )
+        
+        payload.f0
     }
 
     #[cfg(any(
@@ -1124,7 +1502,7 @@ impl Elem {
     /// Unsafely assume the given `Elem` has a `.discriminant()` of `Paragraph` and return its payload.
             /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
             /// Panics in debug builds if the `.discriminant()` doesn't return `Paragraph`.
-            pub unsafe fn as_Paragraph(&self) -> (&roc_std::RocList<roc_std::RocList<Span>>, &ParagraphConfig) {
+            pub unsafe fn as_Paragraph(&self) -> &ParagraphConfig {
                 debug_assert_eq!(self.discriminant(), DiscriminantElem::Paragraph);
         let payload = {
             let ptr = (self.pointer as usize & !0b111) as *mut UnionElem;
@@ -1132,10 +1510,8 @@ impl Elem {
             unsafe { &(*ptr).Paragraph }
         };
 
-        (
-            &payload.f0, 
-            &payload.f1
-        )
+        
+        &payload.f0
     }
 }
 
@@ -1158,7 +1534,9 @@ impl Drop for Elem {
             if needs_dealloc {
                 // Drop the payload first.
                             match self.discriminant() {
+                DiscriminantElem::Block => unsafe { core::mem::ManuallyDrop::drop(&mut (&mut *self.union_pointer()).Block) },
                 DiscriminantElem::Layout => unsafe { core::mem::ManuallyDrop::drop(&mut (&mut *self.union_pointer()).Layout) },
+                DiscriminantElem::ListItems => unsafe { core::mem::ManuallyDrop::drop(&mut (&mut *self.union_pointer()).ListItems) },
                 DiscriminantElem::Paragraph => unsafe { core::mem::ManuallyDrop::drop(&mut (&mut *self.union_pointer()).Paragraph) },
             }
 
@@ -1192,7 +1570,9 @@ impl PartialEq for Elem {
 
             unsafe {
             match self.discriminant() {
+                DiscriminantElem::Block => (&*self.union_pointer()).Block == (&*other.union_pointer()).Block,
                 DiscriminantElem::Layout => (&*self.union_pointer()).Layout == (&*other.union_pointer()).Layout,
+                DiscriminantElem::ListItems => (&*self.union_pointer()).ListItems == (&*other.union_pointer()).ListItems,
                 DiscriminantElem::Paragraph => (&*self.union_pointer()).Paragraph == (&*other.union_pointer()).Paragraph,
             }
         }
@@ -1215,7 +1595,9 @@ impl PartialOrd for Elem {
 
         unsafe {
             match self.discriminant() {
+                DiscriminantElem::Block => (&*self.union_pointer()).Block.partial_cmp(&(&*other.union_pointer()).Block),
                 DiscriminantElem::Layout => (&*self.union_pointer()).Layout.partial_cmp(&(&*other.union_pointer()).Layout),
+                DiscriminantElem::ListItems => (&*self.union_pointer()).ListItems.partial_cmp(&(&*other.union_pointer()).ListItems),
                 DiscriminantElem::Paragraph => (&*self.union_pointer()).Paragraph.partial_cmp(&(&*other.union_pointer()).Paragraph),
             }
         }
@@ -1238,7 +1620,9 @@ impl Ord for Elem {
 
             unsafe {
             match self.discriminant() {
+                DiscriminantElem::Block => (&*self.union_pointer()).Block.cmp(&(&*other.union_pointer()).Block),
                 DiscriminantElem::Layout => (&*self.union_pointer()).Layout.cmp(&(&*other.union_pointer()).Layout),
+                DiscriminantElem::ListItems => (&*self.union_pointer()).ListItems.cmp(&(&*other.union_pointer()).ListItems),
                 DiscriminantElem::Paragraph => (&*self.union_pointer()).Paragraph.cmp(&(&*other.union_pointer()).Paragraph),
             }
         }
@@ -1277,9 +1661,17 @@ impl core::hash::Hash for Elem {
         target_arch = "x86_64"
     ))]
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {        match self.discriminant() {
+            DiscriminantElem::Block => unsafe {
+                    DiscriminantElem::Block.hash(state);
+                    (&*self.union_pointer()).Block.hash(state);
+                },
             DiscriminantElem::Layout => unsafe {
                     DiscriminantElem::Layout.hash(state);
                     (&*self.union_pointer()).Layout.hash(state);
+                },
+            DiscriminantElem::ListItems => unsafe {
+                    DiscriminantElem::ListItems.hash(state);
+                    (&*self.union_pointer()).ListItems.hash(state);
                 },
             DiscriminantElem::Paragraph => unsafe {
                     DiscriminantElem::Paragraph.hash(state);
@@ -1302,13 +1694,18 @@ impl core::fmt::Debug for Elem {
 
         unsafe {
             match self.discriminant() {
+                DiscriminantElem::Block => f.debug_tuple("Block")
+        .field(&(&*(&*self.union_pointer()).Block).f0)
+        .finish(),
                 DiscriminantElem::Layout => f.debug_tuple("Layout")
         .field(&(&*(&*self.union_pointer()).Layout).f0)
 .field(&(&*(&*self.union_pointer()).Layout).f1)
         .finish(),
+                DiscriminantElem::ListItems => f.debug_tuple("ListItems")
+        .field(&(&*(&*self.union_pointer()).ListItems).f0)
+        .finish(),
                 DiscriminantElem::Paragraph => f.debug_tuple("Paragraph")
         .field(&(&*(&*self.union_pointer()).Paragraph).f0)
-.field(&(&*(&*self.union_pointer()).Paragraph).f1)
         .finish(),
             }
         }
@@ -4253,1025 +4650,6 @@ impl core::fmt::Debug for KeyCode {
     }
 }
 
-impl Color {
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Returns which variant this tag union holds. Note that this never includes a payload!
-    pub fn discriminant(&self) -> DiscriminantColor {
-        unsafe {
-            let bytes = core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self);
-
-            core::mem::transmute::<u8, DiscriminantColor>(*bytes.as_ptr().add(0))
-        }
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Internal helper
-    fn set_discriminant(&mut self, discriminant: DiscriminantColor) {
-        let discriminant_ptr: *mut DiscriminantColor = (self as *mut Color).cast();
-
-        unsafe {
-            *(discriminant_ptr.add(0)) = discriminant;
-        }
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// A tag named Black, which has no payload.
-    pub const Black: Self = unsafe {
-        let mut bytes = [0; core::mem::size_of::<Color>()];
-
-        bytes[0] = DiscriminantColor::Black as u8;
-
-        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
-    };
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `into_` methods return a payload, but since the Black tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn into_Black(self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `as` methods return a payload, but since the Black tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn as_Black(&self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// A tag named Blue, which has no payload.
-    pub const Blue: Self = unsafe {
-        let mut bytes = [0; core::mem::size_of::<Color>()];
-
-        bytes[0] = DiscriminantColor::Blue as u8;
-
-        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
-    };
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `into_` methods return a payload, but since the Blue tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn into_Blue(self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `as` methods return a payload, but since the Blue tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn as_Blue(&self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// A tag named Cyan, which has no payload.
-    pub const Cyan: Self = unsafe {
-        let mut bytes = [0; core::mem::size_of::<Color>()];
-
-        bytes[0] = DiscriminantColor::Cyan as u8;
-
-        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
-    };
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `into_` methods return a payload, but since the Cyan tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn into_Cyan(self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `as` methods return a payload, but since the Cyan tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn as_Cyan(&self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// A tag named DarkGray, which has no payload.
-    pub const DarkGray: Self = unsafe {
-        let mut bytes = [0; core::mem::size_of::<Color>()];
-
-        bytes[0] = DiscriminantColor::DarkGray as u8;
-
-        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
-    };
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `into_` methods return a payload, but since the DarkGray tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn into_DarkGray(self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `as` methods return a payload, but since the DarkGray tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn as_DarkGray(&self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// A tag named Gray, which has no payload.
-    pub const Gray: Self = unsafe {
-        let mut bytes = [0; core::mem::size_of::<Color>()];
-
-        bytes[0] = DiscriminantColor::Gray as u8;
-
-        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
-    };
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `into_` methods return a payload, but since the Gray tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn into_Gray(self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `as` methods return a payload, but since the Gray tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn as_Gray(&self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// A tag named Green, which has no payload.
-    pub const Green: Self = unsafe {
-        let mut bytes = [0; core::mem::size_of::<Color>()];
-
-        bytes[0] = DiscriminantColor::Green as u8;
-
-        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
-    };
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `into_` methods return a payload, but since the Green tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn into_Green(self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `as` methods return a payload, but since the Green tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn as_Green(&self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// A tag named LightBlue, which has no payload.
-    pub const LightBlue: Self = unsafe {
-        let mut bytes = [0; core::mem::size_of::<Color>()];
-
-        bytes[0] = DiscriminantColor::LightBlue as u8;
-
-        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
-    };
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `into_` methods return a payload, but since the LightBlue tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn into_LightBlue(self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `as` methods return a payload, but since the LightBlue tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn as_LightBlue(&self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// A tag named LightCyan, which has no payload.
-    pub const LightCyan: Self = unsafe {
-        let mut bytes = [0; core::mem::size_of::<Color>()];
-
-        bytes[0] = DiscriminantColor::LightCyan as u8;
-
-        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
-    };
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `into_` methods return a payload, but since the LightCyan tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn into_LightCyan(self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `as` methods return a payload, but since the LightCyan tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn as_LightCyan(&self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// A tag named LightGreen, which has no payload.
-    pub const LightGreen: Self = unsafe {
-        let mut bytes = [0; core::mem::size_of::<Color>()];
-
-        bytes[0] = DiscriminantColor::LightGreen as u8;
-
-        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
-    };
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `into_` methods return a payload, but since the LightGreen tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn into_LightGreen(self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `as` methods return a payload, but since the LightGreen tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn as_LightGreen(&self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// A tag named LightMagenta, which has no payload.
-    pub const LightMagenta: Self = unsafe {
-        let mut bytes = [0; core::mem::size_of::<Color>()];
-
-        bytes[0] = DiscriminantColor::LightMagenta as u8;
-
-        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
-    };
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `into_` methods return a payload, but since the LightMagenta tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn into_LightMagenta(self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `as` methods return a payload, but since the LightMagenta tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn as_LightMagenta(&self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// A tag named LightRed, which has no payload.
-    pub const LightRed: Self = unsafe {
-        let mut bytes = [0; core::mem::size_of::<Color>()];
-
-        bytes[0] = DiscriminantColor::LightRed as u8;
-
-        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
-    };
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `into_` methods return a payload, but since the LightRed tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn into_LightRed(self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `as` methods return a payload, but since the LightRed tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn as_LightRed(&self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// A tag named LightYellow, which has no payload.
-    pub const LightYellow: Self = unsafe {
-        let mut bytes = [0; core::mem::size_of::<Color>()];
-
-        bytes[0] = DiscriminantColor::LightYellow as u8;
-
-        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
-    };
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `into_` methods return a payload, but since the LightYellow tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn into_LightYellow(self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `as` methods return a payload, but since the LightYellow tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn as_LightYellow(&self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// A tag named Magenta, which has no payload.
-    pub const Magenta: Self = unsafe {
-        let mut bytes = [0; core::mem::size_of::<Color>()];
-
-        bytes[0] = DiscriminantColor::Magenta as u8;
-
-        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
-    };
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `into_` methods return a payload, but since the Magenta tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn into_Magenta(self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `as` methods return a payload, but since the Magenta tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn as_Magenta(&self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// A tag named None, which has no payload.
-    pub const None: Self = unsafe {
-        let mut bytes = [0; core::mem::size_of::<Color>()];
-
-        bytes[0] = DiscriminantColor::None as u8;
-
-        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
-    };
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `into_` methods return a payload, but since the None tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn into_None(self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `as` methods return a payload, but since the None tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn as_None(&self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// A tag named Red, which has no payload.
-    pub const Red: Self = unsafe {
-        let mut bytes = [0; core::mem::size_of::<Color>()];
-
-        bytes[0] = DiscriminantColor::Red as u8;
-
-        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
-    };
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `into_` methods return a payload, but since the Red tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn into_Red(self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `as` methods return a payload, but since the Red tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn as_Red(&self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// A tag named White, which has no payload.
-    pub const White: Self = unsafe {
-        let mut bytes = [0; core::mem::size_of::<Color>()];
-
-        bytes[0] = DiscriminantColor::White as u8;
-
-        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
-    };
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `into_` methods return a payload, but since the White tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn into_White(self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `as` methods return a payload, but since the White tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn as_White(&self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// A tag named Yellow, which has no payload.
-    pub const Yellow: Self = unsafe {
-        let mut bytes = [0; core::mem::size_of::<Color>()];
-
-        bytes[0] = DiscriminantColor::Yellow as u8;
-
-        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
-    };
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `into_` methods return a payload, but since the Yellow tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn into_Yellow(self) {
-        ()
-    }
-
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    /// Other `as` methods return a payload, but since the Yellow tag
-    /// has no payload, this does nothing and is only here for completeness.
-    pub fn as_Yellow(&self) {
-        ()
-    }
-}
-
-impl Eq for Color {}
-
-impl PartialEq for Color {
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    fn eq(&self, other: &Self) -> bool {
-            if self.discriminant() != other.discriminant() {
-                return false;
-            }
-
-            unsafe {
-            match self.discriminant() {
-                DiscriminantColor::Black => true,
-                DiscriminantColor::Blue => true,
-                DiscriminantColor::Cyan => true,
-                DiscriminantColor::DarkGray => true,
-                DiscriminantColor::Gray => true,
-                DiscriminantColor::Green => true,
-                DiscriminantColor::LightBlue => true,
-                DiscriminantColor::LightCyan => true,
-                DiscriminantColor::LightGreen => true,
-                DiscriminantColor::LightMagenta => true,
-                DiscriminantColor::LightRed => true,
-                DiscriminantColor::LightYellow => true,
-                DiscriminantColor::Magenta => true,
-                DiscriminantColor::None => true,
-                DiscriminantColor::Red => true,
-                DiscriminantColor::White => true,
-                DiscriminantColor::Yellow => true,
-            }
-        }
-    }
-}
-
-impl PartialOrd for Color {
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        match self.discriminant().partial_cmp(&other.discriminant()) {
-            Some(core::cmp::Ordering::Equal) => {}
-            not_eq => return not_eq,
-        }
-
-        unsafe {
-            match self.discriminant() {
-                DiscriminantColor::Black => Some(core::cmp::Ordering::Equal),
-                DiscriminantColor::Blue => Some(core::cmp::Ordering::Equal),
-                DiscriminantColor::Cyan => Some(core::cmp::Ordering::Equal),
-                DiscriminantColor::DarkGray => Some(core::cmp::Ordering::Equal),
-                DiscriminantColor::Gray => Some(core::cmp::Ordering::Equal),
-                DiscriminantColor::Green => Some(core::cmp::Ordering::Equal),
-                DiscriminantColor::LightBlue => Some(core::cmp::Ordering::Equal),
-                DiscriminantColor::LightCyan => Some(core::cmp::Ordering::Equal),
-                DiscriminantColor::LightGreen => Some(core::cmp::Ordering::Equal),
-                DiscriminantColor::LightMagenta => Some(core::cmp::Ordering::Equal),
-                DiscriminantColor::LightRed => Some(core::cmp::Ordering::Equal),
-                DiscriminantColor::LightYellow => Some(core::cmp::Ordering::Equal),
-                DiscriminantColor::Magenta => Some(core::cmp::Ordering::Equal),
-                DiscriminantColor::None => Some(core::cmp::Ordering::Equal),
-                DiscriminantColor::Red => Some(core::cmp::Ordering::Equal),
-                DiscriminantColor::White => Some(core::cmp::Ordering::Equal),
-                DiscriminantColor::Yellow => Some(core::cmp::Ordering::Equal),
-            }
-        }
-    }
-}
-
-impl Ord for Color {
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-            match self.discriminant().cmp(&other.discriminant()) {
-                core::cmp::Ordering::Equal => {}
-                not_eq => return not_eq,
-            }
-
-            unsafe {
-            match self.discriminant() {
-                DiscriminantColor::Black => core::cmp::Ordering::Equal,
-                DiscriminantColor::Blue => core::cmp::Ordering::Equal,
-                DiscriminantColor::Cyan => core::cmp::Ordering::Equal,
-                DiscriminantColor::DarkGray => core::cmp::Ordering::Equal,
-                DiscriminantColor::Gray => core::cmp::Ordering::Equal,
-                DiscriminantColor::Green => core::cmp::Ordering::Equal,
-                DiscriminantColor::LightBlue => core::cmp::Ordering::Equal,
-                DiscriminantColor::LightCyan => core::cmp::Ordering::Equal,
-                DiscriminantColor::LightGreen => core::cmp::Ordering::Equal,
-                DiscriminantColor::LightMagenta => core::cmp::Ordering::Equal,
-                DiscriminantColor::LightRed => core::cmp::Ordering::Equal,
-                DiscriminantColor::LightYellow => core::cmp::Ordering::Equal,
-                DiscriminantColor::Magenta => core::cmp::Ordering::Equal,
-                DiscriminantColor::None => core::cmp::Ordering::Equal,
-                DiscriminantColor::Red => core::cmp::Ordering::Equal,
-                DiscriminantColor::White => core::cmp::Ordering::Equal,
-                DiscriminantColor::Yellow => core::cmp::Ordering::Equal,
-            }
-        }
-    }
-}
-
-impl Copy for Color {}
-
-impl Clone for Color {
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    fn clone(&self) -> Self {
-        let mut answer = unsafe {
-            match self.discriminant() {
-                DiscriminantColor::Black => core::mem::transmute::<
-                    core::mem::MaybeUninit<Color>,
-                    Color,
-                >(core::mem::MaybeUninit::uninit()),
-                DiscriminantColor::Blue => core::mem::transmute::<
-                    core::mem::MaybeUninit<Color>,
-                    Color,
-                >(core::mem::MaybeUninit::uninit()),
-                DiscriminantColor::Cyan => core::mem::transmute::<
-                    core::mem::MaybeUninit<Color>,
-                    Color,
-                >(core::mem::MaybeUninit::uninit()),
-                DiscriminantColor::DarkGray => core::mem::transmute::<
-                    core::mem::MaybeUninit<Color>,
-                    Color,
-                >(core::mem::MaybeUninit::uninit()),
-                DiscriminantColor::Gray => core::mem::transmute::<
-                    core::mem::MaybeUninit<Color>,
-                    Color,
-                >(core::mem::MaybeUninit::uninit()),
-                DiscriminantColor::Green => core::mem::transmute::<
-                    core::mem::MaybeUninit<Color>,
-                    Color,
-                >(core::mem::MaybeUninit::uninit()),
-                DiscriminantColor::LightBlue => core::mem::transmute::<
-                    core::mem::MaybeUninit<Color>,
-                    Color,
-                >(core::mem::MaybeUninit::uninit()),
-                DiscriminantColor::LightCyan => core::mem::transmute::<
-                    core::mem::MaybeUninit<Color>,
-                    Color,
-                >(core::mem::MaybeUninit::uninit()),
-                DiscriminantColor::LightGreen => core::mem::transmute::<
-                    core::mem::MaybeUninit<Color>,
-                    Color,
-                >(core::mem::MaybeUninit::uninit()),
-                DiscriminantColor::LightMagenta => core::mem::transmute::<
-                    core::mem::MaybeUninit<Color>,
-                    Color,
-                >(core::mem::MaybeUninit::uninit()),
-                DiscriminantColor::LightRed => core::mem::transmute::<
-                    core::mem::MaybeUninit<Color>,
-                    Color,
-                >(core::mem::MaybeUninit::uninit()),
-                DiscriminantColor::LightYellow => core::mem::transmute::<
-                    core::mem::MaybeUninit<Color>,
-                    Color,
-                >(core::mem::MaybeUninit::uninit()),
-                DiscriminantColor::Magenta => core::mem::transmute::<
-                    core::mem::MaybeUninit<Color>,
-                    Color,
-                >(core::mem::MaybeUninit::uninit()),
-                DiscriminantColor::None => core::mem::transmute::<
-                    core::mem::MaybeUninit<Color>,
-                    Color,
-                >(core::mem::MaybeUninit::uninit()),
-                DiscriminantColor::Red => core::mem::transmute::<
-                    core::mem::MaybeUninit<Color>,
-                    Color,
-                >(core::mem::MaybeUninit::uninit()),
-                DiscriminantColor::White => core::mem::transmute::<
-                    core::mem::MaybeUninit<Color>,
-                    Color,
-                >(core::mem::MaybeUninit::uninit()),
-                DiscriminantColor::Yellow => core::mem::transmute::<
-                    core::mem::MaybeUninit<Color>,
-                    Color,
-                >(core::mem::MaybeUninit::uninit()),
-            }
-
-        };
-
-        answer.set_discriminant(self.discriminant());
-
-        answer
-    }
-}
-
-impl core::hash::Hash for Color {
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {        match self.discriminant() {
-            DiscriminantColor::Black => DiscriminantColor::Black.hash(state),
-            DiscriminantColor::Blue => DiscriminantColor::Blue.hash(state),
-            DiscriminantColor::Cyan => DiscriminantColor::Cyan.hash(state),
-            DiscriminantColor::DarkGray => DiscriminantColor::DarkGray.hash(state),
-            DiscriminantColor::Gray => DiscriminantColor::Gray.hash(state),
-            DiscriminantColor::Green => DiscriminantColor::Green.hash(state),
-            DiscriminantColor::LightBlue => DiscriminantColor::LightBlue.hash(state),
-            DiscriminantColor::LightCyan => DiscriminantColor::LightCyan.hash(state),
-            DiscriminantColor::LightGreen => DiscriminantColor::LightGreen.hash(state),
-            DiscriminantColor::LightMagenta => DiscriminantColor::LightMagenta.hash(state),
-            DiscriminantColor::LightRed => DiscriminantColor::LightRed.hash(state),
-            DiscriminantColor::LightYellow => DiscriminantColor::LightYellow.hash(state),
-            DiscriminantColor::Magenta => DiscriminantColor::Magenta.hash(state),
-            DiscriminantColor::None => DiscriminantColor::None.hash(state),
-            DiscriminantColor::Red => DiscriminantColor::Red.hash(state),
-            DiscriminantColor::White => DiscriminantColor::White.hash(state),
-            DiscriminantColor::Yellow => DiscriminantColor::Yellow.hash(state),
-        }
-    }
-}
-
-impl core::fmt::Debug for Color {
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "aarch64",
-        target_arch = "wasm32",
-        target_arch = "x86",
-        target_arch = "x86_64"
-    ))]
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str("Color::")?;
-
-        unsafe {
-            match self.discriminant() {
-                DiscriminantColor::Black => f.write_str("Black"),
-                DiscriminantColor::Blue => f.write_str("Blue"),
-                DiscriminantColor::Cyan => f.write_str("Cyan"),
-                DiscriminantColor::DarkGray => f.write_str("DarkGray"),
-                DiscriminantColor::Gray => f.write_str("Gray"),
-                DiscriminantColor::Green => f.write_str("Green"),
-                DiscriminantColor::LightBlue => f.write_str("LightBlue"),
-                DiscriminantColor::LightCyan => f.write_str("LightCyan"),
-                DiscriminantColor::LightGreen => f.write_str("LightGreen"),
-                DiscriminantColor::LightMagenta => f.write_str("LightMagenta"),
-                DiscriminantColor::LightRed => f.write_str("LightRed"),
-                DiscriminantColor::LightYellow => f.write_str("LightYellow"),
-                DiscriminantColor::Magenta => f.write_str("Magenta"),
-                DiscriminantColor::None => f.write_str("None"),
-                DiscriminantColor::Red => f.write_str("Red"),
-                DiscriminantColor::White => f.write_str("White"),
-                DiscriminantColor::Yellow => f.write_str("Yellow"),
-            }
-        }
-    }
-}
-
 impl Cursor {
     #[cfg(any(
         target_arch = "arm",
@@ -5537,6 +4915,813 @@ impl core::fmt::Debug for Cursor {
         .field(&self.At)
         .finish(),
                 DiscriminantCursor::Hidden => f.write_str("Hidden"),
+            }
+        }
+    }
+}
+
+impl PopupConfig {
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Returns which variant this tag union holds. Note that this never includes a payload!
+    pub fn discriminant(&self) -> DiscriminantPopupConfig {
+        unsafe {
+            let bytes = core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self);
+
+            core::mem::transmute::<u8, DiscriminantPopupConfig>(*bytes.as_ptr().add(4))
+        }
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Internal helper
+    fn set_discriminant(&mut self, discriminant: DiscriminantPopupConfig) {
+        let discriminant_ptr: *mut DiscriminantPopupConfig = (self as *mut PopupConfig).cast();
+
+        unsafe {
+            *(discriminant_ptr.add(4)) = discriminant;
+        }
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Construct a tag named `Centered`, with the appropriate payload
+    pub fn Centered(arg0: ModalPosition) -> Self {
+            let mut answer = Self {
+                Centered: arg0
+            };
+
+            answer.set_discriminant(DiscriminantPopupConfig::Centered);
+
+            answer
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Unsafely assume the given `PopupConfig` has a `.discriminant()` of `Centered` and convert it to `Centered`'s payload.
+            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+            /// Panics in debug builds if the `.discriminant()` doesn't return `Centered`.
+            pub unsafe fn into_Centered(self) -> ModalPosition {
+                debug_assert_eq!(self.discriminant(), DiscriminantPopupConfig::Centered);
+        let payload = self.Centered;
+
+        
+        payload
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Unsafely assume the given `PopupConfig` has a `.discriminant()` of `Centered` and return its payload.
+            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+            /// Panics in debug builds if the `.discriminant()` doesn't return `Centered`.
+            pub unsafe fn as_Centered(&self) -> &ModalPosition {
+                debug_assert_eq!(self.discriminant(), DiscriminantPopupConfig::Centered);
+        let payload = &self.Centered;
+
+        
+        payload
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// A tag named Default, which has no payload.
+    pub const Default: Self = unsafe {
+        let mut bytes = [0; core::mem::size_of::<PopupConfig>()];
+
+        bytes[4] = DiscriminantPopupConfig::Default as u8;
+
+        core::mem::transmute::<[u8; core::mem::size_of::<PopupConfig>()], PopupConfig>(bytes)
+    };
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Other `into_` methods return a payload, but since the Default tag
+    /// has no payload, this does nothing and is only here for completeness.
+    pub fn into_Default(self) {
+        ()
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Other `as` methods return a payload, but since the Default tag
+    /// has no payload, this does nothing and is only here for completeness.
+    pub fn as_Default(&self) {
+        ()
+    }
+}
+
+impl Eq for PopupConfig {}
+
+impl PartialEq for PopupConfig {
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    fn eq(&self, other: &Self) -> bool {
+            if self.discriminant() != other.discriminant() {
+                return false;
+            }
+
+            unsafe {
+            match self.discriminant() {
+                DiscriminantPopupConfig::Centered => self.Centered == other.Centered,
+                DiscriminantPopupConfig::Default => true,
+            }
+        }
+    }
+}
+
+impl PartialOrd for PopupConfig {
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        match self.discriminant().partial_cmp(&other.discriminant()) {
+            Some(core::cmp::Ordering::Equal) => {}
+            not_eq => return not_eq,
+        }
+
+        unsafe {
+            match self.discriminant() {
+                DiscriminantPopupConfig::Centered => self.Centered.partial_cmp(&other.Centered),
+                DiscriminantPopupConfig::Default => Some(core::cmp::Ordering::Equal),
+            }
+        }
+    }
+}
+
+impl Ord for PopupConfig {
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+            match self.discriminant().cmp(&other.discriminant()) {
+                core::cmp::Ordering::Equal => {}
+                not_eq => return not_eq,
+            }
+
+            unsafe {
+            match self.discriminant() {
+                DiscriminantPopupConfig::Centered => self.Centered.cmp(&other.Centered),
+                DiscriminantPopupConfig::Default => core::cmp::Ordering::Equal,
+            }
+        }
+    }
+}
+
+impl Copy for PopupConfig {}
+
+impl Clone for PopupConfig {
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    fn clone(&self) -> Self {
+        let mut answer = unsafe {
+            match self.discriminant() {
+                DiscriminantPopupConfig::Centered => Self {
+                    Centered: self.Centered.clone(),
+                },
+                DiscriminantPopupConfig::Default => core::mem::transmute::<
+                    core::mem::MaybeUninit<PopupConfig>,
+                    PopupConfig,
+                >(core::mem::MaybeUninit::uninit()),
+            }
+
+        };
+
+        answer.set_discriminant(self.discriminant());
+
+        answer
+    }
+}
+
+impl core::hash::Hash for PopupConfig {
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {        match self.discriminant() {
+            DiscriminantPopupConfig::Centered => unsafe {
+                    DiscriminantPopupConfig::Centered.hash(state);
+                    self.Centered.hash(state);
+                },
+            DiscriminantPopupConfig::Default => DiscriminantPopupConfig::Default.hash(state),
+        }
+    }
+}
+
+impl core::fmt::Debug for PopupConfig {
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("PopupConfig::")?;
+
+        unsafe {
+            match self.discriminant() {
+                DiscriminantPopupConfig::Centered => f.debug_tuple("Centered")
+        .field(&self.Centered)
+        .finish(),
+                DiscriminantPopupConfig::Default => f.write_str("Default"),
+            }
+        }
+    }
+}
+
+impl Color {
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Returns which variant this tag union holds. Note that this never includes a payload!
+    pub fn discriminant(&self) -> DiscriminantColor {
+        unsafe {
+            let bytes = core::mem::transmute::<&Self, &[u8; core::mem::size_of::<Self>()]>(self);
+
+            core::mem::transmute::<u8, DiscriminantColor>(*bytes.as_ptr().add(3))
+        }
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Internal helper
+    fn set_discriminant(&mut self, discriminant: DiscriminantColor) {
+        let discriminant_ptr: *mut DiscriminantColor = (self as *mut Color).cast();
+
+        unsafe {
+            *(discriminant_ptr.add(3)) = discriminant;
+        }
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// A tag named Black, which has no payload.
+    pub const Black: Self = unsafe {
+        let mut bytes = [0; core::mem::size_of::<Color>()];
+
+        bytes[3] = DiscriminantColor::Black as u8;
+
+        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
+    };
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Other `into_` methods return a payload, but since the Black tag
+    /// has no payload, this does nothing and is only here for completeness.
+    pub fn into_Black(self) {
+        ()
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Other `as` methods return a payload, but since the Black tag
+    /// has no payload, this does nothing and is only here for completeness.
+    pub fn as_Black(&self) {
+        ()
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// A tag named Blue, which has no payload.
+    pub const Blue: Self = unsafe {
+        let mut bytes = [0; core::mem::size_of::<Color>()];
+
+        bytes[3] = DiscriminantColor::Blue as u8;
+
+        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
+    };
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Other `into_` methods return a payload, but since the Blue tag
+    /// has no payload, this does nothing and is only here for completeness.
+    pub fn into_Blue(self) {
+        ()
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Other `as` methods return a payload, but since the Blue tag
+    /// has no payload, this does nothing and is only here for completeness.
+    pub fn as_Blue(&self) {
+        ()
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// A tag named Default, which has no payload.
+    pub const Default: Self = unsafe {
+        let mut bytes = [0; core::mem::size_of::<Color>()];
+
+        bytes[3] = DiscriminantColor::Default as u8;
+
+        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
+    };
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Other `into_` methods return a payload, but since the Default tag
+    /// has no payload, this does nothing and is only here for completeness.
+    pub fn into_Default(self) {
+        ()
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Other `as` methods return a payload, but since the Default tag
+    /// has no payload, this does nothing and is only here for completeness.
+    pub fn as_Default(&self) {
+        ()
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// A tag named Green, which has no payload.
+    pub const Green: Self = unsafe {
+        let mut bytes = [0; core::mem::size_of::<Color>()];
+
+        bytes[3] = DiscriminantColor::Green as u8;
+
+        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
+    };
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Other `into_` methods return a payload, but since the Green tag
+    /// has no payload, this does nothing and is only here for completeness.
+    pub fn into_Green(self) {
+        ()
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Other `as` methods return a payload, but since the Green tag
+    /// has no payload, this does nothing and is only here for completeness.
+    pub fn as_Green(&self) {
+        ()
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// A tag named Red, which has no payload.
+    pub const Red: Self = unsafe {
+        let mut bytes = [0; core::mem::size_of::<Color>()];
+
+        bytes[3] = DiscriminantColor::Red as u8;
+
+        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
+    };
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Other `into_` methods return a payload, but since the Red tag
+    /// has no payload, this does nothing and is only here for completeness.
+    pub fn into_Red(self) {
+        ()
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Other `as` methods return a payload, but since the Red tag
+    /// has no payload, this does nothing and is only here for completeness.
+    pub fn as_Red(&self) {
+        ()
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Construct a tag named `Rgb`, with the appropriate payload
+    pub fn Rgb(arg0: u8, arg1: u8, arg2: u8) -> Self {
+            let mut answer = Self {
+                Rgb: Color_Rgb {
+                    f0: arg0,
+                    f1: arg1,
+                    f2: arg2,
+                }
+            };
+
+            answer.set_discriminant(DiscriminantColor::Rgb);
+
+            answer
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Unsafely assume the given `Color` has a `.discriminant()` of `Rgb` and convert it to `Rgb`'s payload.
+            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+            /// Panics in debug builds if the `.discriminant()` doesn't return `Rgb`.
+            pub unsafe fn into_Rgb(self) -> (u8, u8, u8) {
+                debug_assert_eq!(self.discriminant(), DiscriminantColor::Rgb);
+        let payload = self.Rgb;
+
+        (
+            payload.f0, 
+            payload.f1, 
+            payload.f2
+        )
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Unsafely assume the given `Color` has a `.discriminant()` of `Rgb` and return its payload.
+            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+            /// Panics in debug builds if the `.discriminant()` doesn't return `Rgb`.
+            pub unsafe fn as_Rgb(&self) -> (&u8, &u8, &u8) {
+                debug_assert_eq!(self.discriminant(), DiscriminantColor::Rgb);
+        let payload = &self.Rgb;
+
+        (
+            &payload.f0, 
+            &payload.f1, 
+            &payload.f2
+        )
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// A tag named White, which has no payload.
+    pub const White: Self = unsafe {
+        let mut bytes = [0; core::mem::size_of::<Color>()];
+
+        bytes[3] = DiscriminantColor::White as u8;
+
+        core::mem::transmute::<[u8; core::mem::size_of::<Color>()], Color>(bytes)
+    };
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Other `into_` methods return a payload, but since the White tag
+    /// has no payload, this does nothing and is only here for completeness.
+    pub fn into_White(self) {
+        ()
+    }
+
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    /// Other `as` methods return a payload, but since the White tag
+    /// has no payload, this does nothing and is only here for completeness.
+    pub fn as_White(&self) {
+        ()
+    }
+}
+
+impl Eq for Color {}
+
+impl PartialEq for Color {
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    fn eq(&self, other: &Self) -> bool {
+            if self.discriminant() != other.discriminant() {
+                return false;
+            }
+
+            unsafe {
+            match self.discriminant() {
+                DiscriminantColor::Black => true,
+                DiscriminantColor::Blue => true,
+                DiscriminantColor::Default => true,
+                DiscriminantColor::Green => true,
+                DiscriminantColor::Red => true,
+                DiscriminantColor::Rgb => self.Rgb == other.Rgb,
+                DiscriminantColor::White => true,
+            }
+        }
+    }
+}
+
+impl PartialOrd for Color {
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        match self.discriminant().partial_cmp(&other.discriminant()) {
+            Some(core::cmp::Ordering::Equal) => {}
+            not_eq => return not_eq,
+        }
+
+        unsafe {
+            match self.discriminant() {
+                DiscriminantColor::Black => Some(core::cmp::Ordering::Equal),
+                DiscriminantColor::Blue => Some(core::cmp::Ordering::Equal),
+                DiscriminantColor::Default => Some(core::cmp::Ordering::Equal),
+                DiscriminantColor::Green => Some(core::cmp::Ordering::Equal),
+                DiscriminantColor::Red => Some(core::cmp::Ordering::Equal),
+                DiscriminantColor::Rgb => self.Rgb.partial_cmp(&other.Rgb),
+                DiscriminantColor::White => Some(core::cmp::Ordering::Equal),
+            }
+        }
+    }
+}
+
+impl Ord for Color {
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+            match self.discriminant().cmp(&other.discriminant()) {
+                core::cmp::Ordering::Equal => {}
+                not_eq => return not_eq,
+            }
+
+            unsafe {
+            match self.discriminant() {
+                DiscriminantColor::Black => core::cmp::Ordering::Equal,
+                DiscriminantColor::Blue => core::cmp::Ordering::Equal,
+                DiscriminantColor::Default => core::cmp::Ordering::Equal,
+                DiscriminantColor::Green => core::cmp::Ordering::Equal,
+                DiscriminantColor::Red => core::cmp::Ordering::Equal,
+                DiscriminantColor::Rgb => self.Rgb.cmp(&other.Rgb),
+                DiscriminantColor::White => core::cmp::Ordering::Equal,
+            }
+        }
+    }
+}
+
+impl Copy for Color {}
+
+impl Clone for Color {
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    fn clone(&self) -> Self {
+        let mut answer = unsafe {
+            match self.discriminant() {
+                DiscriminantColor::Black => core::mem::transmute::<
+                    core::mem::MaybeUninit<Color>,
+                    Color,
+                >(core::mem::MaybeUninit::uninit()),
+                DiscriminantColor::Blue => core::mem::transmute::<
+                    core::mem::MaybeUninit<Color>,
+                    Color,
+                >(core::mem::MaybeUninit::uninit()),
+                DiscriminantColor::Default => core::mem::transmute::<
+                    core::mem::MaybeUninit<Color>,
+                    Color,
+                >(core::mem::MaybeUninit::uninit()),
+                DiscriminantColor::Green => core::mem::transmute::<
+                    core::mem::MaybeUninit<Color>,
+                    Color,
+                >(core::mem::MaybeUninit::uninit()),
+                DiscriminantColor::Red => core::mem::transmute::<
+                    core::mem::MaybeUninit<Color>,
+                    Color,
+                >(core::mem::MaybeUninit::uninit()),
+                DiscriminantColor::Rgb => Self {
+                    Rgb: self.Rgb.clone(),
+                },
+                DiscriminantColor::White => core::mem::transmute::<
+                    core::mem::MaybeUninit<Color>,
+                    Color,
+                >(core::mem::MaybeUninit::uninit()),
+            }
+
+        };
+
+        answer.set_discriminant(self.discriminant());
+
+        answer
+    }
+}
+
+impl core::hash::Hash for Color {
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {        match self.discriminant() {
+            DiscriminantColor::Black => DiscriminantColor::Black.hash(state),
+            DiscriminantColor::Blue => DiscriminantColor::Blue.hash(state),
+            DiscriminantColor::Default => DiscriminantColor::Default.hash(state),
+            DiscriminantColor::Green => DiscriminantColor::Green.hash(state),
+            DiscriminantColor::Red => DiscriminantColor::Red.hash(state),
+            DiscriminantColor::Rgb => unsafe {
+                    DiscriminantColor::Rgb.hash(state);
+                    self.Rgb.hash(state);
+                },
+            DiscriminantColor::White => DiscriminantColor::White.hash(state),
+        }
+    }
+}
+
+impl core::fmt::Debug for Color {
+    #[cfg(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "wasm32",
+        target_arch = "x86",
+        target_arch = "x86_64"
+    ))]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("Color::")?;
+
+        unsafe {
+            match self.discriminant() {
+                DiscriminantColor::Black => f.write_str("Black"),
+                DiscriminantColor::Blue => f.write_str("Blue"),
+                DiscriminantColor::Default => f.write_str("Default"),
+                DiscriminantColor::Green => f.write_str("Green"),
+                DiscriminantColor::Red => f.write_str("Red"),
+                DiscriminantColor::Rgb => f.debug_tuple("Rgb")
+        .field(&(&self.Rgb).f0)
+.field(&(&self.Rgb).f1)
+.field(&(&self.Rgb).f2)
+        .finish(),
+                DiscriminantColor::White => f.write_str("White"),
             }
         }
     }
