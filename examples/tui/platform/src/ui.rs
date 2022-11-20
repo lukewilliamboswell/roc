@@ -247,7 +247,7 @@ fn renderLayout<B: tui::backend::Backend>(f: &mut tui::Frame<B>, area : tui::lay
 
 fn renderParagraph<B: tui::backend::Backend>(f: &mut tui::Frame<B>, area : tui::layout::Rect, paragraph : &crate::glue::Elem){
     
-    let (config) = unsafe {paragraph.as_Paragraph()};
+    let config = unsafe {paragraph.as_Paragraph()};
 
     // Block window for the paragraph text to live in
     let borders = getBorders(&config.block.borders);
@@ -275,8 +275,11 @@ fn renderParagraph<B: tui::backend::Backend>(f: &mut tui::Frame<B>, area : tui::
 
     // Create the paragraph
     let textAlignment = getAlignment(config.textAlignment);
+    let scroll = getScroll(config.scroll);
     let p = tui::widgets::Paragraph::new(text)
     .block(block)
+    .scroll(scroll)
+    .wrap(tui::widgets::Wrap { trim: true })
     .alignment(textAlignment);
 
     // Render to the frame
@@ -286,7 +289,7 @@ fn renderParagraph<B: tui::backend::Backend>(f: &mut tui::Frame<B>, area : tui::
 
 fn renderBlock<B: tui::backend::Backend>(f: &mut tui::Frame<B>, area : tui::layout::Rect, block : &crate::glue::Elem){
     
-    let (config) = unsafe {block.as_Block()};
+    let config = unsafe {block.as_Block()};
 
     // Block window for the paragraph text to live in
     let borders = getBorders(&config.borders);
@@ -500,4 +503,14 @@ fn getKeyMedia(mediaKey: crossterm::event::MediaKeyCode) -> crate::glue::MediaKe
         crossterm::event::MediaKeyCode::RaiseVolume => crate::glue::MediaKeyCode::RaiseVolume,
         crossterm::event::MediaKeyCode::MuteVolume => crate::glue::MediaKeyCode::MuteVolume,
     }
+}
+
+// TODO glue is currently generating the wrong type, I expect this to be ScrollOffset
+// but because it is identical to CursorPosition this is what is emplaced here instead.
+// When glue is fixed this wont compile here
+// 
+// fn getScroll( scroll: crate::glue::ScrollOffset) -> (u16, u16) {
+//
+fn getScroll( scroll: crate::glue::CursorPosition) -> (u16, u16) {
+    (scroll.row, scroll.col)
 }
