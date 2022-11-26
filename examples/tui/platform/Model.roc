@@ -15,10 +15,16 @@ Model : {
 
 updateScroll : Model, [Up, Down, Left, Right] -> Model
 updateScroll = \model, direction ->
-    scroll = when direction is 
-        Up -> {col : model.scroll.col, row : Num.subWrap model.scroll.row 1 }
-        Down -> {col : model.scroll.col, row : Num.addWrap model.scroll.row 1 }
-        Left -> {row : model.scroll.row, col : Num.subWrap model.scroll.col 1 }
-        Right -> {row : model.scroll.row, col : Num.addWrap model.scroll.col 1 }
+    col = when direction is 
+        Up -> model.scroll.col
+        Down -> model.scroll.col
+        Left -> Num.subWrap model.scroll.col 1u16
+        Right -> Num.addWrap model.scroll.col 1u16
 
-    {model & scroll : scroll}
+    row = when direction is 
+        Up -> Num.subWrap model.scroll.row 1u16
+        Down -> Num.addWrap model.scroll.row 1u16
+        Left -> model.scroll.row
+        Right -> model.scroll.row
+
+    {model & scroll : {col : col, row : row }}

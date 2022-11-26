@@ -570,5 +570,14 @@ fn getKeyMedia(mediaKey: crossterm::event::MediaKeyCode) -> crate::glue::MediaKe
 // fn getScroll( scroll: crate::glue::ScrollOffset) -> (u16, u16) {
 //
 fn getScroll(scroll: crate::glue::CursorPosition) -> (u16, u16) {
+
+    // TODO the following will crash if you give it too large a value
+    // this is a workaround to stop rust panicking if the scroll is too large
+    // happens at the following location in tui-rs
+    // Line 192 https://github.com/fdehau/tui-rs/src/widgets/paragraph.rs
+    if scroll.row > 65000 || scroll.col > 65000 {
+        return (0, 0);
+    }
+
     (scroll.row, scroll.col)
 }

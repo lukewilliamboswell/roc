@@ -32,6 +32,12 @@ update = \model, event ->
 #     w = Num.toStr width
 #     "Current Window H: \(h), W:\(w)"
 
+scrollToStr : { row : U16, col : U16 } -> Str 
+scrollToStr = \{row, col} ->
+    r = Num.toStr row
+    c = Num.toStr col
+    "Scroll R: \(r), C:\(c)"
+
 noStyle = { bg: Default, fg: Default, modifiers: [] }
 
 simpleBlockConfig = {
@@ -50,10 +56,11 @@ paragraph = \scroll -> Paragraph {
         { text : "World", style : {noStyle & fg: Red } },
         { text : "!", style : noStyle },
         { text : loremIpsum1, style : noStyle },
-        { text : loremIpsum2, style : noStyle },
-        { text : loremIpsum3, style : noStyle },
-        { text : loremIpsum4, style : noStyle },
-        { text : loremIpsum5, style : noStyle },
+        { text : (scrollToStr scroll), style : {noStyle & fg: Green} },
+        # { text : loremIpsum2, style : noStyle },
+        # { text : loremIpsum3, style : noStyle },
+        # { text : loremIpsum4, style : noStyle },
+        # { text : loremIpsum5, style : noStyle },
     ],
     block : simpleBlockConfig,
     textAlignment : Left,
