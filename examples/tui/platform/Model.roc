@@ -10,21 +10,15 @@ interface Model
 
 Model : {
     text : Str,
-    scroll : { row : U16, col : U16 },
+    scroll : U16,
+    bounds : { height : U16, width : U16 },
 }
 
 updateScroll : Model, [Up, Down, Left, Right] -> Model
 updateScroll = \model, direction ->
-    col = when direction is 
-        Up -> model.scroll.col
-        Down -> model.scroll.col
-        Left -> Num.subWrap model.scroll.col 1u16
-        Right -> Num.addWrap model.scroll.col 1u16
+    scroll = when direction is 
+        Up -> Num.subWrap model.scroll 1u16
+        Down -> Num.addWrap model.scroll 1u16
+        _ -> model.scroll
 
-    row = when direction is 
-        Up -> Num.subWrap model.scroll.row 1u16
-        Down -> Num.addWrap model.scroll.row 1u16
-        Left -> model.scroll.row
-        Right -> model.scroll.row
-
-    {model & scroll : {col : col, row : row }}
+    {model & scroll : scroll}

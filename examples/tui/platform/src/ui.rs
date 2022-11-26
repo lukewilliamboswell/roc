@@ -1,6 +1,8 @@
 const SCREEN_DRAW_RATE_MS: u64 = 50;
 
 pub fn run_event_loop(title: &str) {
+
+    // Setup terminal
     crossterm::terminal::enable_raw_mode().expect("TODO handle enabling Raw mode on terminal");
     let mut stdout = std::io::stdout();
     crossterm::execute!(
@@ -22,9 +24,6 @@ pub fn run_event_loop(title: &str) {
 
     // Initialise Roc app
     let (mut model, mut elems) = crate::roc::init_and_render(window_bounds);
-
-    // TODO reinstate cursor functionality
-    // let mut cursor = getCursor(model);
 
     loop {
         let mut appReturn = false;
@@ -88,44 +87,6 @@ pub fn run_event_loop(title: &str) {
                     }
                 })
                 .expect("Err: Unable to draw to terminal.");
-
-            // TODO Re-implement CURSOR in Paragraph instead
-            // // Get the new cursor from Roc
-            // let mut newCursor = getCursor(model);
-
-            // // Check its not outside the terminal boundary
-            // let bounds = terminal.size().expect("TODO handle not getting terminal size for cursor");
-            // match newCursor {
-            //     None => {},
-            //     Some((x,y)) => {
-            //         if x >= bounds.width {
-            //             newCursor = None;
-            //         }
-
-            //         if y >= bounds.height {
-            //             newCursor = None;
-            //         }
-            //     }
-            // }
-
-            // // Draw cursor
-            // match (cursor, newCursor) {
-            //     (None, None) => {},
-            //     (None, Some((x,y))) => {
-            //         terminal.set_cursor(x,y);
-            //         terminal.show_cursor();
-            //     },
-            //     (Some((_,_)), None) => {
-            //         terminal.hide_cursor();
-            //     },
-            //     (Some((_,_)), Some((x,y))) => {
-            //         terminal.set_cursor(x,y);
-            //         terminal.show_cursor();
-            //     }
-            // }
-
-            // // Remember the last cursor
-            // cursor = newCursor;
         }
     }
 
@@ -219,18 +180,15 @@ impl Events {
     }
 }
 
-// TODO implement cursor for Paragraph instead, leaving this here as this was working well
-// fn getCursor(model : *const crate::glue::Model) -> Option<(u16, u16)> {
-//     unsafe {
-//         match (*model).cursor.discriminant() {
-//             crate::glue::DiscriminantCursor::Hidden => None,
-//             crate::glue::DiscriminantCursor::At => {
-//                 let cursorPos = (*model).cursor.as_At();
-//                 Some((cursorPos.col,cursorPos.row))
-//             },
-//         }
-//     }
-// }
+fn getCursor(cursor : crate::glue::Cursor) -> Option<(u16, u16)> {
+    match cursor.discriminant() {
+        crate::glue::discriminant_Cursor::Hidden => None,
+        crate::glue::discriminant_Cursor::At => {
+            let cursorPos =  unsafe { cursor.as_At() };
+            Some((cursorPos.col,cursorPos.row))
+        },
+    }
+}
 
 fn renderWidget<B: tui::backend::Backend>(
     f: &mut tui::Frame<B>,
@@ -238,10 +196,10 @@ fn renderWidget<B: tui::backend::Backend>(
     elem: &crate::glue::Elem,
 ) {
     match elem.discriminant() {
-        crate::glue::DiscriminantElem::Paragraph => renderParagraph(f, area, elem),
-        crate::glue::DiscriminantElem::Layout => renderLayout(f, area, elem),
-        crate::glue::DiscriminantElem::Block => renderBlock(f, area, elem),
-        crate::glue::DiscriminantElem::ListItems => {} //TODO implement renderBlock(f, area, elem),
+        crate::glue::discriminant_Elem::Paragraph => renderParagraph(f, area, elem),
+        crate::glue::discriminant_Elem::Layout => renderLayout(f, area, elem),
+        crate::glue::discriminant_Elem::Block => renderBlock(f, area, elem),
+        crate::glue::discriminant_Elem::ListItems => {} //TODO implement renderBlock(f, area, elem),
     }
 }
 
@@ -284,7 +242,7 @@ fn renderParagraph<B: tui::backend::Backend>(
     let borders = getBorders(&config.block.borders);
     let borderType = getBorderType(config.block.borderType);
     let borderStyle = getStyle(&config.block.borderStyle);
-    let title = config.block.title.as_str();
+    let title = tui::text::Span::styled(config.block.title.text.as_str(), getStyle(&config.block.title.style));
     let titleAlignment = getAlignment(config.block.titleAlignment);
     let style = &config.block.style;
     let block = tui::widgets::Block::default()
@@ -313,6 +271,17 @@ fn renderParagraph<B: tui::backend::Backend>(
         .wrap(tui::widgets::Wrap { trim: true })
         .alignment(textAlignment);
 
+    // Show the cursor if required
+    let cursor = getCursor(config.cursor);
+    match cursor {
+        None => {
+            // will be hidden if not set
+        },
+        Some((x,y)) => {
+            f.set_cursor(x,y);
+        },
+    }
+
     // Render to the frame
     f.render_widget(p, area);
 }
@@ -328,7 +297,7 @@ fn renderBlock<B: tui::backend::Backend>(
     let borders = getBorders(&config.borders);
     let borderStyle = getStyle(&config.borderStyle);
     let borderType = getBorderType(config.borderType);
-    let title = config.title.as_str();
+    let title = tui::text::Span::styled(config.title.text.as_str(), getStyle(&config.title.style));
     let titleAlignment = getAlignment(config.titleAlignment);
     let style = &config.style;
     let block = tui::widgets::Block::default()
@@ -350,11 +319,11 @@ fn renderBlock<B: tui::backend::Backend>(
 fn getStyle(rocStyle: &crate::glue::Style) -> tui::style::Style {
     let mut style = tui::style::Style::default();
 
-    if rocStyle.bg.discriminant() != crate::glue::DiscriminantColor::Default {
+    if rocStyle.bg.discriminant() != crate::glue::discriminant_Color::Default {
         style = style.bg(getColor(rocStyle.bg));
     }
 
-    if rocStyle.fg.discriminant() != crate::glue::DiscriminantColor::Default {
+    if rocStyle.fg.discriminant() != crate::glue::discriminant_Color::Default {
         style = style.fg(getColor(rocStyle.fg));
     }
 
@@ -397,16 +366,16 @@ fn getStyle(rocStyle: &crate::glue::Style) -> tui::style::Style {
 
 fn getColor(color: crate::glue::Color) -> tui::style::Color {
     match color.discriminant() {
-        crate::glue::DiscriminantColor::Default => tui::style::Color::Reset,
-        crate::glue::DiscriminantColor::Rgb => {
+        crate::glue::discriminant_Color::Default => tui::style::Color::Reset,
+        crate::glue::discriminant_Color::Rgb => {
             let (r, g, b) = unsafe { color.as_Rgb() };
             tui::style::Color::Rgb(*r, *g, *b)
         }
-        crate::glue::DiscriminantColor::White => tui::style::Color::White,
-        crate::glue::DiscriminantColor::Black => tui::style::Color::Black,
-        crate::glue::DiscriminantColor::Red => tui::style::Color::Red,
-        crate::glue::DiscriminantColor::Green => tui::style::Color::Green,
-        crate::glue::DiscriminantColor::Blue => tui::style::Color::Blue,
+        crate::glue::discriminant_Color::White => tui::style::Color::White,
+        crate::glue::discriminant_Color::Black => tui::style::Color::Black,
+        crate::glue::discriminant_Color::Red => tui::style::Color::Red,
+        crate::glue::discriminant_Color::Green => tui::style::Color::Green,
+        crate::glue::discriminant_Color::Blue => tui::style::Color::Blue,
     }
 }
 
@@ -448,23 +417,23 @@ fn getConstraints(
     let mut constraints: Vec<tui::layout::Constraint> = Vec::with_capacity(rocConstraints.len());
     for constraint in rocConstraints {
         match constraint.discriminant() {
-            crate::glue::DiscriminantConstraint::Length => {
+            crate::glue::discriminant_Constraint::Length => {
                 let l = unsafe { constraint.as_Length() };
                 constraints.push(tui::layout::Constraint::Length(*l));
             }
-            crate::glue::DiscriminantConstraint::Max => {
+            crate::glue::discriminant_Constraint::Max => {
                 let l = unsafe { constraint.as_Max() };
                 constraints.push(tui::layout::Constraint::Max(*l));
             }
-            crate::glue::DiscriminantConstraint::Min => {
+            crate::glue::discriminant_Constraint::Min => {
                 let l = unsafe { constraint.as_Min() };
                 constraints.push(tui::layout::Constraint::Min(*l));
             }
-            crate::glue::DiscriminantConstraint::Percentage => {
+            crate::glue::discriminant_Constraint::Percentage => {
                 let l = unsafe { constraint.as_Percentage() };
                 constraints.push(tui::layout::Constraint::Percentage(*l));
             }
-            crate::glue::DiscriminantConstraint::Ratio => {
+            crate::glue::discriminant_Constraint::Ratio => {
                 let (r1, r2) = unsafe { constraint.as_Ratio() };
                 constraints.push(tui::layout::Constraint::Ratio(*r1, *r2));
             }
@@ -569,15 +538,16 @@ fn getKeyMedia(mediaKey: crossterm::event::MediaKeyCode) -> crate::glue::MediaKe
 //
 // fn getScroll( scroll: crate::glue::ScrollOffset) -> (u16, u16) {
 //
-fn getScroll(scroll: crate::glue::CursorPosition) -> (u16, u16) {
+fn getScroll(scroll: u16) -> (u16, u16) {
 
     // TODO the following will crash if you give it too large a value
     // this is a workaround to stop rust panicking if the scroll is too large
     // happens at the following location in tui-rs
     // Line 192 https://github.com/fdehau/tui-rs/src/widgets/paragraph.rs
-    if scroll.row > 65000 || scroll.col > 65000 {
+    if scroll > 65000 {
         return (0, 0);
     }
 
-    (scroll.row, scroll.col)
+    // TODO investigate why scrolling the column doesn't do anything.. 
+    (scroll, 0)
 }
