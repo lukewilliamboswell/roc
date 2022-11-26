@@ -55,12 +55,7 @@ pub struct Elem {
     pointer: *mut UnionElem,
 }
 
-
-#[cfg(any(
-    target_arch = "arm",
-    target_arch = "wasm32",
-    target_arch = "x86"
-))]
+#[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
 #[repr(C)]
 union UnionElem {
     Block: core::mem::ManuallyDrop<ElemBlock>,
@@ -99,11 +94,7 @@ impl core::fmt::Debug for DiscriminantEvent {
     }
 }
 
-#[cfg(any(
-    target_arch = "arm",
-    target_arch = "wasm32",
-    target_arch = "x86"
-))]
+#[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
 #[repr(C)]
 pub union Event {
     KeyPressed: core::mem::ManuallyDrop<KeyCode>,
@@ -355,11 +346,7 @@ impl core::fmt::Debug for DiscriminantKeyCode {
     }
 }
 
-#[cfg(any(
-    target_arch = "arm",
-    target_arch = "wasm32",
-    target_arch = "x86"
-))]
+#[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
 #[repr(C)]
 pub union KeyCode {
     Function: u8,
@@ -877,10 +864,7 @@ struct Color_Rgb {
     pub f2: u8,
 }
 
-#[cfg(any(
-    target_arch = "aarch64",
-    target_arch = "x86_64"
-))]
+#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
 #[repr(C)]
 union UnionElem {
     Block: core::mem::ManuallyDrop<ElemBlock>,
@@ -890,10 +874,7 @@ union UnionElem {
     _sizer: [u8; 8],
 }
 
-#[cfg(any(
-    target_arch = "aarch64",
-    target_arch = "x86_64"
-))]
+#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
 #[repr(C)]
 pub union Event {
     KeyPressed: core::mem::ManuallyDrop<KeyCode>,
@@ -902,10 +883,7 @@ pub union Event {
     _sizer: [u8; 40],
 }
 
-#[cfg(any(
-    target_arch = "aarch64",
-    target_arch = "x86_64"
-))]
+#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
 #[repr(C)]
 pub union KeyCode {
     Function: u8,
@@ -938,28 +916,18 @@ impl Elem {
         if untagged.is_null() {
             None
         } else {
-            unsafe {
-                Some(&*untagged.sub(1))
-            }
+            unsafe { Some(&*untagged.sub(1)) }
         }
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// Returns which variant this tag union holds. Note that this never includes a payload!
     pub fn discriminant(&self) -> DiscriminantElem {
         // The discriminant is stored in the unused bytes at the end of the recursive pointer
         unsafe { core::mem::transmute::<u8, DiscriminantElem>((self.pointer as u8) & 0b11) }
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// Internal helper
     fn tag_discriminant(pointer: *mut UnionElem, discriminant: DiscriminantElem) -> *mut UnionElem {
         // The discriminant is stored in the unused bytes at the end of the union pointer
@@ -969,11 +937,7 @@ impl Elem {
         tagged as *mut UnionElem
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// Internal helper
     fn union_pointer(&self) -> *mut UnionElem {
         // The discriminant is stored in the unused bytes at the end of the union pointer
@@ -989,34 +953,28 @@ impl Elem {
     ))]
     /// Construct a tag named `Block`, with the appropriate payload
     pub fn Block(arg0: BlockConfig) -> Self {
-            let size = core::mem::size_of::<UnionElem>();
-            let align = core::mem::align_of::<UnionElem>() as u32;
+        let size = core::mem::size_of::<UnionElem>();
+        let align = core::mem::align_of::<UnionElem>() as u32;
 
-            unsafe {
-                let ptr = roc_std::roc_alloc_refcounted::<UnionElem>();
+        unsafe {
+            let ptr = roc_std::roc_alloc_refcounted::<UnionElem>();
 
-                *ptr = UnionElem {
-                    Block: core::mem::ManuallyDrop::new(ElemBlock {
-                    f0: arg0,
-                })
-                };
+            *ptr = UnionElem {
+                Block: core::mem::ManuallyDrop::new(ElemBlock { f0: arg0 }),
+            };
 
-                Self {
-                    pointer: Self::tag_discriminant(ptr, DiscriminantElem::Block),
-                }
+            Self {
+                pointer: Self::tag_discriminant(ptr, DiscriminantElem::Block),
             }
+        }
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// Unsafely assume the given `Elem` has a `.discriminant()` of `Block` and convert it to `Block`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Block`.
-            pub unsafe fn into_Block(mut self) -> BlockConfig {
-                debug_assert_eq!(self.discriminant(), DiscriminantElem::Block);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Block`.
+    pub unsafe fn into_Block(mut self) -> BlockConfig {
+        debug_assert_eq!(self.discriminant(), DiscriminantElem::Block);
         let payload = {
             let ptr = (self.pointer as usize & !0b11) as *mut UnionElem;
             let mut uninitialized = core::mem::MaybeUninit::uninit();
@@ -1032,27 +990,21 @@ impl Elem {
             core::mem::ManuallyDrop::into_inner(swapped)
         };
 
-        
         payload.f0
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// Unsafely assume the given `Elem` has a `.discriminant()` of `Block` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Block`.
-            pub unsafe fn as_Block(&self) -> &BlockConfig {
-                debug_assert_eq!(self.discriminant(), DiscriminantElem::Block);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Block`.
+    pub unsafe fn as_Block(&self) -> &BlockConfig {
+        debug_assert_eq!(self.discriminant(), DiscriminantElem::Block);
         let payload = {
             let ptr = (self.pointer as usize & !0b11) as *mut UnionElem;
 
             unsafe { &(*ptr).Block }
         };
 
-        
         &payload.f0
     }
 
@@ -1065,35 +1017,28 @@ impl Elem {
     ))]
     /// Construct a tag named `Layout`, with the appropriate payload
     pub fn Layout(arg0: roc_std::RocList<Elem>, arg1: LayoutConfig) -> Self {
-            let size = core::mem::size_of::<UnionElem>();
-            let align = core::mem::align_of::<UnionElem>() as u32;
+        let size = core::mem::size_of::<UnionElem>();
+        let align = core::mem::align_of::<UnionElem>() as u32;
 
-            unsafe {
-                let ptr = roc_std::roc_alloc_refcounted::<UnionElem>();
+        unsafe {
+            let ptr = roc_std::roc_alloc_refcounted::<UnionElem>();
 
-                *ptr = UnionElem {
-                    Layout: core::mem::ManuallyDrop::new(ElemLayout {
-                    f0: arg0,
-                    f1: arg1,
-                })
-                };
+            *ptr = UnionElem {
+                Layout: core::mem::ManuallyDrop::new(ElemLayout { f0: arg0, f1: arg1 }),
+            };
 
-                Self {
-                    pointer: Self::tag_discriminant(ptr, DiscriminantElem::Layout),
-                }
+            Self {
+                pointer: Self::tag_discriminant(ptr, DiscriminantElem::Layout),
             }
+        }
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// Unsafely assume the given `Elem` has a `.discriminant()` of `Layout` and convert it to `Layout`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Layout`.
-            pub unsafe fn into_Layout(mut self) -> (roc_std::RocList<Elem>, LayoutConfig) {
-                debug_assert_eq!(self.discriminant(), DiscriminantElem::Layout);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Layout`.
+    pub unsafe fn into_Layout(mut self) -> (roc_std::RocList<Elem>, LayoutConfig) {
+        debug_assert_eq!(self.discriminant(), DiscriminantElem::Layout);
         let payload = {
             let ptr = (self.pointer as usize & !0b11) as *mut UnionElem;
             let mut uninitialized = core::mem::MaybeUninit::uninit();
@@ -1109,32 +1054,22 @@ impl Elem {
             core::mem::ManuallyDrop::into_inner(swapped)
         };
 
-        (
-            payload.f0, 
-            payload.f1
-        )
+        (payload.f0, payload.f1)
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// Unsafely assume the given `Elem` has a `.discriminant()` of `Layout` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Layout`.
-            pub unsafe fn as_Layout(&self) -> (&roc_std::RocList<Elem>, &LayoutConfig) {
-                debug_assert_eq!(self.discriminant(), DiscriminantElem::Layout);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Layout`.
+    pub unsafe fn as_Layout(&self) -> (&roc_std::RocList<Elem>, &LayoutConfig) {
+        debug_assert_eq!(self.discriminant(), DiscriminantElem::Layout);
         let payload = {
             let ptr = (self.pointer as usize & !0b11) as *mut UnionElem;
 
             unsafe { &(*ptr).Layout }
         };
 
-        (
-            &payload.f0, 
-            &payload.f1
-        )
+        (&payload.f0, &payload.f1)
     }
 
     #[cfg(any(
@@ -1146,34 +1081,28 @@ impl Elem {
     ))]
     /// Construct a tag named `ListItems`, with the appropriate payload
     pub fn ListItems(arg0: ListConfig) -> Self {
-            let size = core::mem::size_of::<UnionElem>();
-            let align = core::mem::align_of::<UnionElem>() as u32;
+        let size = core::mem::size_of::<UnionElem>();
+        let align = core::mem::align_of::<UnionElem>() as u32;
 
-            unsafe {
-                let ptr = roc_std::roc_alloc_refcounted::<UnionElem>();
+        unsafe {
+            let ptr = roc_std::roc_alloc_refcounted::<UnionElem>();
 
-                *ptr = UnionElem {
-                    ListItems: core::mem::ManuallyDrop::new(ElemListItems {
-                    f0: arg0,
-                })
-                };
+            *ptr = UnionElem {
+                ListItems: core::mem::ManuallyDrop::new(ElemListItems { f0: arg0 }),
+            };
 
-                Self {
-                    pointer: Self::tag_discriminant(ptr, DiscriminantElem::ListItems),
-                }
+            Self {
+                pointer: Self::tag_discriminant(ptr, DiscriminantElem::ListItems),
             }
+        }
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// Unsafely assume the given `Elem` has a `.discriminant()` of `ListItems` and convert it to `ListItems`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `ListItems`.
-            pub unsafe fn into_ListItems(mut self) -> ListConfig {
-                debug_assert_eq!(self.discriminant(), DiscriminantElem::ListItems);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `ListItems`.
+    pub unsafe fn into_ListItems(mut self) -> ListConfig {
+        debug_assert_eq!(self.discriminant(), DiscriminantElem::ListItems);
         let payload = {
             let ptr = (self.pointer as usize & !0b11) as *mut UnionElem;
             let mut uninitialized = core::mem::MaybeUninit::uninit();
@@ -1189,27 +1118,21 @@ impl Elem {
             core::mem::ManuallyDrop::into_inner(swapped)
         };
 
-        
         payload.f0
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// Unsafely assume the given `Elem` has a `.discriminant()` of `ListItems` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `ListItems`.
-            pub unsafe fn as_ListItems(&self) -> &ListConfig {
-                debug_assert_eq!(self.discriminant(), DiscriminantElem::ListItems);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `ListItems`.
+    pub unsafe fn as_ListItems(&self) -> &ListConfig {
+        debug_assert_eq!(self.discriminant(), DiscriminantElem::ListItems);
         let payload = {
             let ptr = (self.pointer as usize & !0b11) as *mut UnionElem;
 
             unsafe { &(*ptr).ListItems }
         };
 
-        
         &payload.f0
     }
 
@@ -1222,34 +1145,28 @@ impl Elem {
     ))]
     /// Construct a tag named `Paragraph`, with the appropriate payload
     pub fn Paragraph(arg0: ParagraphConfig) -> Self {
-            let size = core::mem::size_of::<UnionElem>();
-            let align = core::mem::align_of::<UnionElem>() as u32;
+        let size = core::mem::size_of::<UnionElem>();
+        let align = core::mem::align_of::<UnionElem>() as u32;
 
-            unsafe {
-                let ptr = roc_std::roc_alloc_refcounted::<UnionElem>();
+        unsafe {
+            let ptr = roc_std::roc_alloc_refcounted::<UnionElem>();
 
-                *ptr = UnionElem {
-                    Paragraph: core::mem::ManuallyDrop::new(ElemParagraph {
-                    f0: arg0,
-                })
-                };
+            *ptr = UnionElem {
+                Paragraph: core::mem::ManuallyDrop::new(ElemParagraph { f0: arg0 }),
+            };
 
-                Self {
-                    pointer: Self::tag_discriminant(ptr, DiscriminantElem::Paragraph),
-                }
+            Self {
+                pointer: Self::tag_discriminant(ptr, DiscriminantElem::Paragraph),
             }
+        }
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// Unsafely assume the given `Elem` has a `.discriminant()` of `Paragraph` and convert it to `Paragraph`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Paragraph`.
-            pub unsafe fn into_Paragraph(mut self) -> ParagraphConfig {
-                debug_assert_eq!(self.discriminant(), DiscriminantElem::Paragraph);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Paragraph`.
+    pub unsafe fn into_Paragraph(mut self) -> ParagraphConfig {
+        debug_assert_eq!(self.discriminant(), DiscriminantElem::Paragraph);
         let payload = {
             let ptr = (self.pointer as usize & !0b11) as *mut UnionElem;
             let mut uninitialized = core::mem::MaybeUninit::uninit();
@@ -1265,44 +1182,32 @@ impl Elem {
             core::mem::ManuallyDrop::into_inner(swapped)
         };
 
-        
         payload.f0
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// Unsafely assume the given `Elem` has a `.discriminant()` of `Paragraph` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Paragraph`.
-            pub unsafe fn as_Paragraph(&self) -> &ParagraphConfig {
-                debug_assert_eq!(self.discriminant(), DiscriminantElem::Paragraph);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Paragraph`.
+    pub unsafe fn as_Paragraph(&self) -> &ParagraphConfig {
+        debug_assert_eq!(self.discriminant(), DiscriminantElem::Paragraph);
         let payload = {
             let ptr = (self.pointer as usize & !0b11) as *mut UnionElem;
 
             unsafe { &(*ptr).Paragraph }
         };
 
-        
         &payload.f0
     }
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// Returns which variant this tag union holds. Note that this never includes a payload!
     pub fn discriminant(&self) -> DiscriminantElem {
         // The discriminant is stored in the unused bytes at the end of the recursive pointer
         unsafe { core::mem::transmute::<u8, DiscriminantElem>((self.pointer as u8) & 0b111) }
     }
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// Internal helper
     fn tag_discriminant(pointer: *mut UnionElem, discriminant: DiscriminantElem) -> *mut UnionElem {
         // The discriminant is stored in the unused bytes at the end of the union pointer
@@ -1312,25 +1217,19 @@ impl Elem {
         tagged as *mut UnionElem
     }
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// Internal helper
     fn union_pointer(&self) -> *mut UnionElem {
         // The discriminant is stored in the unused bytes at the end of the union pointer
         ((self.pointer as usize) & (!0b111 as usize)) as *mut UnionElem
     }
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// Unsafely assume the given `Elem` has a `.discriminant()` of `Block` and convert it to `Block`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Block`.
-            pub unsafe fn into_Block(mut self) -> BlockConfig {
-                debug_assert_eq!(self.discriminant(), DiscriminantElem::Block);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Block`.
+    pub unsafe fn into_Block(mut self) -> BlockConfig {
+        debug_assert_eq!(self.discriminant(), DiscriminantElem::Block);
         let payload = {
             let ptr = (self.pointer as usize & !0b111) as *mut UnionElem;
             let mut uninitialized = core::mem::MaybeUninit::uninit();
@@ -1346,38 +1245,30 @@ impl Elem {
             core::mem::ManuallyDrop::into_inner(swapped)
         };
 
-        
         payload.f0
     }
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// Unsafely assume the given `Elem` has a `.discriminant()` of `Block` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Block`.
-            pub unsafe fn as_Block(&self) -> &BlockConfig {
-                debug_assert_eq!(self.discriminant(), DiscriminantElem::Block);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Block`.
+    pub unsafe fn as_Block(&self) -> &BlockConfig {
+        debug_assert_eq!(self.discriminant(), DiscriminantElem::Block);
         let payload = {
             let ptr = (self.pointer as usize & !0b111) as *mut UnionElem;
 
             unsafe { &(*ptr).Block }
         };
 
-        
         &payload.f0
     }
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// Unsafely assume the given `Elem` has a `.discriminant()` of `Layout` and convert it to `Layout`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Layout`.
-            pub unsafe fn into_Layout(mut self) -> (roc_std::RocList<Elem>, LayoutConfig) {
-                debug_assert_eq!(self.discriminant(), DiscriminantElem::Layout);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Layout`.
+    pub unsafe fn into_Layout(mut self) -> (roc_std::RocList<Elem>, LayoutConfig) {
+        debug_assert_eq!(self.discriminant(), DiscriminantElem::Layout);
         let payload = {
             let ptr = (self.pointer as usize & !0b111) as *mut UnionElem;
             let mut uninitialized = core::mem::MaybeUninit::uninit();
@@ -1393,42 +1284,30 @@ impl Elem {
             core::mem::ManuallyDrop::into_inner(swapped)
         };
 
-        (
-            payload.f0, 
-            payload.f1
-        )
+        (payload.f0, payload.f1)
     }
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// Unsafely assume the given `Elem` has a `.discriminant()` of `Layout` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Layout`.
-            pub unsafe fn as_Layout(&self) -> (&roc_std::RocList<Elem>, &LayoutConfig) {
-                debug_assert_eq!(self.discriminant(), DiscriminantElem::Layout);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Layout`.
+    pub unsafe fn as_Layout(&self) -> (&roc_std::RocList<Elem>, &LayoutConfig) {
+        debug_assert_eq!(self.discriminant(), DiscriminantElem::Layout);
         let payload = {
             let ptr = (self.pointer as usize & !0b111) as *mut UnionElem;
 
             unsafe { &(*ptr).Layout }
         };
 
-        (
-            &payload.f0, 
-            &payload.f1
-        )
+        (&payload.f0, &payload.f1)
     }
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// Unsafely assume the given `Elem` has a `.discriminant()` of `ListItems` and convert it to `ListItems`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `ListItems`.
-            pub unsafe fn into_ListItems(mut self) -> ListConfig {
-                debug_assert_eq!(self.discriminant(), DiscriminantElem::ListItems);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `ListItems`.
+    pub unsafe fn into_ListItems(mut self) -> ListConfig {
+        debug_assert_eq!(self.discriminant(), DiscriminantElem::ListItems);
         let payload = {
             let ptr = (self.pointer as usize & !0b111) as *mut UnionElem;
             let mut uninitialized = core::mem::MaybeUninit::uninit();
@@ -1444,38 +1323,30 @@ impl Elem {
             core::mem::ManuallyDrop::into_inner(swapped)
         };
 
-        
         payload.f0
     }
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// Unsafely assume the given `Elem` has a `.discriminant()` of `ListItems` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `ListItems`.
-            pub unsafe fn as_ListItems(&self) -> &ListConfig {
-                debug_assert_eq!(self.discriminant(), DiscriminantElem::ListItems);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `ListItems`.
+    pub unsafe fn as_ListItems(&self) -> &ListConfig {
+        debug_assert_eq!(self.discriminant(), DiscriminantElem::ListItems);
         let payload = {
             let ptr = (self.pointer as usize & !0b111) as *mut UnionElem;
 
             unsafe { &(*ptr).ListItems }
         };
 
-        
         &payload.f0
     }
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// Unsafely assume the given `Elem` has a `.discriminant()` of `Paragraph` and convert it to `Paragraph`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Paragraph`.
-            pub unsafe fn into_Paragraph(mut self) -> ParagraphConfig {
-                debug_assert_eq!(self.discriminant(), DiscriminantElem::Paragraph);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Paragraph`.
+    pub unsafe fn into_Paragraph(mut self) -> ParagraphConfig {
+        debug_assert_eq!(self.discriminant(), DiscriminantElem::Paragraph);
         let payload = {
             let ptr = (self.pointer as usize & !0b111) as *mut UnionElem;
             let mut uninitialized = core::mem::MaybeUninit::uninit();
@@ -1491,26 +1362,21 @@ impl Elem {
             core::mem::ManuallyDrop::into_inner(swapped)
         };
 
-        
         payload.f0
     }
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// Unsafely assume the given `Elem` has a `.discriminant()` of `Paragraph` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Paragraph`.
-            pub unsafe fn as_Paragraph(&self) -> &ParagraphConfig {
-                debug_assert_eq!(self.discriminant(), DiscriminantElem::Paragraph);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Paragraph`.
+    pub unsafe fn as_Paragraph(&self) -> &ParagraphConfig {
+        debug_assert_eq!(self.discriminant(), DiscriminantElem::Paragraph);
         let payload = {
             let ptr = (self.pointer as usize & !0b111) as *mut UnionElem;
 
             unsafe { &(*ptr).Paragraph }
         };
 
-        
         &payload.f0
     }
 }
@@ -1533,18 +1399,28 @@ impl Drop for Elem {
 
             if needs_dealloc {
                 // Drop the payload first.
-                            match self.discriminant() {
-                DiscriminantElem::Block => unsafe { core::mem::ManuallyDrop::drop(&mut (&mut *self.union_pointer()).Block) },
-                DiscriminantElem::Layout => unsafe { core::mem::ManuallyDrop::drop(&mut (&mut *self.union_pointer()).Layout) },
-                DiscriminantElem::ListItems => unsafe { core::mem::ManuallyDrop::drop(&mut (&mut *self.union_pointer()).ListItems) },
-                DiscriminantElem::Paragraph => unsafe { core::mem::ManuallyDrop::drop(&mut (&mut *self.union_pointer()).Paragraph) },
-            }
-
+                match self.discriminant() {
+                    DiscriminantElem::Block => unsafe {
+                        core::mem::ManuallyDrop::drop(&mut (&mut *self.union_pointer()).Block)
+                    },
+                    DiscriminantElem::Layout => unsafe {
+                        core::mem::ManuallyDrop::drop(&mut (&mut *self.union_pointer()).Layout)
+                    },
+                    DiscriminantElem::ListItems => unsafe {
+                        core::mem::ManuallyDrop::drop(&mut (&mut *self.union_pointer()).ListItems)
+                    },
+                    DiscriminantElem::Paragraph => unsafe {
+                        core::mem::ManuallyDrop::drop(&mut (&mut *self.union_pointer()).Paragraph)
+                    },
+                }
 
                 // Dealloc the pointer
-                let alignment = core::mem::align_of::<Self>().max(core::mem::align_of::<roc_std::Storage>());
+                let alignment =
+                    core::mem::align_of::<Self>().max(core::mem::align_of::<roc_std::Storage>());
 
-                unsafe { crate::roc::roc_dealloc(storage.as_ptr().cast(), alignment as u32); }
+                unsafe {
+                    crate::roc::roc_dealloc(storage.as_ptr().cast(), alignment as u32);
+                }
             } else {
                 // Write the storage back.
                 storage.set(new_storage);
@@ -1564,16 +1440,24 @@ impl PartialEq for Elem {
         target_arch = "x86_64"
     ))]
     fn eq(&self, other: &Self) -> bool {
-            if self.discriminant() != other.discriminant() {
-                return false;
-            }
+        if self.discriminant() != other.discriminant() {
+            return false;
+        }
 
-            unsafe {
+        unsafe {
             match self.discriminant() {
-                DiscriminantElem::Block => (&*self.union_pointer()).Block == (&*other.union_pointer()).Block,
-                DiscriminantElem::Layout => (&*self.union_pointer()).Layout == (&*other.union_pointer()).Layout,
-                DiscriminantElem::ListItems => (&*self.union_pointer()).ListItems == (&*other.union_pointer()).ListItems,
-                DiscriminantElem::Paragraph => (&*self.union_pointer()).Paragraph == (&*other.union_pointer()).Paragraph,
+                DiscriminantElem::Block => {
+                    (&*self.union_pointer()).Block == (&*other.union_pointer()).Block
+                }
+                DiscriminantElem::Layout => {
+                    (&*self.union_pointer()).Layout == (&*other.union_pointer()).Layout
+                }
+                DiscriminantElem::ListItems => {
+                    (&*self.union_pointer()).ListItems == (&*other.union_pointer()).ListItems
+                }
+                DiscriminantElem::Paragraph => {
+                    (&*self.union_pointer()).Paragraph == (&*other.union_pointer()).Paragraph
+                }
             }
         }
     }
@@ -1595,10 +1479,18 @@ impl PartialOrd for Elem {
 
         unsafe {
             match self.discriminant() {
-                DiscriminantElem::Block => (&*self.union_pointer()).Block.partial_cmp(&(&*other.union_pointer()).Block),
-                DiscriminantElem::Layout => (&*self.union_pointer()).Layout.partial_cmp(&(&*other.union_pointer()).Layout),
-                DiscriminantElem::ListItems => (&*self.union_pointer()).ListItems.partial_cmp(&(&*other.union_pointer()).ListItems),
-                DiscriminantElem::Paragraph => (&*self.union_pointer()).Paragraph.partial_cmp(&(&*other.union_pointer()).Paragraph),
+                DiscriminantElem::Block => (&*self.union_pointer())
+                    .Block
+                    .partial_cmp(&(&*other.union_pointer()).Block),
+                DiscriminantElem::Layout => (&*self.union_pointer())
+                    .Layout
+                    .partial_cmp(&(&*other.union_pointer()).Layout),
+                DiscriminantElem::ListItems => (&*self.union_pointer())
+                    .ListItems
+                    .partial_cmp(&(&*other.union_pointer()).ListItems),
+                DiscriminantElem::Paragraph => (&*self.union_pointer())
+                    .Paragraph
+                    .partial_cmp(&(&*other.union_pointer()).Paragraph),
             }
         }
     }
@@ -1613,17 +1505,25 @@ impl Ord for Elem {
         target_arch = "x86_64"
     ))]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-            match self.discriminant().cmp(&other.discriminant()) {
-                core::cmp::Ordering::Equal => {}
-                not_eq => return not_eq,
-            }
+        match self.discriminant().cmp(&other.discriminant()) {
+            core::cmp::Ordering::Equal => {}
+            not_eq => return not_eq,
+        }
 
-            unsafe {
+        unsafe {
             match self.discriminant() {
-                DiscriminantElem::Block => (&*self.union_pointer()).Block.cmp(&(&*other.union_pointer()).Block),
-                DiscriminantElem::Layout => (&*self.union_pointer()).Layout.cmp(&(&*other.union_pointer()).Layout),
-                DiscriminantElem::ListItems => (&*self.union_pointer()).ListItems.cmp(&(&*other.union_pointer()).ListItems),
-                DiscriminantElem::Paragraph => (&*self.union_pointer()).Paragraph.cmp(&(&*other.union_pointer()).Paragraph),
+                DiscriminantElem::Block => (&*self.union_pointer())
+                    .Block
+                    .cmp(&(&*other.union_pointer()).Block),
+                DiscriminantElem::Layout => (&*self.union_pointer())
+                    .Layout
+                    .cmp(&(&*other.union_pointer()).Layout),
+                DiscriminantElem::ListItems => (&*self.union_pointer())
+                    .ListItems
+                    .cmp(&(&*other.union_pointer()).ListItems),
+                DiscriminantElem::Paragraph => (&*self.union_pointer())
+                    .Paragraph
+                    .cmp(&(&*other.union_pointer()).Paragraph),
             }
         }
     }
@@ -1647,7 +1547,7 @@ impl Clone for Elem {
         }
 
         Self {
-            pointer: self.pointer
+            pointer: self.pointer,
         }
     }
 }
@@ -1660,23 +1560,24 @@ impl core::hash::Hash for Elem {
         target_arch = "x86",
         target_arch = "x86_64"
     ))]
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {        match self.discriminant() {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        match self.discriminant() {
             DiscriminantElem::Block => unsafe {
-                    DiscriminantElem::Block.hash(state);
-                    (&*self.union_pointer()).Block.hash(state);
-                },
+                DiscriminantElem::Block.hash(state);
+                (&*self.union_pointer()).Block.hash(state);
+            },
             DiscriminantElem::Layout => unsafe {
-                    DiscriminantElem::Layout.hash(state);
-                    (&*self.union_pointer()).Layout.hash(state);
-                },
+                DiscriminantElem::Layout.hash(state);
+                (&*self.union_pointer()).Layout.hash(state);
+            },
             DiscriminantElem::ListItems => unsafe {
-                    DiscriminantElem::ListItems.hash(state);
-                    (&*self.union_pointer()).ListItems.hash(state);
-                },
+                DiscriminantElem::ListItems.hash(state);
+                (&*self.union_pointer()).ListItems.hash(state);
+            },
             DiscriminantElem::Paragraph => unsafe {
-                    DiscriminantElem::Paragraph.hash(state);
-                    (&*self.union_pointer()).Paragraph.hash(state);
-                },
+                DiscriminantElem::Paragraph.hash(state);
+                (&*self.union_pointer()).Paragraph.hash(state);
+            },
         }
     }
 }
@@ -1694,30 +1595,30 @@ impl core::fmt::Debug for Elem {
 
         unsafe {
             match self.discriminant() {
-                DiscriminantElem::Block => f.debug_tuple("Block")
-        .field(&(&*(&*self.union_pointer()).Block).f0)
-        .finish(),
-                DiscriminantElem::Layout => f.debug_tuple("Layout")
-        .field(&(&*(&*self.union_pointer()).Layout).f0)
-.field(&(&*(&*self.union_pointer()).Layout).f1)
-        .finish(),
-                DiscriminantElem::ListItems => f.debug_tuple("ListItems")
-        .field(&(&*(&*self.union_pointer()).ListItems).f0)
-        .finish(),
-                DiscriminantElem::Paragraph => f.debug_tuple("Paragraph")
-        .field(&(&*(&*self.union_pointer()).Paragraph).f0)
-        .finish(),
+                DiscriminantElem::Block => f
+                    .debug_tuple("Block")
+                    .field(&(&*(&*self.union_pointer()).Block).f0)
+                    .finish(),
+                DiscriminantElem::Layout => f
+                    .debug_tuple("Layout")
+                    .field(&(&*(&*self.union_pointer()).Layout).f0)
+                    .field(&(&*(&*self.union_pointer()).Layout).f1)
+                    .finish(),
+                DiscriminantElem::ListItems => f
+                    .debug_tuple("ListItems")
+                    .field(&(&*(&*self.union_pointer()).ListItems).f0)
+                    .finish(),
+                DiscriminantElem::Paragraph => f
+                    .debug_tuple("Paragraph")
+                    .field(&(&*(&*self.union_pointer()).Paragraph).f0)
+                    .finish(),
             }
         }
     }
 }
 
 impl Event {
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// Returns which variant this tag union holds. Note that this never includes a payload!
     pub fn discriminant(&self) -> DiscriminantEvent {
         unsafe {
@@ -1727,11 +1628,7 @@ impl Event {
         }
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// Internal helper
     fn set_discriminant(&mut self, discriminant: DiscriminantEvent) {
         let discriminant_ptr: *mut DiscriminantEvent = (self as *mut Event).cast();
@@ -1741,11 +1638,7 @@ impl Event {
         }
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named FocusGained, which has no payload.
     pub const FocusGained: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<Event>()];
@@ -1781,11 +1674,7 @@ impl Event {
         ()
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named FocusLost, which has no payload.
     pub const FocusLost: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<Event>()];
@@ -1830,13 +1719,13 @@ impl Event {
     ))]
     /// Construct a tag named `KeyPressed`, with the appropriate payload
     pub fn KeyPressed(arg: KeyCode) -> Self {
-            let mut answer = Self {
-                KeyPressed: core::mem::ManuallyDrop::new(arg)
-            };
+        let mut answer = Self {
+            KeyPressed: core::mem::ManuallyDrop::new(arg),
+        };
 
-            answer.set_discriminant(DiscriminantEvent::KeyPressed);
+        answer.set_discriminant(DiscriminantEvent::KeyPressed);
 
-            answer
+        answer
     }
 
     #[cfg(any(
@@ -1847,10 +1736,10 @@ impl Event {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `Event` has a `.discriminant()` of `KeyPressed` and convert it to `KeyPressed`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `KeyPressed`.
-            pub unsafe fn into_KeyPressed(mut self) -> KeyCode {
-                debug_assert_eq!(self.discriminant(), DiscriminantEvent::KeyPressed);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `KeyPressed`.
+    pub unsafe fn into_KeyPressed(mut self) -> KeyCode {
+        debug_assert_eq!(self.discriminant(), DiscriminantEvent::KeyPressed);
         let payload = {
             let mut uninitialized = core::mem::MaybeUninit::uninit();
             let swapped = unsafe {
@@ -1876,10 +1765,10 @@ impl Event {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `Event` has a `.discriminant()` of `KeyPressed` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `KeyPressed`.
-            pub unsafe fn as_KeyPressed(&self) -> &KeyCode {
-                debug_assert_eq!(self.discriminant(), DiscriminantEvent::KeyPressed);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `KeyPressed`.
+    pub unsafe fn as_KeyPressed(&self) -> &KeyCode {
+        debug_assert_eq!(self.discriminant(), DiscriminantEvent::KeyPressed);
         let payload = &self.KeyPressed;
 
         &payload
@@ -1894,13 +1783,13 @@ impl Event {
     ))]
     /// Construct a tag named `Paste`, with the appropriate payload
     pub fn Paste(arg: roc_std::RocStr) -> Self {
-            let mut answer = Self {
-                Paste: core::mem::ManuallyDrop::new(arg)
-            };
+        let mut answer = Self {
+            Paste: core::mem::ManuallyDrop::new(arg),
+        };
 
-            answer.set_discriminant(DiscriminantEvent::Paste);
+        answer.set_discriminant(DiscriminantEvent::Paste);
 
-            answer
+        answer
     }
 
     #[cfg(any(
@@ -1911,10 +1800,10 @@ impl Event {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `Event` has a `.discriminant()` of `Paste` and convert it to `Paste`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Paste`.
-            pub unsafe fn into_Paste(mut self) -> roc_std::RocStr {
-                debug_assert_eq!(self.discriminant(), DiscriminantEvent::Paste);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Paste`.
+    pub unsafe fn into_Paste(mut self) -> roc_std::RocStr {
+        debug_assert_eq!(self.discriminant(), DiscriminantEvent::Paste);
         let payload = {
             let mut uninitialized = core::mem::MaybeUninit::uninit();
             let swapped = unsafe {
@@ -1940,10 +1829,10 @@ impl Event {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `Event` has a `.discriminant()` of `Paste` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Paste`.
-            pub unsafe fn as_Paste(&self) -> &roc_std::RocStr {
-                debug_assert_eq!(self.discriminant(), DiscriminantEvent::Paste);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Paste`.
+    pub unsafe fn as_Paste(&self) -> &roc_std::RocStr {
+        debug_assert_eq!(self.discriminant(), DiscriminantEvent::Paste);
         let payload = &self.Paste;
 
         &payload
@@ -1958,13 +1847,11 @@ impl Event {
     ))]
     /// Construct a tag named `Resize`, with the appropriate payload
     pub fn Resize(arg0: Bounds) -> Self {
-            let mut answer = Self {
-                Resize: arg0
-            };
+        let mut answer = Self { Resize: arg0 };
 
-            answer.set_discriminant(DiscriminantEvent::Resize);
+        answer.set_discriminant(DiscriminantEvent::Resize);
 
-            answer
+        answer
     }
 
     #[cfg(any(
@@ -1975,13 +1862,12 @@ impl Event {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `Event` has a `.discriminant()` of `Resize` and convert it to `Resize`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Resize`.
-            pub unsafe fn into_Resize(self) -> Bounds {
-                debug_assert_eq!(self.discriminant(), DiscriminantEvent::Resize);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Resize`.
+    pub unsafe fn into_Resize(self) -> Bounds {
+        debug_assert_eq!(self.discriminant(), DiscriminantEvent::Resize);
         let payload = self.Resize;
 
-        
         payload
     }
 
@@ -1993,20 +1879,16 @@ impl Event {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `Event` has a `.discriminant()` of `Resize` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Resize`.
-            pub unsafe fn as_Resize(&self) -> &Bounds {
-                debug_assert_eq!(self.discriminant(), DiscriminantEvent::Resize);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Resize`.
+    pub unsafe fn as_Resize(&self) -> &Bounds {
+        debug_assert_eq!(self.discriminant(), DiscriminantEvent::Resize);
         let payload = &self.Resize;
 
-        
         payload
     }
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// Returns which variant this tag union holds. Note that this never includes a payload!
     pub fn discriminant(&self) -> DiscriminantEvent {
         unsafe {
@@ -2016,10 +1898,7 @@ impl Event {
         }
     }
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// Internal helper
     fn set_discriminant(&mut self, discriminant: DiscriminantEvent) {
         let discriminant_ptr: *mut DiscriminantEvent = (self as *mut Event).cast();
@@ -2029,10 +1908,7 @@ impl Event {
         }
     }
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named FocusGained, which has no payload.
     pub const FocusGained: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<Event>()];
@@ -2042,10 +1918,7 @@ impl Event {
         core::mem::transmute::<[u8; core::mem::size_of::<Event>()], Event>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named FocusLost, which has no payload.
     pub const FocusLost: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<Event>()];
@@ -2066,14 +1939,15 @@ impl Drop for Event {
     ))]
     fn drop(&mut self) {
         // Drop the payloads
-                    match self.discriminant() {
-                DiscriminantEvent::FocusGained => {}
-                DiscriminantEvent::FocusLost => {}
-                DiscriminantEvent::KeyPressed => unsafe { core::mem::ManuallyDrop::drop(&mut self.KeyPressed) },
-                DiscriminantEvent::Paste => unsafe { core::mem::ManuallyDrop::drop(&mut self.Paste) },
-                DiscriminantEvent::Resize => {}
-            }
-
+        match self.discriminant() {
+            DiscriminantEvent::FocusGained => {}
+            DiscriminantEvent::FocusLost => {}
+            DiscriminantEvent::KeyPressed => unsafe {
+                core::mem::ManuallyDrop::drop(&mut self.KeyPressed)
+            },
+            DiscriminantEvent::Paste => unsafe { core::mem::ManuallyDrop::drop(&mut self.Paste) },
+            DiscriminantEvent::Resize => {}
+        }
     }
 }
 
@@ -2088,11 +1962,11 @@ impl PartialEq for Event {
         target_arch = "x86_64"
     ))]
     fn eq(&self, other: &Self) -> bool {
-            if self.discriminant() != other.discriminant() {
-                return false;
-            }
+        if self.discriminant() != other.discriminant() {
+            return false;
+        }
 
-            unsafe {
+        unsafe {
             match self.discriminant() {
                 DiscriminantEvent::FocusGained => true,
                 DiscriminantEvent::FocusLost => true,
@@ -2139,12 +2013,12 @@ impl Ord for Event {
         target_arch = "x86_64"
     ))]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-            match self.discriminant().cmp(&other.discriminant()) {
-                core::cmp::Ordering::Equal => {}
-                not_eq => return not_eq,
-            }
+        match self.discriminant().cmp(&other.discriminant()) {
+            core::cmp::Ordering::Equal => {}
+            not_eq => return not_eq,
+        }
 
-            unsafe {
+        unsafe {
             match self.discriminant() {
                 DiscriminantEvent::FocusGained => core::cmp::Ordering::Equal,
                 DiscriminantEvent::FocusLost => core::cmp::Ordering::Equal,
@@ -2167,10 +2041,11 @@ impl Clone for Event {
     fn clone(&self) -> Self {
         let mut answer = unsafe {
             match self.discriminant() {
-                DiscriminantEvent::FocusGained => core::mem::transmute::<
-                    core::mem::MaybeUninit<Event>,
-                    Event,
-                >(core::mem::MaybeUninit::uninit()),
+                DiscriminantEvent::FocusGained => {
+                    core::mem::transmute::<core::mem::MaybeUninit<Event>, Event>(
+                        core::mem::MaybeUninit::uninit(),
+                    )
+                }
                 DiscriminantEvent::FocusLost => core::mem::transmute::<
                     core::mem::MaybeUninit<Event>,
                     Event,
@@ -2185,7 +2060,6 @@ impl Clone for Event {
                     Resize: self.Resize.clone(),
                 },
             }
-
         };
 
         answer.set_discriminant(self.discriminant());
@@ -2202,21 +2076,22 @@ impl core::hash::Hash for Event {
         target_arch = "x86",
         target_arch = "x86_64"
     ))]
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {        match self.discriminant() {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        match self.discriminant() {
             DiscriminantEvent::FocusGained => DiscriminantEvent::FocusGained.hash(state),
             DiscriminantEvent::FocusLost => DiscriminantEvent::FocusLost.hash(state),
             DiscriminantEvent::KeyPressed => unsafe {
-                    DiscriminantEvent::KeyPressed.hash(state);
-                    self.KeyPressed.hash(state);
-                },
+                DiscriminantEvent::KeyPressed.hash(state);
+                self.KeyPressed.hash(state);
+            },
             DiscriminantEvent::Paste => unsafe {
-                    DiscriminantEvent::Paste.hash(state);
-                    self.Paste.hash(state);
-                },
+                DiscriminantEvent::Paste.hash(state);
+                self.Paste.hash(state);
+            },
             DiscriminantEvent::Resize => unsafe {
-                    DiscriminantEvent::Resize.hash(state);
-                    self.Resize.hash(state);
-                },
+                DiscriminantEvent::Resize.hash(state);
+                self.Resize.hash(state);
+            },
         }
     }
 }
@@ -2236,15 +2111,12 @@ impl core::fmt::Debug for Event {
             match self.discriminant() {
                 DiscriminantEvent::FocusGained => f.write_str("FocusGained"),
                 DiscriminantEvent::FocusLost => f.write_str("FocusLost"),
-                DiscriminantEvent::KeyPressed => f.debug_tuple("KeyPressed")
-        .field(&*self.KeyPressed)
-        .finish(),
-                DiscriminantEvent::Paste => f.debug_tuple("Paste")
-        .field(&*self.Paste)
-        .finish(),
-                DiscriminantEvent::Resize => f.debug_tuple("Resize")
-        .field(&self.Resize)
-        .finish(),
+                DiscriminantEvent::KeyPressed => f
+                    .debug_tuple("KeyPressed")
+                    .field(&*self.KeyPressed)
+                    .finish(),
+                DiscriminantEvent::Paste => f.debug_tuple("Paste").field(&*self.Paste).finish(),
+                DiscriminantEvent::Resize => f.debug_tuple("Resize").field(&self.Resize).finish(),
             }
         }
     }
@@ -2292,13 +2164,11 @@ impl Constraint {
     ))]
     /// Construct a tag named `Length`, with the appropriate payload
     pub fn Length(arg: u16) -> Self {
-            let mut answer = Self {
-                Length: arg
-            };
+        let mut answer = Self { Length: arg };
 
-            answer.set_discriminant(DiscriminantConstraint::Length);
+        answer.set_discriminant(DiscriminantConstraint::Length);
 
-            answer
+        answer
     }
 
     #[cfg(any(
@@ -2309,10 +2179,10 @@ impl Constraint {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `Constraint` has a `.discriminant()` of `Length` and convert it to `Length`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Length`.
-            pub unsafe fn into_Length(self) -> u16 {
-                debug_assert_eq!(self.discriminant(), DiscriminantConstraint::Length);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Length`.
+    pub unsafe fn into_Length(self) -> u16 {
+        debug_assert_eq!(self.discriminant(), DiscriminantConstraint::Length);
         let payload = self.Length;
 
         payload
@@ -2326,10 +2196,10 @@ impl Constraint {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `Constraint` has a `.discriminant()` of `Length` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Length`.
-            pub unsafe fn as_Length(&self) -> &u16 {
-                debug_assert_eq!(self.discriminant(), DiscriminantConstraint::Length);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Length`.
+    pub unsafe fn as_Length(&self) -> &u16 {
+        debug_assert_eq!(self.discriminant(), DiscriminantConstraint::Length);
         let payload = &self.Length;
 
         &payload
@@ -2344,13 +2214,11 @@ impl Constraint {
     ))]
     /// Construct a tag named `Max`, with the appropriate payload
     pub fn Max(arg: u16) -> Self {
-            let mut answer = Self {
-                Max: arg
-            };
+        let mut answer = Self { Max: arg };
 
-            answer.set_discriminant(DiscriminantConstraint::Max);
+        answer.set_discriminant(DiscriminantConstraint::Max);
 
-            answer
+        answer
     }
 
     #[cfg(any(
@@ -2361,10 +2229,10 @@ impl Constraint {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `Constraint` has a `.discriminant()` of `Max` and convert it to `Max`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Max`.
-            pub unsafe fn into_Max(self) -> u16 {
-                debug_assert_eq!(self.discriminant(), DiscriminantConstraint::Max);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Max`.
+    pub unsafe fn into_Max(self) -> u16 {
+        debug_assert_eq!(self.discriminant(), DiscriminantConstraint::Max);
         let payload = self.Max;
 
         payload
@@ -2378,10 +2246,10 @@ impl Constraint {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `Constraint` has a `.discriminant()` of `Max` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Max`.
-            pub unsafe fn as_Max(&self) -> &u16 {
-                debug_assert_eq!(self.discriminant(), DiscriminantConstraint::Max);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Max`.
+    pub unsafe fn as_Max(&self) -> &u16 {
+        debug_assert_eq!(self.discriminant(), DiscriminantConstraint::Max);
         let payload = &self.Max;
 
         &payload
@@ -2396,13 +2264,11 @@ impl Constraint {
     ))]
     /// Construct a tag named `Min`, with the appropriate payload
     pub fn Min(arg: u16) -> Self {
-            let mut answer = Self {
-                Min: arg
-            };
+        let mut answer = Self { Min: arg };
 
-            answer.set_discriminant(DiscriminantConstraint::Min);
+        answer.set_discriminant(DiscriminantConstraint::Min);
 
-            answer
+        answer
     }
 
     #[cfg(any(
@@ -2413,10 +2279,10 @@ impl Constraint {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `Constraint` has a `.discriminant()` of `Min` and convert it to `Min`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Min`.
-            pub unsafe fn into_Min(self) -> u16 {
-                debug_assert_eq!(self.discriminant(), DiscriminantConstraint::Min);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Min`.
+    pub unsafe fn into_Min(self) -> u16 {
+        debug_assert_eq!(self.discriminant(), DiscriminantConstraint::Min);
         let payload = self.Min;
 
         payload
@@ -2430,10 +2296,10 @@ impl Constraint {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `Constraint` has a `.discriminant()` of `Min` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Min`.
-            pub unsafe fn as_Min(&self) -> &u16 {
-                debug_assert_eq!(self.discriminant(), DiscriminantConstraint::Min);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Min`.
+    pub unsafe fn as_Min(&self) -> &u16 {
+        debug_assert_eq!(self.discriminant(), DiscriminantConstraint::Min);
         let payload = &self.Min;
 
         &payload
@@ -2448,13 +2314,11 @@ impl Constraint {
     ))]
     /// Construct a tag named `Percentage`, with the appropriate payload
     pub fn Percentage(arg: u16) -> Self {
-            let mut answer = Self {
-                Percentage: arg
-            };
+        let mut answer = Self { Percentage: arg };
 
-            answer.set_discriminant(DiscriminantConstraint::Percentage);
+        answer.set_discriminant(DiscriminantConstraint::Percentage);
 
-            answer
+        answer
     }
 
     #[cfg(any(
@@ -2465,10 +2329,10 @@ impl Constraint {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `Constraint` has a `.discriminant()` of `Percentage` and convert it to `Percentage`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Percentage`.
-            pub unsafe fn into_Percentage(self) -> u16 {
-                debug_assert_eq!(self.discriminant(), DiscriminantConstraint::Percentage);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Percentage`.
+    pub unsafe fn into_Percentage(self) -> u16 {
+        debug_assert_eq!(self.discriminant(), DiscriminantConstraint::Percentage);
         let payload = self.Percentage;
 
         payload
@@ -2482,10 +2346,10 @@ impl Constraint {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `Constraint` has a `.discriminant()` of `Percentage` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Percentage`.
-            pub unsafe fn as_Percentage(&self) -> &u16 {
-                debug_assert_eq!(self.discriminant(), DiscriminantConstraint::Percentage);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Percentage`.
+    pub unsafe fn as_Percentage(&self) -> &u16 {
+        debug_assert_eq!(self.discriminant(), DiscriminantConstraint::Percentage);
         let payload = &self.Percentage;
 
         &payload
@@ -2500,16 +2364,13 @@ impl Constraint {
     ))]
     /// Construct a tag named `Ratio`, with the appropriate payload
     pub fn Ratio(arg0: u32, arg1: u32) -> Self {
-            let mut answer = Self {
-                Ratio: Constraint_Ratio {
-                    f0: arg0,
-                    f1: arg1,
-                }
-            };
+        let mut answer = Self {
+            Ratio: Constraint_Ratio { f0: arg0, f1: arg1 },
+        };
 
-            answer.set_discriminant(DiscriminantConstraint::Ratio);
+        answer.set_discriminant(DiscriminantConstraint::Ratio);
 
-            answer
+        answer
     }
 
     #[cfg(any(
@@ -2520,16 +2381,13 @@ impl Constraint {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `Constraint` has a `.discriminant()` of `Ratio` and convert it to `Ratio`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Ratio`.
-            pub unsafe fn into_Ratio(self) -> (u32, u32) {
-                debug_assert_eq!(self.discriminant(), DiscriminantConstraint::Ratio);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Ratio`.
+    pub unsafe fn into_Ratio(self) -> (u32, u32) {
+        debug_assert_eq!(self.discriminant(), DiscriminantConstraint::Ratio);
         let payload = self.Ratio;
 
-        (
-            payload.f0, 
-            payload.f1
-        )
+        (payload.f0, payload.f1)
     }
 
     #[cfg(any(
@@ -2540,16 +2398,13 @@ impl Constraint {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `Constraint` has a `.discriminant()` of `Ratio` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Ratio`.
-            pub unsafe fn as_Ratio(&self) -> (&u32, &u32) {
-                debug_assert_eq!(self.discriminant(), DiscriminantConstraint::Ratio);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Ratio`.
+    pub unsafe fn as_Ratio(&self) -> (&u32, &u32) {
+        debug_assert_eq!(self.discriminant(), DiscriminantConstraint::Ratio);
         let payload = &self.Ratio;
 
-        (
-            &payload.f0, 
-            &payload.f1
-        )
+        (&payload.f0, &payload.f1)
     }
 }
 
@@ -2564,11 +2419,11 @@ impl PartialEq for Constraint {
         target_arch = "x86_64"
     ))]
     fn eq(&self, other: &Self) -> bool {
-            if self.discriminant() != other.discriminant() {
-                return false;
-            }
+        if self.discriminant() != other.discriminant() {
+            return false;
+        }
 
-            unsafe {
+        unsafe {
             match self.discriminant() {
                 DiscriminantConstraint::Length => self.Length == other.Length,
                 DiscriminantConstraint::Max => self.Max == other.Max,
@@ -2599,7 +2454,9 @@ impl PartialOrd for Constraint {
                 DiscriminantConstraint::Length => self.Length.partial_cmp(&other.Length),
                 DiscriminantConstraint::Max => self.Max.partial_cmp(&other.Max),
                 DiscriminantConstraint::Min => self.Min.partial_cmp(&other.Min),
-                DiscriminantConstraint::Percentage => self.Percentage.partial_cmp(&other.Percentage),
+                DiscriminantConstraint::Percentage => {
+                    self.Percentage.partial_cmp(&other.Percentage)
+                }
                 DiscriminantConstraint::Ratio => self.Ratio.partial_cmp(&other.Ratio),
             }
         }
@@ -2615,12 +2472,12 @@ impl Ord for Constraint {
         target_arch = "x86_64"
     ))]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-            match self.discriminant().cmp(&other.discriminant()) {
-                core::cmp::Ordering::Equal => {}
-                not_eq => return not_eq,
-            }
+        match self.discriminant().cmp(&other.discriminant()) {
+            core::cmp::Ordering::Equal => {}
+            not_eq => return not_eq,
+        }
 
-            unsafe {
+        unsafe {
             match self.discriminant() {
                 DiscriminantConstraint::Length => self.Length.cmp(&other.Length),
                 DiscriminantConstraint::Max => self.Max.cmp(&other.Max),
@@ -2661,7 +2518,6 @@ impl Clone for Constraint {
                     Ratio: self.Ratio.clone(),
                 },
             }
-
         };
 
         answer.set_discriminant(self.discriminant());
@@ -2678,27 +2534,28 @@ impl core::hash::Hash for Constraint {
         target_arch = "x86",
         target_arch = "x86_64"
     ))]
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {        match self.discriminant() {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        match self.discriminant() {
             DiscriminantConstraint::Length => unsafe {
-                    DiscriminantConstraint::Length.hash(state);
-                    self.Length.hash(state);
-                },
+                DiscriminantConstraint::Length.hash(state);
+                self.Length.hash(state);
+            },
             DiscriminantConstraint::Max => unsafe {
-                    DiscriminantConstraint::Max.hash(state);
-                    self.Max.hash(state);
-                },
+                DiscriminantConstraint::Max.hash(state);
+                self.Max.hash(state);
+            },
             DiscriminantConstraint::Min => unsafe {
-                    DiscriminantConstraint::Min.hash(state);
-                    self.Min.hash(state);
-                },
+                DiscriminantConstraint::Min.hash(state);
+                self.Min.hash(state);
+            },
             DiscriminantConstraint::Percentage => unsafe {
-                    DiscriminantConstraint::Percentage.hash(state);
-                    self.Percentage.hash(state);
-                },
+                DiscriminantConstraint::Percentage.hash(state);
+                self.Percentage.hash(state);
+            },
             DiscriminantConstraint::Ratio => unsafe {
-                    DiscriminantConstraint::Ratio.hash(state);
-                    self.Ratio.hash(state);
-                },
+                DiscriminantConstraint::Ratio.hash(state);
+                self.Ratio.hash(state);
+            },
         }
     }
 }
@@ -2716,33 +2573,26 @@ impl core::fmt::Debug for Constraint {
 
         unsafe {
             match self.discriminant() {
-                DiscriminantConstraint::Length => f.debug_tuple("Length")
-        .field(&self.Length)
-        .finish(),
-                DiscriminantConstraint::Max => f.debug_tuple("Max")
-        .field(&self.Max)
-        .finish(),
-                DiscriminantConstraint::Min => f.debug_tuple("Min")
-        .field(&self.Min)
-        .finish(),
-                DiscriminantConstraint::Percentage => f.debug_tuple("Percentage")
-        .field(&self.Percentage)
-        .finish(),
-                DiscriminantConstraint::Ratio => f.debug_tuple("Ratio")
-        .field(&(&self.Ratio).f0)
-.field(&(&self.Ratio).f1)
-        .finish(),
+                DiscriminantConstraint::Length => {
+                    f.debug_tuple("Length").field(&self.Length).finish()
+                }
+                DiscriminantConstraint::Max => f.debug_tuple("Max").field(&self.Max).finish(),
+                DiscriminantConstraint::Min => f.debug_tuple("Min").field(&self.Min).finish(),
+                DiscriminantConstraint::Percentage => {
+                    f.debug_tuple("Percentage").field(&self.Percentage).finish()
+                }
+                DiscriminantConstraint::Ratio => f
+                    .debug_tuple("Ratio")
+                    .field(&(&self.Ratio).f0)
+                    .field(&(&self.Ratio).f1)
+                    .finish(),
             }
         }
     }
 }
 
 impl KeyCode {
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// Returns which variant this tag union holds. Note that this never includes a payload!
     pub fn discriminant(&self) -> DiscriminantKeyCode {
         unsafe {
@@ -2752,11 +2602,7 @@ impl KeyCode {
         }
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// Internal helper
     fn set_discriminant(&mut self, discriminant: DiscriminantKeyCode) {
         let discriminant_ptr: *mut DiscriminantKeyCode = (self as *mut KeyCode).cast();
@@ -2766,11 +2612,7 @@ impl KeyCode {
         }
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named BackTab, which has no payload.
     pub const BackTab: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -2806,11 +2648,7 @@ impl KeyCode {
         ()
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named Backspace, which has no payload.
     pub const Backspace: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -2846,11 +2684,7 @@ impl KeyCode {
         ()
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named CapsLock, which has no payload.
     pub const CapsLock: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -2886,11 +2720,7 @@ impl KeyCode {
         ()
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named Delete, which has no payload.
     pub const Delete: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -2926,11 +2756,7 @@ impl KeyCode {
         ()
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named Down, which has no payload.
     pub const Down: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -2966,11 +2792,7 @@ impl KeyCode {
         ()
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named End, which has no payload.
     pub const End: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3006,11 +2828,7 @@ impl KeyCode {
         ()
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named Enter, which has no payload.
     pub const Enter: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3046,11 +2864,7 @@ impl KeyCode {
         ()
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named Esc, which has no payload.
     pub const Esc: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3095,13 +2909,11 @@ impl KeyCode {
     ))]
     /// Construct a tag named `Function`, with the appropriate payload
     pub fn Function(arg: u8) -> Self {
-            let mut answer = Self {
-                Function: arg
-            };
+        let mut answer = Self { Function: arg };
 
-            answer.set_discriminant(DiscriminantKeyCode::Function);
+        answer.set_discriminant(DiscriminantKeyCode::Function);
 
-            answer
+        answer
     }
 
     #[cfg(any(
@@ -3112,10 +2924,10 @@ impl KeyCode {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `KeyCode` has a `.discriminant()` of `Function` and convert it to `Function`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Function`.
-            pub unsafe fn into_Function(self) -> u8 {
-                debug_assert_eq!(self.discriminant(), DiscriminantKeyCode::Function);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Function`.
+    pub unsafe fn into_Function(self) -> u8 {
+        debug_assert_eq!(self.discriminant(), DiscriminantKeyCode::Function);
         let payload = self.Function;
 
         payload
@@ -3129,20 +2941,16 @@ impl KeyCode {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `KeyCode` has a `.discriminant()` of `Function` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Function`.
-            pub unsafe fn as_Function(&self) -> &u8 {
-                debug_assert_eq!(self.discriminant(), DiscriminantKeyCode::Function);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Function`.
+    pub unsafe fn as_Function(&self) -> &u8 {
+        debug_assert_eq!(self.discriminant(), DiscriminantKeyCode::Function);
         let payload = &self.Function;
 
         &payload
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named Home, which has no payload.
     pub const Home: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3178,11 +2986,7 @@ impl KeyCode {
         ()
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named Insert, which has no payload.
     pub const Insert: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3218,11 +3022,7 @@ impl KeyCode {
         ()
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named KeypadBegin, which has no payload.
     pub const KeypadBegin: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3258,11 +3058,7 @@ impl KeyCode {
         ()
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named Left, which has no payload.
     pub const Left: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3307,13 +3103,11 @@ impl KeyCode {
     ))]
     /// Construct a tag named `Media`, with the appropriate payload
     pub fn Media(arg: MediaKeyCode) -> Self {
-            let mut answer = Self {
-                Media: arg
-            };
+        let mut answer = Self { Media: arg };
 
-            answer.set_discriminant(DiscriminantKeyCode::Media);
+        answer.set_discriminant(DiscriminantKeyCode::Media);
 
-            answer
+        answer
     }
 
     #[cfg(any(
@@ -3324,10 +3118,10 @@ impl KeyCode {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `KeyCode` has a `.discriminant()` of `Media` and convert it to `Media`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Media`.
-            pub unsafe fn into_Media(self) -> MediaKeyCode {
-                debug_assert_eq!(self.discriminant(), DiscriminantKeyCode::Media);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Media`.
+    pub unsafe fn into_Media(self) -> MediaKeyCode {
+        debug_assert_eq!(self.discriminant(), DiscriminantKeyCode::Media);
         let payload = self.Media;
 
         payload
@@ -3341,20 +3135,16 @@ impl KeyCode {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `KeyCode` has a `.discriminant()` of `Media` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Media`.
-            pub unsafe fn as_Media(&self) -> &MediaKeyCode {
-                debug_assert_eq!(self.discriminant(), DiscriminantKeyCode::Media);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Media`.
+    pub unsafe fn as_Media(&self) -> &MediaKeyCode {
+        debug_assert_eq!(self.discriminant(), DiscriminantKeyCode::Media);
         let payload = &self.Media;
 
         &payload
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named Menu, which has no payload.
     pub const Menu: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3399,13 +3189,11 @@ impl KeyCode {
     ))]
     /// Construct a tag named `Modifier`, with the appropriate payload
     pub fn Modifier(arg: ModifierKeyCode) -> Self {
-            let mut answer = Self {
-                Modifier: arg
-            };
+        let mut answer = Self { Modifier: arg };
 
-            answer.set_discriminant(DiscriminantKeyCode::Modifier);
+        answer.set_discriminant(DiscriminantKeyCode::Modifier);
 
-            answer
+        answer
     }
 
     #[cfg(any(
@@ -3416,10 +3204,10 @@ impl KeyCode {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `KeyCode` has a `.discriminant()` of `Modifier` and convert it to `Modifier`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Modifier`.
-            pub unsafe fn into_Modifier(self) -> ModifierKeyCode {
-                debug_assert_eq!(self.discriminant(), DiscriminantKeyCode::Modifier);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Modifier`.
+    pub unsafe fn into_Modifier(self) -> ModifierKeyCode {
+        debug_assert_eq!(self.discriminant(), DiscriminantKeyCode::Modifier);
         let payload = self.Modifier;
 
         payload
@@ -3433,20 +3221,16 @@ impl KeyCode {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `KeyCode` has a `.discriminant()` of `Modifier` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Modifier`.
-            pub unsafe fn as_Modifier(&self) -> &ModifierKeyCode {
-                debug_assert_eq!(self.discriminant(), DiscriminantKeyCode::Modifier);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Modifier`.
+    pub unsafe fn as_Modifier(&self) -> &ModifierKeyCode {
+        debug_assert_eq!(self.discriminant(), DiscriminantKeyCode::Modifier);
         let payload = &self.Modifier;
 
         &payload
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named Null, which has no payload.
     pub const Null: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3482,11 +3266,7 @@ impl KeyCode {
         ()
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named NumLock, which has no payload.
     pub const NumLock: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3522,11 +3302,7 @@ impl KeyCode {
         ()
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named PageDown, which has no payload.
     pub const PageDown: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3562,11 +3338,7 @@ impl KeyCode {
         ()
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named PageUp, which has no payload.
     pub const PageUp: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3602,11 +3374,7 @@ impl KeyCode {
         ()
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named Pause, which has no payload.
     pub const Pause: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3642,11 +3410,7 @@ impl KeyCode {
         ()
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named PrintScreen, which has no payload.
     pub const PrintScreen: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3682,11 +3446,7 @@ impl KeyCode {
         ()
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named Right, which has no payload.
     pub const Right: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3731,13 +3491,13 @@ impl KeyCode {
     ))]
     /// Construct a tag named `Scalar`, with the appropriate payload
     pub fn Scalar(arg: roc_std::RocStr) -> Self {
-            let mut answer = Self {
-                Scalar: core::mem::ManuallyDrop::new(arg)
-            };
+        let mut answer = Self {
+            Scalar: core::mem::ManuallyDrop::new(arg),
+        };
 
-            answer.set_discriminant(DiscriminantKeyCode::Scalar);
+        answer.set_discriminant(DiscriminantKeyCode::Scalar);
 
-            answer
+        answer
     }
 
     #[cfg(any(
@@ -3748,10 +3508,10 @@ impl KeyCode {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `KeyCode` has a `.discriminant()` of `Scalar` and convert it to `Scalar`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Scalar`.
-            pub unsafe fn into_Scalar(mut self) -> roc_std::RocStr {
-                debug_assert_eq!(self.discriminant(), DiscriminantKeyCode::Scalar);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Scalar`.
+    pub unsafe fn into_Scalar(mut self) -> roc_std::RocStr {
+        debug_assert_eq!(self.discriminant(), DiscriminantKeyCode::Scalar);
         let payload = {
             let mut uninitialized = core::mem::MaybeUninit::uninit();
             let swapped = unsafe {
@@ -3777,20 +3537,16 @@ impl KeyCode {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `KeyCode` has a `.discriminant()` of `Scalar` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Scalar`.
-            pub unsafe fn as_Scalar(&self) -> &roc_std::RocStr {
-                debug_assert_eq!(self.discriminant(), DiscriminantKeyCode::Scalar);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Scalar`.
+    pub unsafe fn as_Scalar(&self) -> &roc_std::RocStr {
+        debug_assert_eq!(self.discriminant(), DiscriminantKeyCode::Scalar);
         let payload = &self.Scalar;
 
         &payload
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named ScrollLock, which has no payload.
     pub const ScrollLock: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3826,11 +3582,7 @@ impl KeyCode {
         ()
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named Tab, which has no payload.
     pub const Tab: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3866,11 +3618,7 @@ impl KeyCode {
         ()
     }
 
-    #[cfg(any(
-        target_arch = "arm",
-        target_arch = "wasm32",
-        target_arch = "x86"
-    ))]
+    #[cfg(any(target_arch = "arm", target_arch = "wasm32", target_arch = "x86"))]
     /// A tag named Up, which has no payload.
     pub const Up: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3906,10 +3654,7 @@ impl KeyCode {
         ()
     }
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// Returns which variant this tag union holds. Note that this never includes a payload!
     pub fn discriminant(&self) -> DiscriminantKeyCode {
         unsafe {
@@ -3919,10 +3664,7 @@ impl KeyCode {
         }
     }
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// Internal helper
     fn set_discriminant(&mut self, discriminant: DiscriminantKeyCode) {
         let discriminant_ptr: *mut DiscriminantKeyCode = (self as *mut KeyCode).cast();
@@ -3932,10 +3674,7 @@ impl KeyCode {
         }
     }
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named BackTab, which has no payload.
     pub const BackTab: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3945,10 +3684,7 @@ impl KeyCode {
         core::mem::transmute::<[u8; core::mem::size_of::<KeyCode>()], KeyCode>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named Backspace, which has no payload.
     pub const Backspace: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3958,10 +3694,7 @@ impl KeyCode {
         core::mem::transmute::<[u8; core::mem::size_of::<KeyCode>()], KeyCode>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named CapsLock, which has no payload.
     pub const CapsLock: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3971,10 +3704,7 @@ impl KeyCode {
         core::mem::transmute::<[u8; core::mem::size_of::<KeyCode>()], KeyCode>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named Delete, which has no payload.
     pub const Delete: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3984,10 +3714,7 @@ impl KeyCode {
         core::mem::transmute::<[u8; core::mem::size_of::<KeyCode>()], KeyCode>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named Down, which has no payload.
     pub const Down: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -3997,10 +3724,7 @@ impl KeyCode {
         core::mem::transmute::<[u8; core::mem::size_of::<KeyCode>()], KeyCode>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named End, which has no payload.
     pub const End: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -4010,10 +3734,7 @@ impl KeyCode {
         core::mem::transmute::<[u8; core::mem::size_of::<KeyCode>()], KeyCode>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named Enter, which has no payload.
     pub const Enter: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -4023,10 +3744,7 @@ impl KeyCode {
         core::mem::transmute::<[u8; core::mem::size_of::<KeyCode>()], KeyCode>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named Esc, which has no payload.
     pub const Esc: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -4036,10 +3754,7 @@ impl KeyCode {
         core::mem::transmute::<[u8; core::mem::size_of::<KeyCode>()], KeyCode>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named Home, which has no payload.
     pub const Home: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -4049,10 +3764,7 @@ impl KeyCode {
         core::mem::transmute::<[u8; core::mem::size_of::<KeyCode>()], KeyCode>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named Insert, which has no payload.
     pub const Insert: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -4062,10 +3774,7 @@ impl KeyCode {
         core::mem::transmute::<[u8; core::mem::size_of::<KeyCode>()], KeyCode>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named KeypadBegin, which has no payload.
     pub const KeypadBegin: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -4075,10 +3784,7 @@ impl KeyCode {
         core::mem::transmute::<[u8; core::mem::size_of::<KeyCode>()], KeyCode>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named Left, which has no payload.
     pub const Left: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -4088,10 +3794,7 @@ impl KeyCode {
         core::mem::transmute::<[u8; core::mem::size_of::<KeyCode>()], KeyCode>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named Menu, which has no payload.
     pub const Menu: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -4101,10 +3804,7 @@ impl KeyCode {
         core::mem::transmute::<[u8; core::mem::size_of::<KeyCode>()], KeyCode>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named Null, which has no payload.
     pub const Null: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -4114,10 +3814,7 @@ impl KeyCode {
         core::mem::transmute::<[u8; core::mem::size_of::<KeyCode>()], KeyCode>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named NumLock, which has no payload.
     pub const NumLock: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -4127,10 +3824,7 @@ impl KeyCode {
         core::mem::transmute::<[u8; core::mem::size_of::<KeyCode>()], KeyCode>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named PageDown, which has no payload.
     pub const PageDown: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -4140,10 +3834,7 @@ impl KeyCode {
         core::mem::transmute::<[u8; core::mem::size_of::<KeyCode>()], KeyCode>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named PageUp, which has no payload.
     pub const PageUp: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -4153,10 +3844,7 @@ impl KeyCode {
         core::mem::transmute::<[u8; core::mem::size_of::<KeyCode>()], KeyCode>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named Pause, which has no payload.
     pub const Pause: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -4166,10 +3854,7 @@ impl KeyCode {
         core::mem::transmute::<[u8; core::mem::size_of::<KeyCode>()], KeyCode>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named PrintScreen, which has no payload.
     pub const PrintScreen: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -4179,10 +3864,7 @@ impl KeyCode {
         core::mem::transmute::<[u8; core::mem::size_of::<KeyCode>()], KeyCode>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named Right, which has no payload.
     pub const Right: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -4192,10 +3874,7 @@ impl KeyCode {
         core::mem::transmute::<[u8; core::mem::size_of::<KeyCode>()], KeyCode>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named ScrollLock, which has no payload.
     pub const ScrollLock: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -4205,10 +3884,7 @@ impl KeyCode {
         core::mem::transmute::<[u8; core::mem::size_of::<KeyCode>()], KeyCode>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named Tab, which has no payload.
     pub const Tab: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -4218,10 +3894,7 @@ impl KeyCode {
         core::mem::transmute::<[u8; core::mem::size_of::<KeyCode>()], KeyCode>(bytes)
     };
 
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "x86_64"
-    ))]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     /// A tag named Up, which has no payload.
     pub const Up: Self = unsafe {
         let mut bytes = [0; core::mem::size_of::<KeyCode>()];
@@ -4242,36 +3915,37 @@ impl Drop for KeyCode {
     ))]
     fn drop(&mut self) {
         // Drop the payloads
-                    match self.discriminant() {
-                DiscriminantKeyCode::BackTab => {}
-                DiscriminantKeyCode::Backspace => {}
-                DiscriminantKeyCode::CapsLock => {}
-                DiscriminantKeyCode::Delete => {}
-                DiscriminantKeyCode::Down => {}
-                DiscriminantKeyCode::End => {}
-                DiscriminantKeyCode::Enter => {}
-                DiscriminantKeyCode::Esc => {}
-                DiscriminantKeyCode::Function => {}
-                DiscriminantKeyCode::Home => {}
-                DiscriminantKeyCode::Insert => {}
-                DiscriminantKeyCode::KeypadBegin => {}
-                DiscriminantKeyCode::Left => {}
-                DiscriminantKeyCode::Media => {}
-                DiscriminantKeyCode::Menu => {}
-                DiscriminantKeyCode::Modifier => {}
-                DiscriminantKeyCode::Null => {}
-                DiscriminantKeyCode::NumLock => {}
-                DiscriminantKeyCode::PageDown => {}
-                DiscriminantKeyCode::PageUp => {}
-                DiscriminantKeyCode::Pause => {}
-                DiscriminantKeyCode::PrintScreen => {}
-                DiscriminantKeyCode::Right => {}
-                DiscriminantKeyCode::Scalar => unsafe { core::mem::ManuallyDrop::drop(&mut self.Scalar) },
-                DiscriminantKeyCode::ScrollLock => {}
-                DiscriminantKeyCode::Tab => {}
-                DiscriminantKeyCode::Up => {}
-            }
-
+        match self.discriminant() {
+            DiscriminantKeyCode::BackTab => {}
+            DiscriminantKeyCode::Backspace => {}
+            DiscriminantKeyCode::CapsLock => {}
+            DiscriminantKeyCode::Delete => {}
+            DiscriminantKeyCode::Down => {}
+            DiscriminantKeyCode::End => {}
+            DiscriminantKeyCode::Enter => {}
+            DiscriminantKeyCode::Esc => {}
+            DiscriminantKeyCode::Function => {}
+            DiscriminantKeyCode::Home => {}
+            DiscriminantKeyCode::Insert => {}
+            DiscriminantKeyCode::KeypadBegin => {}
+            DiscriminantKeyCode::Left => {}
+            DiscriminantKeyCode::Media => {}
+            DiscriminantKeyCode::Menu => {}
+            DiscriminantKeyCode::Modifier => {}
+            DiscriminantKeyCode::Null => {}
+            DiscriminantKeyCode::NumLock => {}
+            DiscriminantKeyCode::PageDown => {}
+            DiscriminantKeyCode::PageUp => {}
+            DiscriminantKeyCode::Pause => {}
+            DiscriminantKeyCode::PrintScreen => {}
+            DiscriminantKeyCode::Right => {}
+            DiscriminantKeyCode::Scalar => unsafe {
+                core::mem::ManuallyDrop::drop(&mut self.Scalar)
+            },
+            DiscriminantKeyCode::ScrollLock => {}
+            DiscriminantKeyCode::Tab => {}
+            DiscriminantKeyCode::Up => {}
+        }
     }
 }
 
@@ -4286,11 +3960,11 @@ impl PartialEq for KeyCode {
         target_arch = "x86_64"
     ))]
     fn eq(&self, other: &Self) -> bool {
-            if self.discriminant() != other.discriminant() {
-                return false;
-            }
+        if self.discriminant() != other.discriminant() {
+            return false;
+        }
 
-            unsafe {
+        unsafe {
             match self.discriminant() {
                 DiscriminantKeyCode::BackTab => true,
                 DiscriminantKeyCode::Backspace => true,
@@ -4381,12 +4055,12 @@ impl Ord for KeyCode {
         target_arch = "x86_64"
     ))]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-            match self.discriminant().cmp(&other.discriminant()) {
-                core::cmp::Ordering::Equal => {}
-                not_eq => return not_eq,
-            }
+        match self.discriminant().cmp(&other.discriminant()) {
+            core::cmp::Ordering::Equal => {}
+            not_eq => return not_eq,
+        }
 
-            unsafe {
+        unsafe {
             match self.discriminant() {
                 DiscriminantKeyCode::BackTab => core::cmp::Ordering::Equal,
                 DiscriminantKeyCode::Backspace => core::cmp::Ordering::Equal,
@@ -4435,10 +4109,11 @@ impl Clone for KeyCode {
                     core::mem::MaybeUninit<KeyCode>,
                     KeyCode,
                 >(core::mem::MaybeUninit::uninit()),
-                DiscriminantKeyCode::Backspace => core::mem::transmute::<
-                    core::mem::MaybeUninit<KeyCode>,
-                    KeyCode,
-                >(core::mem::MaybeUninit::uninit()),
+                DiscriminantKeyCode::Backspace => {
+                    core::mem::transmute::<core::mem::MaybeUninit<KeyCode>, KeyCode>(
+                        core::mem::MaybeUninit::uninit(),
+                    )
+                }
                 DiscriminantKeyCode::CapsLock => core::mem::transmute::<
                     core::mem::MaybeUninit<KeyCode>,
                     KeyCode,
@@ -4474,10 +4149,11 @@ impl Clone for KeyCode {
                     core::mem::MaybeUninit<KeyCode>,
                     KeyCode,
                 >(core::mem::MaybeUninit::uninit()),
-                DiscriminantKeyCode::KeypadBegin => core::mem::transmute::<
-                    core::mem::MaybeUninit<KeyCode>,
-                    KeyCode,
-                >(core::mem::MaybeUninit::uninit()),
+                DiscriminantKeyCode::KeypadBegin => {
+                    core::mem::transmute::<core::mem::MaybeUninit<KeyCode>, KeyCode>(
+                        core::mem::MaybeUninit::uninit(),
+                    )
+                }
                 DiscriminantKeyCode::Left => core::mem::transmute::<
                     core::mem::MaybeUninit<KeyCode>,
                     KeyCode,
@@ -4512,10 +4188,11 @@ impl Clone for KeyCode {
                     core::mem::MaybeUninit<KeyCode>,
                     KeyCode,
                 >(core::mem::MaybeUninit::uninit()),
-                DiscriminantKeyCode::PrintScreen => core::mem::transmute::<
-                    core::mem::MaybeUninit<KeyCode>,
-                    KeyCode,
-                >(core::mem::MaybeUninit::uninit()),
+                DiscriminantKeyCode::PrintScreen => {
+                    core::mem::transmute::<core::mem::MaybeUninit<KeyCode>, KeyCode>(
+                        core::mem::MaybeUninit::uninit(),
+                    )
+                }
                 DiscriminantKeyCode::Right => core::mem::transmute::<
                     core::mem::MaybeUninit<KeyCode>,
                     KeyCode,
@@ -4523,10 +4200,11 @@ impl Clone for KeyCode {
                 DiscriminantKeyCode::Scalar => Self {
                     Scalar: self.Scalar.clone(),
                 },
-                DiscriminantKeyCode::ScrollLock => core::mem::transmute::<
-                    core::mem::MaybeUninit<KeyCode>,
-                    KeyCode,
-                >(core::mem::MaybeUninit::uninit()),
+                DiscriminantKeyCode::ScrollLock => {
+                    core::mem::transmute::<core::mem::MaybeUninit<KeyCode>, KeyCode>(
+                        core::mem::MaybeUninit::uninit(),
+                    )
+                }
                 DiscriminantKeyCode::Tab => core::mem::transmute::<
                     core::mem::MaybeUninit<KeyCode>,
                     KeyCode,
@@ -4536,7 +4214,6 @@ impl Clone for KeyCode {
                     KeyCode,
                 >(core::mem::MaybeUninit::uninit()),
             }
-
         };
 
         answer.set_discriminant(self.discriminant());
@@ -4553,7 +4230,8 @@ impl core::hash::Hash for KeyCode {
         target_arch = "x86",
         target_arch = "x86_64"
     ))]
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {        match self.discriminant() {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        match self.discriminant() {
             DiscriminantKeyCode::BackTab => DiscriminantKeyCode::BackTab.hash(state),
             DiscriminantKeyCode::Backspace => DiscriminantKeyCode::Backspace.hash(state),
             DiscriminantKeyCode::CapsLock => DiscriminantKeyCode::CapsLock.hash(state),
@@ -4563,22 +4241,22 @@ impl core::hash::Hash for KeyCode {
             DiscriminantKeyCode::Enter => DiscriminantKeyCode::Enter.hash(state),
             DiscriminantKeyCode::Esc => DiscriminantKeyCode::Esc.hash(state),
             DiscriminantKeyCode::Function => unsafe {
-                    DiscriminantKeyCode::Function.hash(state);
-                    self.Function.hash(state);
-                },
+                DiscriminantKeyCode::Function.hash(state);
+                self.Function.hash(state);
+            },
             DiscriminantKeyCode::Home => DiscriminantKeyCode::Home.hash(state),
             DiscriminantKeyCode::Insert => DiscriminantKeyCode::Insert.hash(state),
             DiscriminantKeyCode::KeypadBegin => DiscriminantKeyCode::KeypadBegin.hash(state),
             DiscriminantKeyCode::Left => DiscriminantKeyCode::Left.hash(state),
             DiscriminantKeyCode::Media => unsafe {
-                    DiscriminantKeyCode::Media.hash(state);
-                    self.Media.hash(state);
-                },
+                DiscriminantKeyCode::Media.hash(state);
+                self.Media.hash(state);
+            },
             DiscriminantKeyCode::Menu => DiscriminantKeyCode::Menu.hash(state),
             DiscriminantKeyCode::Modifier => unsafe {
-                    DiscriminantKeyCode::Modifier.hash(state);
-                    self.Modifier.hash(state);
-                },
+                DiscriminantKeyCode::Modifier.hash(state);
+                self.Modifier.hash(state);
+            },
             DiscriminantKeyCode::Null => DiscriminantKeyCode::Null.hash(state),
             DiscriminantKeyCode::NumLock => DiscriminantKeyCode::NumLock.hash(state),
             DiscriminantKeyCode::PageDown => DiscriminantKeyCode::PageDown.hash(state),
@@ -4587,9 +4265,9 @@ impl core::hash::Hash for KeyCode {
             DiscriminantKeyCode::PrintScreen => DiscriminantKeyCode::PrintScreen.hash(state),
             DiscriminantKeyCode::Right => DiscriminantKeyCode::Right.hash(state),
             DiscriminantKeyCode::Scalar => unsafe {
-                    DiscriminantKeyCode::Scalar.hash(state);
-                    self.Scalar.hash(state);
-                },
+                DiscriminantKeyCode::Scalar.hash(state);
+                self.Scalar.hash(state);
+            },
             DiscriminantKeyCode::ScrollLock => DiscriminantKeyCode::ScrollLock.hash(state),
             DiscriminantKeyCode::Tab => DiscriminantKeyCode::Tab.hash(state),
             DiscriminantKeyCode::Up => DiscriminantKeyCode::Up.hash(state),
@@ -4618,20 +4296,18 @@ impl core::fmt::Debug for KeyCode {
                 DiscriminantKeyCode::End => f.write_str("End"),
                 DiscriminantKeyCode::Enter => f.write_str("Enter"),
                 DiscriminantKeyCode::Esc => f.write_str("Esc"),
-                DiscriminantKeyCode::Function => f.debug_tuple("Function")
-        .field(&self.Function)
-        .finish(),
+                DiscriminantKeyCode::Function => {
+                    f.debug_tuple("Function").field(&self.Function).finish()
+                }
                 DiscriminantKeyCode::Home => f.write_str("Home"),
                 DiscriminantKeyCode::Insert => f.write_str("Insert"),
                 DiscriminantKeyCode::KeypadBegin => f.write_str("KeypadBegin"),
                 DiscriminantKeyCode::Left => f.write_str("Left"),
-                DiscriminantKeyCode::Media => f.debug_tuple("Media")
-        .field(&self.Media)
-        .finish(),
+                DiscriminantKeyCode::Media => f.debug_tuple("Media").field(&self.Media).finish(),
                 DiscriminantKeyCode::Menu => f.write_str("Menu"),
-                DiscriminantKeyCode::Modifier => f.debug_tuple("Modifier")
-        .field(&self.Modifier)
-        .finish(),
+                DiscriminantKeyCode::Modifier => {
+                    f.debug_tuple("Modifier").field(&self.Modifier).finish()
+                }
                 DiscriminantKeyCode::Null => f.write_str("Null"),
                 DiscriminantKeyCode::NumLock => f.write_str("NumLock"),
                 DiscriminantKeyCode::PageDown => f.write_str("PageDown"),
@@ -4639,9 +4315,9 @@ impl core::fmt::Debug for KeyCode {
                 DiscriminantKeyCode::Pause => f.write_str("Pause"),
                 DiscriminantKeyCode::PrintScreen => f.write_str("PrintScreen"),
                 DiscriminantKeyCode::Right => f.write_str("Right"),
-                DiscriminantKeyCode::Scalar => f.debug_tuple("Scalar")
-        .field(&*self.Scalar)
-        .finish(),
+                DiscriminantKeyCode::Scalar => {
+                    f.debug_tuple("Scalar").field(&*self.Scalar).finish()
+                }
                 DiscriminantKeyCode::ScrollLock => f.write_str("ScrollLock"),
                 DiscriminantKeyCode::Tab => f.write_str("Tab"),
                 DiscriminantKeyCode::Up => f.write_str("Up"),
@@ -4692,13 +4368,11 @@ impl Cursor {
     ))]
     /// Construct a tag named `At`, with the appropriate payload
     pub fn At(arg0: CursorPosition) -> Self {
-            let mut answer = Self {
-                At: arg0
-            };
+        let mut answer = Self { At: arg0 };
 
-            answer.set_discriminant(DiscriminantCursor::At);
+        answer.set_discriminant(DiscriminantCursor::At);
 
-            answer
+        answer
     }
 
     #[cfg(any(
@@ -4709,13 +4383,12 @@ impl Cursor {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `Cursor` has a `.discriminant()` of `At` and convert it to `At`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `At`.
-            pub unsafe fn into_At(self) -> CursorPosition {
-                debug_assert_eq!(self.discriminant(), DiscriminantCursor::At);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `At`.
+    pub unsafe fn into_At(self) -> CursorPosition {
+        debug_assert_eq!(self.discriminant(), DiscriminantCursor::At);
         let payload = self.At;
 
-        
         payload
     }
 
@@ -4727,13 +4400,12 @@ impl Cursor {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `Cursor` has a `.discriminant()` of `At` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `At`.
-            pub unsafe fn as_At(&self) -> &CursorPosition {
-                debug_assert_eq!(self.discriminant(), DiscriminantCursor::At);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `At`.
+    pub unsafe fn as_At(&self) -> &CursorPosition {
+        debug_assert_eq!(self.discriminant(), DiscriminantCursor::At);
         let payload = &self.At;
 
-        
         payload
     }
 
@@ -4791,11 +4463,11 @@ impl PartialEq for Cursor {
         target_arch = "x86_64"
     ))]
     fn eq(&self, other: &Self) -> bool {
-            if self.discriminant() != other.discriminant() {
-                return false;
-            }
+        if self.discriminant() != other.discriminant() {
+            return false;
+        }
 
-            unsafe {
+        unsafe {
             match self.discriminant() {
                 DiscriminantCursor::At => self.At == other.At,
                 DiscriminantCursor::Hidden => true,
@@ -4836,12 +4508,12 @@ impl Ord for Cursor {
         target_arch = "x86_64"
     ))]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-            match self.discriminant().cmp(&other.discriminant()) {
-                core::cmp::Ordering::Equal => {}
-                not_eq => return not_eq,
-            }
+        match self.discriminant().cmp(&other.discriminant()) {
+            core::cmp::Ordering::Equal => {}
+            not_eq => return not_eq,
+        }
 
-            unsafe {
+        unsafe {
             match self.discriminant() {
                 DiscriminantCursor::At => self.At.cmp(&other.At),
                 DiscriminantCursor::Hidden => core::cmp::Ordering::Equal,
@@ -4871,7 +4543,6 @@ impl Clone for Cursor {
                     Cursor,
                 >(core::mem::MaybeUninit::uninit()),
             }
-
         };
 
         answer.set_discriminant(self.discriminant());
@@ -4888,11 +4559,12 @@ impl core::hash::Hash for Cursor {
         target_arch = "x86",
         target_arch = "x86_64"
     ))]
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {        match self.discriminant() {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        match self.discriminant() {
             DiscriminantCursor::At => unsafe {
-                    DiscriminantCursor::At.hash(state);
-                    self.At.hash(state);
-                },
+                DiscriminantCursor::At.hash(state);
+                self.At.hash(state);
+            },
             DiscriminantCursor::Hidden => DiscriminantCursor::Hidden.hash(state),
         }
     }
@@ -4911,9 +4583,7 @@ impl core::fmt::Debug for Cursor {
 
         unsafe {
             match self.discriminant() {
-                DiscriminantCursor::At => f.debug_tuple("At")
-        .field(&self.At)
-        .finish(),
+                DiscriminantCursor::At => f.debug_tuple("At").field(&self.At).finish(),
                 DiscriminantCursor::Hidden => f.write_str("Hidden"),
             }
         }
@@ -4962,13 +4632,11 @@ impl PopupConfig {
     ))]
     /// Construct a tag named `Centered`, with the appropriate payload
     pub fn Centered(arg0: ModalPosition) -> Self {
-            let mut answer = Self {
-                Centered: arg0
-            };
+        let mut answer = Self { Centered: arg0 };
 
-            answer.set_discriminant(DiscriminantPopupConfig::Centered);
+        answer.set_discriminant(DiscriminantPopupConfig::Centered);
 
-            answer
+        answer
     }
 
     #[cfg(any(
@@ -4979,13 +4647,12 @@ impl PopupConfig {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `PopupConfig` has a `.discriminant()` of `Centered` and convert it to `Centered`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Centered`.
-            pub unsafe fn into_Centered(self) -> ModalPosition {
-                debug_assert_eq!(self.discriminant(), DiscriminantPopupConfig::Centered);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Centered`.
+    pub unsafe fn into_Centered(self) -> ModalPosition {
+        debug_assert_eq!(self.discriminant(), DiscriminantPopupConfig::Centered);
         let payload = self.Centered;
 
-        
         payload
     }
 
@@ -4997,13 +4664,12 @@ impl PopupConfig {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `PopupConfig` has a `.discriminant()` of `Centered` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Centered`.
-            pub unsafe fn as_Centered(&self) -> &ModalPosition {
-                debug_assert_eq!(self.discriminant(), DiscriminantPopupConfig::Centered);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Centered`.
+    pub unsafe fn as_Centered(&self) -> &ModalPosition {
+        debug_assert_eq!(self.discriminant(), DiscriminantPopupConfig::Centered);
         let payload = &self.Centered;
 
-        
         payload
     }
 
@@ -5061,11 +4727,11 @@ impl PartialEq for PopupConfig {
         target_arch = "x86_64"
     ))]
     fn eq(&self, other: &Self) -> bool {
-            if self.discriminant() != other.discriminant() {
-                return false;
-            }
+        if self.discriminant() != other.discriminant() {
+            return false;
+        }
 
-            unsafe {
+        unsafe {
             match self.discriminant() {
                 DiscriminantPopupConfig::Centered => self.Centered == other.Centered,
                 DiscriminantPopupConfig::Default => true,
@@ -5106,12 +4772,12 @@ impl Ord for PopupConfig {
         target_arch = "x86_64"
     ))]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-            match self.discriminant().cmp(&other.discriminant()) {
-                core::cmp::Ordering::Equal => {}
-                not_eq => return not_eq,
-            }
+        match self.discriminant().cmp(&other.discriminant()) {
+            core::cmp::Ordering::Equal => {}
+            not_eq => return not_eq,
+        }
 
-            unsafe {
+        unsafe {
             match self.discriminant() {
                 DiscriminantPopupConfig::Centered => self.Centered.cmp(&other.Centered),
                 DiscriminantPopupConfig::Default => core::cmp::Ordering::Equal,
@@ -5136,12 +4802,12 @@ impl Clone for PopupConfig {
                 DiscriminantPopupConfig::Centered => Self {
                     Centered: self.Centered.clone(),
                 },
-                DiscriminantPopupConfig::Default => core::mem::transmute::<
-                    core::mem::MaybeUninit<PopupConfig>,
-                    PopupConfig,
-                >(core::mem::MaybeUninit::uninit()),
+                DiscriminantPopupConfig::Default => {
+                    core::mem::transmute::<core::mem::MaybeUninit<PopupConfig>, PopupConfig>(
+                        core::mem::MaybeUninit::uninit(),
+                    )
+                }
             }
-
         };
 
         answer.set_discriminant(self.discriminant());
@@ -5158,11 +4824,12 @@ impl core::hash::Hash for PopupConfig {
         target_arch = "x86",
         target_arch = "x86_64"
     ))]
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {        match self.discriminant() {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        match self.discriminant() {
             DiscriminantPopupConfig::Centered => unsafe {
-                    DiscriminantPopupConfig::Centered.hash(state);
-                    self.Centered.hash(state);
-                },
+                DiscriminantPopupConfig::Centered.hash(state);
+                self.Centered.hash(state);
+            },
             DiscriminantPopupConfig::Default => DiscriminantPopupConfig::Default.hash(state),
         }
     }
@@ -5181,9 +4848,9 @@ impl core::fmt::Debug for PopupConfig {
 
         unsafe {
             match self.discriminant() {
-                DiscriminantPopupConfig::Centered => f.debug_tuple("Centered")
-        .field(&self.Centered)
-        .finish(),
+                DiscriminantPopupConfig::Centered => {
+                    f.debug_tuple("Centered").field(&self.Centered).finish()
+                }
                 DiscriminantPopupConfig::Default => f.write_str("Default"),
             }
         }
@@ -5442,17 +5109,17 @@ impl Color {
     ))]
     /// Construct a tag named `Rgb`, with the appropriate payload
     pub fn Rgb(arg0: u8, arg1: u8, arg2: u8) -> Self {
-            let mut answer = Self {
-                Rgb: Color_Rgb {
-                    f0: arg0,
-                    f1: arg1,
-                    f2: arg2,
-                }
-            };
+        let mut answer = Self {
+            Rgb: Color_Rgb {
+                f0: arg0,
+                f1: arg1,
+                f2: arg2,
+            },
+        };
 
-            answer.set_discriminant(DiscriminantColor::Rgb);
+        answer.set_discriminant(DiscriminantColor::Rgb);
 
-            answer
+        answer
     }
 
     #[cfg(any(
@@ -5463,17 +5130,13 @@ impl Color {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `Color` has a `.discriminant()` of `Rgb` and convert it to `Rgb`'s payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Rgb`.
-            pub unsafe fn into_Rgb(self) -> (u8, u8, u8) {
-                debug_assert_eq!(self.discriminant(), DiscriminantColor::Rgb);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Rgb`.
+    pub unsafe fn into_Rgb(self) -> (u8, u8, u8) {
+        debug_assert_eq!(self.discriminant(), DiscriminantColor::Rgb);
         let payload = self.Rgb;
 
-        (
-            payload.f0, 
-            payload.f1, 
-            payload.f2
-        )
+        (payload.f0, payload.f1, payload.f2)
     }
 
     #[cfg(any(
@@ -5484,17 +5147,13 @@ impl Color {
         target_arch = "x86_64"
     ))]
     /// Unsafely assume the given `Color` has a `.discriminant()` of `Rgb` and return its payload.
-            /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
-            /// Panics in debug builds if the `.discriminant()` doesn't return `Rgb`.
-            pub unsafe fn as_Rgb(&self) -> (&u8, &u8, &u8) {
-                debug_assert_eq!(self.discriminant(), DiscriminantColor::Rgb);
+    /// (Always examine `.discriminant()` first to make sure this is the correct variant!)
+    /// Panics in debug builds if the `.discriminant()` doesn't return `Rgb`.
+    pub unsafe fn as_Rgb(&self) -> (&u8, &u8, &u8) {
+        debug_assert_eq!(self.discriminant(), DiscriminantColor::Rgb);
         let payload = &self.Rgb;
 
-        (
-            &payload.f0, 
-            &payload.f1, 
-            &payload.f2
-        )
+        (&payload.f0, &payload.f1, &payload.f2)
     }
 
     #[cfg(any(
@@ -5551,11 +5210,11 @@ impl PartialEq for Color {
         target_arch = "x86_64"
     ))]
     fn eq(&self, other: &Self) -> bool {
-            if self.discriminant() != other.discriminant() {
-                return false;
-            }
+        if self.discriminant() != other.discriminant() {
+            return false;
+        }
 
-            unsafe {
+        unsafe {
             match self.discriminant() {
                 DiscriminantColor::Black => true,
                 DiscriminantColor::Blue => true,
@@ -5606,12 +5265,12 @@ impl Ord for Color {
         target_arch = "x86_64"
     ))]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-            match self.discriminant().cmp(&other.discriminant()) {
-                core::cmp::Ordering::Equal => {}
-                not_eq => return not_eq,
-            }
+        match self.discriminant().cmp(&other.discriminant()) {
+            core::cmp::Ordering::Equal => {}
+            not_eq => return not_eq,
+        }
 
-            unsafe {
+        unsafe {
             match self.discriminant() {
                 DiscriminantColor::Black => core::cmp::Ordering::Equal,
                 DiscriminantColor::Blue => core::cmp::Ordering::Equal,
@@ -5666,7 +5325,6 @@ impl Clone for Color {
                     Color,
                 >(core::mem::MaybeUninit::uninit()),
             }
-
         };
 
         answer.set_discriminant(self.discriminant());
@@ -5683,16 +5341,17 @@ impl core::hash::Hash for Color {
         target_arch = "x86",
         target_arch = "x86_64"
     ))]
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {        match self.discriminant() {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        match self.discriminant() {
             DiscriminantColor::Black => DiscriminantColor::Black.hash(state),
             DiscriminantColor::Blue => DiscriminantColor::Blue.hash(state),
             DiscriminantColor::Default => DiscriminantColor::Default.hash(state),
             DiscriminantColor::Green => DiscriminantColor::Green.hash(state),
             DiscriminantColor::Red => DiscriminantColor::Red.hash(state),
             DiscriminantColor::Rgb => unsafe {
-                    DiscriminantColor::Rgb.hash(state);
-                    self.Rgb.hash(state);
-                },
+                DiscriminantColor::Rgb.hash(state);
+                self.Rgb.hash(state);
+            },
             DiscriminantColor::White => DiscriminantColor::White.hash(state),
         }
     }
@@ -5716,11 +5375,12 @@ impl core::fmt::Debug for Color {
                 DiscriminantColor::Default => f.write_str("Default"),
                 DiscriminantColor::Green => f.write_str("Green"),
                 DiscriminantColor::Red => f.write_str("Red"),
-                DiscriminantColor::Rgb => f.debug_tuple("Rgb")
-        .field(&(&self.Rgb).f0)
-.field(&(&self.Rgb).f1)
-.field(&(&self.Rgb).f2)
-        .finish(),
+                DiscriminantColor::Rgb => f
+                    .debug_tuple("Rgb")
+                    .field(&(&self.Rgb).f0)
+                    .field(&(&self.Rgb).f1)
+                    .field(&(&self.Rgb).f2)
+                    .finish(),
                 DiscriminantColor::White => f.write_str("White"),
             }
         }

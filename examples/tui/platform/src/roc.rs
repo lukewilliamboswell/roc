@@ -1,22 +1,10 @@
-
+use crate::glue::{Bounds, Elem, Event, Model};
 use core::alloc::Layout;
 use core::ffi::c_void;
-// use core::mem::{self, ManuallyDrop};
-use roc_std::{
-    RocList,
-    // RocStr,
-};
+use roc_std::RocList;
 use std::ffi::CStr;
-// use std::fmt::Debug;
 use std::mem::MaybeUninit;
 use std::os::raw::c_char;
-// use std::time::Duration;
-use crate::glue::{
-    Model,
-    Event,
-    Bounds,
-    Elem,
-};
 
 extern "C" {
     // program
@@ -180,7 +168,7 @@ pub fn render(model: *const Model) -> RocList<Elem> {
 
     let elems = unsafe {
         let mut ret_val: MaybeUninit<RocList<Elem>> = MaybeUninit::uninit();
-        
+
         let closure_data_buf =
             std::alloc::realloc(closure_data_buf, closure_layout, roc_render_size() as usize);
 
