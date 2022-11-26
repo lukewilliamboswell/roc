@@ -24,6 +24,7 @@ interface Elem
         blockConfig, 
         st,
         unstyled,
+        layout,
         styled,
     ]
     imports []
@@ -136,3 +137,6 @@ ListConfig : {
     highlightStyle : Style,
     startCorner : Corner,
 }
+
+layout : (List Elem), {constraints ? List Constraint,direction ? LayoutDirection,vMargin ? U16,hMargin ? U16,popup ? PopupConfig} -> Elem
+layout = \children, {constraints ? [],direction ? Vertical,vMargin ? 0u16,hMargin ? 0u16,popup ? None} -> Layout children {constraints,direction,vMargin,hMargin,popup}
