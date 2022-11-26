@@ -82,6 +82,16 @@ fn desugar_value_def<'a>(arena: &'a Bump, def: &'a ValueDef<'a>) -> ValueDef<'a>
             body_pattern,
             body_expr: desugar_expr(arena, body_expr),
         },
+        Dbg {
+            condition,
+            preceding_comment,
+        } => {
+            let desugared_condition = &*arena.alloc(desugar_expr(arena, condition));
+            Dbg {
+                condition: desugared_condition,
+                preceding_comment: *preceding_comment,
+            }
+        }
         Expect {
             condition,
             preceding_comment,
@@ -120,22 +130,25 @@ pub fn desugar_expr<'a>(arena: &'a Bump, loc_expr: &'a Loc<Expr<'a>>) -> &'a Loc
         | NonBase10Int { .. }
         | Str(_)
         | SingleQuote(_)
-        | AccessorFunction(_)
+        | RecordAccessorFunction(_)
+        | TupleAccessorFunction(_)
         | Var { .. }
         | Underscore { .. }
         | MalformedIdent(_, _)
         | MalformedClosure
         | PrecedenceConflict { .. }
         | Tag(_)
-        | OpaqueRef(_) => loc_expr,
+        | OpaqueRef(_)
+        | Crash => loc_expr,
 
-        Access(sub_expr, paths) => {
+        TupleAccess(_sub_expr, _paths) => todo!("Handle TupleAccess"),
+        RecordAccess(sub_expr, paths) => {
             let region = loc_expr.region;
             let loc_sub_expr = Loc {
                 region,
                 value: **sub_expr,
             };
-            let value = Access(&desugar_expr(arena, arena.alloc(loc_sub_expr)).value, paths);
+            let value = RecordAccess(&desugar_expr(arena, arena.alloc(loc_sub_expr)).value, paths);
 
             arena.alloc(Loc { region, value })
         }
@@ -163,7 +176,9 @@ pub fn desugar_expr<'a>(arena: &'a Bump, loc_expr: &'a Loc<Expr<'a>>) -> &'a Loc
                 }
             })),
         }),
-
+        Tuple(_fields) => {
+            todo!("desugar_expr: Tuple");
+        }
         RecordUpdate { fields, update } => {
             // NOTE the `update` field is always a `Var { .. }`, we only desugar it to get rid of
             // any spaces before/after
@@ -341,6 +356,14 @@ pub fn desugar_expr<'a>(arena: &'a Bump, loc_expr: &'a Loc<Expr<'a>>) -> &'a Loc
             let desugared_continuation = &*arena.alloc(desugar_expr(arena, continuation));
             arena.alloc(Loc {
                 value: Expect(desugared_condition, desugared_continuation),
+                region: loc_expr.region,
+            })
+        }
+        Dbg(condition, continuation) => {
+            let desugared_condition = &*arena.alloc(desugar_expr(arena, condition));
+            let desugared_continuation = &*arena.alloc(desugar_expr(arena, continuation));
+            arena.alloc(Loc {
+                value: Dbg(desugared_condition, desugared_continuation),
                 region: loc_expr.region,
             })
         }

@@ -34,14 +34,17 @@ impl<'a> Formattable for Expr<'a> {
             | Num(..)
             | NonBase10Int { .. }
             | SingleQuote(_)
-            | Access(_, _)
-            | AccessorFunction(_)
+            | RecordAccess(_, _)
+            | RecordAccessorFunction(_)
+            | TupleAccess(_, _)
+            | TupleAccessorFunction(_)
             | Var { .. }
             | Underscore { .. }
             | MalformedIdent(_, _)
             | MalformedClosure
             | Tag(_)
-            | OpaqueRef(_) => false,
+            | OpaqueRef(_)
+            | Crash => false,
 
             // These expressions always have newlines
             Defs(_, _) | When(_, _) => true,
@@ -69,6 +72,7 @@ impl<'a> Formattable for Expr<'a> {
             Expect(condition, continuation) => {
                 condition.is_multiline() || continuation.is_multiline()
             }
+            Dbg(condition, continuation) => condition.is_multiline() || continuation.is_multiline(),
 
             If(branches, final_else) => {
                 final_else.is_multiline()
@@ -106,6 +110,7 @@ impl<'a> Formattable for Expr<'a> {
             }
 
             Record(fields) => fields.iter().any(|loc_field| loc_field.is_multiline()),
+            Tuple(fields) => fields.iter().any(|loc_field| loc_field.is_multiline()),
             RecordUpdate { fields, .. } => fields.iter().any(|loc_field| loc_field.is_multiline()),
         }
     }
@@ -186,6 +191,10 @@ impl<'a> Formattable for Expr<'a> {
                 buf.indent(indent);
                 buf.push('_');
                 buf.push_str(name);
+            }
+            Crash => {
+                buf.indent(indent);
+                buf.push_str("crash");
             }
             Apply(loc_expr, loc_args, _) => {
                 buf.indent(indent);
@@ -376,10 +385,14 @@ impl<'a> Formattable for Expr<'a> {
             Expect(condition, continuation) => {
                 fmt_expect(buf, condition, continuation, self.is_multiline(), indent);
             }
+            Dbg(condition, continuation) => {
+                fmt_dbg(buf, condition, continuation, self.is_multiline(), indent);
+            }
             If(branches, final_else) => {
                 fmt_if(buf, branches, final_else, self.is_multiline(), indent);
             }
             When(loc_condition, branches) => fmt_when(buf, loc_condition, branches, indent),
+            Tuple(items) => fmt_collection(buf, indent, Braces::Round, *items, Newlines::No),
             List(items) => fmt_collection(buf, indent, Braces::Square, *items, Newlines::No),
             BinOps(lefts, right) => fmt_binops(buf, lefts, right, false, parens, indent),
             UnaryOp(sub_expr, unary_op) => {
@@ -395,17 +408,30 @@ impl<'a> Formattable for Expr<'a> {
 
                 sub_expr.format_with_options(buf, Parens::InApply, newlines, indent);
             }
-            AccessorFunction(key) => {
+            RecordAccessorFunction(key) => {
                 buf.indent(indent);
                 buf.push('.');
                 buf.push_str(key);
             }
-            Access(expr, key) => {
+            RecordAccess(expr, key) => {
                 expr.format_with_options(buf, Parens::InApply, Newlines::Yes, indent);
                 buf.push('.');
                 buf.push_str(key);
             }
-            MalformedIdent(_, _) => {}
+            TupleAccessorFunction(key) => {
+                buf.indent(indent);
+                buf.push('.');
+                buf.push_str(key);
+            }
+            TupleAccess(expr, key) => {
+                expr.format_with_options(buf, Parens::InApply, Newlines::Yes, indent);
+                buf.push('.');
+                buf.push_str(key);
+            }
+            MalformedIdent(str, _) => {
+                buf.indent(indent);
+                buf.push_str(str)
+            }
             MalformedClosure => {}
             PrecedenceConflict { .. } => {}
         }
@@ -489,10 +515,10 @@ fn push_op(buf: &mut Buf, op: BinOp) {
 pub fn fmt_str_literal<'buf>(buf: &mut Buf<'buf>, literal: StrLiteral, indent: u16) {
     use roc_parse::ast::StrLiteral::*;
 
-    buf.indent(indent);
-    buf.push('"');
     match literal {
         PlainLine(string) => {
+            buf.indent(indent);
+            buf.push('"');
             // When a PlainLine contains '\n' or '"', format as a block string
             if string.contains('"') || string.contains('\n') {
                 buf.push_str("\"\"");
@@ -507,15 +533,21 @@ pub fn fmt_str_literal<'buf>(buf: &mut Buf<'buf>, literal: StrLiteral, indent: u
             } else {
                 buf.push_str_allow_spaces(string);
             };
+            buf.push('"');
         }
         Line(segments) => {
+            buf.indent(indent);
+            buf.push('"');
             for seg in segments.iter() {
                 format_str_segment(seg, buf, 0)
             }
+            buf.push('"');
         }
         Block(lines) => {
             // Block strings will always be formatted with """ on new lines
-            buf.push_str("\"\"");
+            buf.ensure_ends_with_newline();
+            buf.indent(indent);
+            buf.push_str("\"\"\"");
             buf.newline();
 
             for segments in lines.iter() {
@@ -527,10 +559,9 @@ pub fn fmt_str_literal<'buf>(buf: &mut Buf<'buf>, literal: StrLiteral, indent: u
                 buf.newline();
             }
             buf.indent(indent);
-            buf.push_str("\"\"");
+            buf.push_str("\"\"\"");
         }
     }
-    buf.push('"');
 }
 
 fn fmt_binops<'a, 'buf>(
@@ -819,6 +850,33 @@ fn fmt_when<'a, 'buf>(
 
         prev_branch_was_multiline = is_multiline_expr || is_multiline_patterns;
     }
+}
+
+fn fmt_dbg<'a, 'buf>(
+    buf: &mut Buf<'buf>,
+    condition: &'a Loc<Expr<'a>>,
+    continuation: &'a Loc<Expr<'a>>,
+    is_multiline: bool,
+    indent: u16,
+) {
+    buf.ensure_ends_with_newline();
+    buf.indent(indent);
+    buf.push_str("dbg");
+
+    let return_indent = if is_multiline {
+        buf.newline();
+        indent + INDENT
+    } else {
+        buf.spaces(1);
+        indent
+    };
+
+    condition.format(buf, return_indent);
+
+    // Always put a blank line after the `dbg` line(s)
+    buf.ensure_ends_with_blank_line();
+
+    continuation.format(buf, indent);
 }
 
 fn fmt_expect<'a, 'buf>(

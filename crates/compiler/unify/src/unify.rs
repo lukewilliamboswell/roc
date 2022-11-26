@@ -1,8 +1,8 @@
 use bitflags::bitflags;
-use roc_collections::VecMap;
-use roc_debug_flags::dbg_do;
+use roc_collections::{VecMap, VecSet};
+use roc_debug_flags::{dbg_do, dbg_set};
 #[cfg(debug_assertions)]
-use roc_debug_flags::{ROC_PRINT_MISMATCHES, ROC_PRINT_UNIFICATIONS};
+use roc_debug_flags::{ROC_PRINT_MISMATCHES, ROC_PRINT_UNIFICATIONS, ROC_VERIFY_OCCURS_RECURSION};
 use roc_error_macros::internal_error;
 use roc_module::ident::{Lowercase, TagName};
 use roc_module::symbol::{ModuleId, Symbol};
@@ -225,7 +225,6 @@ pub enum Unified<M: MetaCollector = NoCollector> {
         extra_metadata: M,
     },
     Failure(Pool, ErrorType, ErrorType, DoesNotImplementAbility),
-    BadType(Pool, roc_types::types::Problem),
 }
 
 impl<M: MetaCollector> Unified<M> {
@@ -322,6 +321,8 @@ impl<M: MetaCollector> Outcome<M> {
 pub struct Env<'a> {
     pub subs: &'a mut Subs,
     compute_outcome_only: bool,
+    seen_recursion: VecSet<(Variable, Variable)>,
+    fixed_variables: VecSet<Variable>,
 }
 
 impl<'a> Env<'a> {
@@ -329,6 +330,8 @@ impl<'a> Env<'a> {
         Self {
             subs,
             compute_outcome_only: false,
+            seen_recursion: Default::default(),
+            fixed_variables: Default::default(),
         }
     }
 
@@ -339,6 +342,48 @@ impl<'a> Env<'a> {
         let result = f(self);
         self.compute_outcome_only = false;
         result
+    }
+
+    fn add_recursion_pair(&mut self, var1: Variable, var2: Variable) {
+        let pair = (
+            self.subs.get_root_key_without_compacting(var1),
+            self.subs.get_root_key_without_compacting(var2),
+        );
+
+        let already_seen = self.seen_recursion.insert(pair);
+        debug_assert!(!already_seen);
+    }
+
+    fn remove_recursion_pair(&mut self, var1: Variable, var2: Variable) {
+        #[cfg(debug_assertions)]
+        let size_before = self.seen_recursion.len();
+
+        self.seen_recursion.retain(|(v1, v2)| {
+            let is_recursion_pair = self.subs.equivalent_without_compacting(*v1, var1)
+                && self.subs.equivalent_without_compacting(*v2, var2);
+            !is_recursion_pair
+        });
+
+        #[cfg(debug_assertions)]
+        let size_after = self.seen_recursion.len();
+
+        #[cfg(debug_assertions)]
+        debug_assert!(size_after < size_before, "nothing was removed");
+    }
+
+    fn seen_recursion_pair(&mut self, var1: Variable, var2: Variable) -> bool {
+        let (var1, var2) = (
+            self.subs.get_root_key_without_compacting(var1),
+            self.subs.get_root_key_without_compacting(var2),
+        );
+
+        self.seen_recursion.contains(&(var1, var2))
+    }
+
+    fn was_fixed(&self, var: Variable) -> bool {
+        self.fixed_variables
+            .iter()
+            .any(|fixed_var| self.subs.equivalent_without_compacting(*fixed_var, var))
     }
 }
 
@@ -419,35 +464,29 @@ fn unify_help<M: MetaCollector>(
             ErrorTypeContext::None
         };
 
-        let (type1, mut problems) =
-            env.subs
-                .var_to_error_type_contextual(var1, error_context, observed_pol);
-        let (type2, problems2) =
-            env.subs
-                .var_to_error_type_contextual(var2, error_context, observed_pol);
-
-        problems.extend(problems2);
+        let type1 = env
+            .subs
+            .var_to_error_type_contextual(var1, error_context, observed_pol);
+        let type2 = env
+            .subs
+            .var_to_error_type_contextual(var2, error_context, observed_pol);
 
         env.subs.union(var1, var2, Content::Error.into());
 
-        if !problems.is_empty() {
-            Unified::BadType(vars, problems.remove(0))
-        } else {
-            let do_not_implement_ability = mismatches
-                .into_iter()
-                .filter_map(|mismatch| match mismatch {
-                    Mismatch::DoesNotImplementAbiity(var, ab) => {
-                        let (err_type, _new_problems) =
-                            env.subs
-                                .var_to_error_type_contextual(var, error_context, observed_pol);
-                        Some((err_type, ab))
-                    }
-                    _ => None,
-                })
-                .collect();
+        let do_not_implement_ability = mismatches
+            .into_iter()
+            .filter_map(|mismatch| match mismatch {
+                Mismatch::DoesNotImplementAbiity(var, ab) => {
+                    let err_type =
+                        env.subs
+                            .var_to_error_type_contextual(var, error_context, observed_pol);
+                    Some((err_type, ab))
+                }
+                _ => None,
+            })
+            .collect();
 
-            Unified::Failure(vars, type1, type2, do_not_implement_ability)
-        }
+        Unified::Failure(vars, type1, type2, do_not_implement_ability)
     }
 }
 
@@ -870,6 +909,12 @@ fn unify_two_aliases<M: MetaCollector>(
     }
 }
 
+fn fix_fixpoint<M: MetaCollector>(env: &mut Env, ctx: &Context) -> Outcome<M> {
+    let fixed_variables = crate::fix::fix_fixpoint(env.subs, ctx.first, ctx.second);
+    env.fixed_variables.extend(fixed_variables);
+    Default::default()
+}
+
 // Unifies a structural alias
 #[inline(always)]
 #[must_use]
@@ -890,7 +935,17 @@ fn unify_alias<M: MetaCollector>(
             // Alias wins
             merge(env, ctx, Alias(symbol, args, real_var, kind))
         }
-        RecursionVar { structure, .. } => unify_pool(env, pool, real_var, *structure, ctx.mode),
+        RecursionVar { structure, .. } => {
+            if env.seen_recursion_pair(ctx.first, ctx.second) {
+                return fix_fixpoint(env, ctx);
+            }
+
+            env.add_recursion_pair(ctx.first, ctx.second);
+            let outcome = unify_pool(env, pool, real_var, *structure, ctx.mode);
+            env.remove_recursion_pair(ctx.first, ctx.second);
+
+            outcome
+        }
         RigidVar(_) | RigidAbleVar(..) | FlexAbleVar(..) => {
             unify_pool(env, pool, real_var, ctx.second, ctx.mode)
         }
@@ -963,7 +1018,17 @@ fn unify_opaque<M: MetaCollector>(
         Alias(_, _, other_real_var, AliasKind::Structural) => {
             unify_pool(env, pool, ctx.first, *other_real_var, ctx.mode)
         }
-        RecursionVar { structure, .. } => unify_pool(env, pool, ctx.first, *structure, ctx.mode),
+        RecursionVar { structure, .. } => {
+            if env.seen_recursion_pair(ctx.first, ctx.second) {
+                return fix_fixpoint(env, ctx);
+            }
+
+            env.add_recursion_pair(ctx.first, ctx.second);
+            let outcome = unify_pool(env, pool, real_var, *structure, ctx.mode);
+            env.remove_recursion_pair(ctx.first, ctx.second);
+
+            outcome
+        }
         Alias(other_symbol, other_args, other_real_var, AliasKind::Opaque) => {
             // Opaques types are only equal if the opaque symbols are equal!
             if symbol == *other_symbol {
@@ -1037,27 +1102,45 @@ fn unify_structure<M: MetaCollector>(
                 &other
             )
         }
-        RecursionVar { structure, .. } => match flat_type {
-            FlatType::TagUnion(_, _) => {
-                // unify the structure with this unrecursive tag union
-                unify_pool(env, pool, ctx.first, *structure, ctx.mode)
+        RecursionVar { structure, .. } => {
+            if env.seen_recursion_pair(ctx.first, ctx.second) {
+                return fix_fixpoint(env, ctx);
             }
-            FlatType::RecursiveTagUnion(rec, _, _) => {
-                debug_assert!(is_recursion_var(env.subs, *rec));
-                // unify the structure with this recursive tag union
-                unify_pool(env, pool, ctx.first, *structure, ctx.mode)
-            }
-            FlatType::FunctionOrTagUnion(_, _, _) => {
-                // unify the structure with this unrecursive tag union
-                unify_pool(env, pool, ctx.first, *structure, ctx.mode)
-            }
-            // Only tag unions can be recursive; everything else is an error.
-            _ => mismatch!(
-                "trying to unify {:?} with recursive type var {:?}",
-                &flat_type,
-                structure
-            ),
-        },
+
+            env.add_recursion_pair(ctx.first, ctx.second);
+
+            let outcome = match flat_type {
+                FlatType::TagUnion(_, _) => {
+                    // unify the structure with this unrecursive tag union
+                    unify_pool(env, pool, ctx.first, *structure, ctx.mode)
+                }
+                FlatType::RecursiveTagUnion(rec, _, _) => {
+                    debug_assert!(
+                        is_recursion_var(env.subs, *rec),
+                        "{:?}",
+                        roc_types::subs::SubsFmtContent(
+                            env.subs.get_content_without_compacting(*rec),
+                            env.subs
+                        )
+                    );
+                    // unify the structure with this recursive tag union
+                    unify_pool(env, pool, ctx.first, *structure, ctx.mode)
+                }
+                FlatType::FunctionOrTagUnion(_, _, _) => {
+                    // unify the structure with this unrecursive tag union
+                    unify_pool(env, pool, ctx.first, *structure, ctx.mode)
+                }
+                // Only tag unions can be recursive; everything else is an error.
+                _ => mismatch!(
+                    "trying to unify {:?} with recursive type var {:?}",
+                    &flat_type,
+                    structure
+                ),
+            };
+
+            env.remove_recursion_pair(ctx.first, ctx.second);
+            outcome
+        }
 
         Structure(ref other_flat_type) => {
             // Unify the two flat types
@@ -1128,8 +1211,16 @@ fn unify_lambda_set<M: MetaCollector>(
             }
         }
         RecursionVar { structure, .. } => {
+            if env.seen_recursion_pair(ctx.first, ctx.second) {
+                return fix_fixpoint(env, ctx);
+            }
+            env.add_recursion_pair(ctx.first, ctx.second);
+
             // suppose that the recursion var is a lambda set
-            unify_pool(env, pool, ctx.first, *structure, ctx.mode)
+            let outcome = unify_pool(env, pool, ctx.first, *structure, ctx.mode);
+
+            env.remove_recursion_pair(ctx.first, ctx.second);
+            outcome
         }
         RigidVar(..) | RigidAbleVar(..) => mismatch!("Lambda sets never unify with rigid"),
         FlexAbleVar(..) => mismatch!("Lambda sets should never have abilities attached to them"),
@@ -1168,11 +1259,28 @@ fn extract_specialization_lambda_set<M: MetaCollector>(
     debug_assert!(member_rec_var.is_none());
 
     let member_uls = env.subs.get_subs_slice(member_uls_slice);
-    debug_assert_eq!(
-        member_uls.len(),
-        1,
-        "member signature lambda sets should contain only one unspecialized lambda set"
+    debug_assert!(
+        member_uls.len() <= 1,
+        "member signature lambda sets should contain at most one unspecialized lambda set"
     );
+
+    if member_uls.is_empty() {
+        // This can happen if the specialized type has a lambda set that is determined to be
+        // immaterial in the implementation of the specialization, because the specialization
+        // lambda set does not line up with one required by the ability member prototype.
+        // As an example, consider
+        //
+        //   Q := [ F (Str -> Str) ] has [Eq {isEq}]
+        //
+        //   isEq = \@Q _, @Q _ -> Bool.false
+        //
+        // here the lambda set of `F`'s payload is part of the specialization signature, but it is
+        // irrelevant to the specialization. As such, I believe it is safe to drop the
+        // empty specialization lambda set.
+        roc_tracing::info!(ambient_function=?env.subs.get_root_key_without_compacting(specialization_lset.ambient_function), "ambient function in a specialization has a zero-lambda set");
+
+        return merge(env, ctx, Content::LambdaSet(specialization_lset));
+    }
 
     let Uls(_, member, region) = member_uls[0];
 
@@ -2524,7 +2632,22 @@ fn maybe_mark_union_recursive(env: &mut Env, union_var: Variable) {
         }) {
             return;
         } else {
-            internal_error!("recursive loop does not contain a tag union")
+            // We may have partially solved a recursive type, but still see an occurs, if the type
+            // has errors inside of it. As such, admit this; however, for well-typed programs, this
+            // case should never be observed. Set ROC_VERIFY_OCCURS_RECURSION to verify this branch
+            // is not reached for well-typed programs.
+            if dbg_set!(ROC_VERIFY_OCCURS_RECURSION)
+                || !chain.iter().any(|&var| {
+                    matches!(
+                        subs.get_content_without_compacting(var),
+                        Content::Structure(FlatType::RecursiveTagUnion(..))
+                    )
+                })
+            {
+                internal_error!("recursive loop does not contain a tag union")
+            }
+
+            return;
         }
     }
 }
@@ -2708,10 +2831,20 @@ fn unify_shared_tags_merge_new<M: MetaCollector>(
     new_ext_var: Variable,
     recursion_var: Rec,
 ) -> Outcome<M> {
+    if env.was_fixed(ctx.first) && env.was_fixed(ctx.second) {
+        // Both of the tags we're looking at were just involved in fixpoint-fixing, so their types
+        // should be aligned. As such, do not attempt to unify them and update the recursion
+        // pointer again.
+        debug_assert!(env
+            .subs
+            .equivalent_without_compacting(ctx.first, ctx.second));
+        return Default::default();
+    }
+
     let flat_type = match recursion_var {
         Rec::None => FlatType::TagUnion(new_tags, new_ext_var),
         Rec::Left(rec) | Rec::Right(rec) | Rec::Both(rec, _) => {
-            debug_assert!(is_recursion_var(env.subs, rec));
+            debug_assert!(is_recursion_var(env.subs, rec), "{:?}", env.subs.dbg(rec));
             FlatType::RecursiveTagUnion(rec, new_tags, new_ext_var)
         }
     };
@@ -2777,8 +2910,16 @@ fn unify_flat_type<M: MetaCollector>(
         }
 
         (RecursiveTagUnion(rec1, tags1, ext1), RecursiveTagUnion(rec2, tags2, ext2)) => {
-            debug_assert!(is_recursion_var(env.subs, *rec1));
-            debug_assert!(is_recursion_var(env.subs, *rec2));
+            debug_assert!(
+                is_recursion_var(env.subs, *rec1),
+                "{:?}",
+                env.subs.dbg(*rec1)
+            );
+            debug_assert!(
+                is_recursion_var(env.subs, *rec2),
+                "{:?}",
+                env.subs.dbg(*rec2)
+            );
 
             let rec = Rec::Both(*rec1, *rec2);
             let mut outcome = unify_tag_unions(env, pool, ctx, *tags1, *ext1, *tags2, *ext2, rec);
@@ -3247,7 +3388,15 @@ fn unify_recursion<M: MetaCollector>(
     structure: Variable,
     other: &Content,
 ) -> Outcome<M> {
-    match other {
+    if !matches!(other, RecursionVar { .. }) {
+        if env.seen_recursion_pair(ctx.first, ctx.second) {
+            return Default::default();
+        }
+
+        env.add_recursion_pair(ctx.first, ctx.second);
+    }
+
+    let outcome = match other {
         RecursionVar {
             opt_name: other_opt_name,
             structure: _other_structure,
@@ -3322,7 +3471,13 @@ fn unify_recursion<M: MetaCollector>(
         }
 
         Error => merge(env, ctx, Error),
+    };
+
+    if !matches!(other, RecursionVar { .. }) {
+        env.remove_recursion_pair(ctx.first, ctx.second);
     }
+
+    outcome
 }
 
 #[must_use]
@@ -3376,7 +3531,9 @@ fn is_recursion_var(subs: &Subs, var: Variable) -> bool {
     matches!(
         subs.get_content_without_compacting(var),
         Content::RecursionVar { .. }
-    )
+    ) ||
+        // Error-like vars should always unify, so pretend they are recursion vars too.
+        subs.is_error_var(var)
 }
 
 #[allow(clippy::too_many_arguments)]

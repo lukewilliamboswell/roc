@@ -1,4 +1,4 @@
-//! Provides the core CLI functionality for the `roc` binary
+//! Provides the core CLI functionality for the Roc binary.
 
 #[macro_use]
 extern crate const_format;
@@ -7,10 +7,11 @@ use build::BuiltFile;
 use bumpalo::Bump;
 use clap::{Arg, ArgMatches, Command, ValueSource};
 use roc_build::link::{LinkType, LinkingStrategy};
-use roc_build::program::{CodeGenBackend, CodeGenOptions, Problems};
+use roc_build::program::{CodeGenBackend, CodeGenOptions};
 use roc_error_macros::{internal_error, user_error};
 use roc_load::{ExpectMetadata, LoadingProblem, Threading};
 use roc_mono::ir::OptLevel;
+use roc_reporting::cli::Problems;
 use std::env;
 use std::ffi::{CString, OsStr};
 use std::io;
@@ -18,6 +19,7 @@ use std::mem::ManuallyDrop;
 use std::os::raw::{c_char, c_int};
 use std::path::{Path, PathBuf};
 use std::process;
+use strum::{EnumIter, IntoEnumIterator, IntoStaticStr};
 use target_lexicon::BinaryFormat;
 use target_lexicon::{
     Architecture, Environment, OperatingSystem, Triple, Vendor, X86_32Architecture,
@@ -151,8 +153,10 @@ pub fn build_app<'a>() -> Command<'a> {
                 Arg::new(FLAG_TARGET)
                     .long(FLAG_TARGET)
                     .help("Choose a different target")
-                    .default_value(Target::default().as_str())
-                    .possible_values(Target::OPTIONS)
+                    .default_value(Target::default().into())
+                    .possible_values(Target::iter().map(|target| {
+                        Into::<&'static str>::into(target)
+                    }))
                     .required(false),
             )
             .arg(
@@ -289,14 +293,16 @@ pub fn build_app<'a>() -> Command<'a> {
                 Arg::new(FLAG_TARGET)
                     .long(FLAG_TARGET)
                     .help("Choose a different target")
-                    .default_value(Target::default().as_str())
-                    .possible_values(Target::OPTIONS)
+                    .default_value(Target::default().into())
+                    .possible_values(Target::iter().map(|target| {
+                        Into::<&'static str>::into(target)
+                    }))
                     .required(false),
             )
         )
         .trailing_var_arg(true)
         .arg(flag_optimize)
-            .arg(flag_max_threads.clone())
+        .arg(flag_max_threads.clone())
         .arg(flag_opt_size)
         .arg(flag_dev)
         .arg(flag_debug)
@@ -403,6 +409,7 @@ pub fn test(matches: &ArgMatches, triple: Triple) -> io::Result<i32> {
         target_info,
         // TODO: expose this from CLI?
         render: roc_reporting::report::RenderTarget::ColorTerminal,
+        palette: roc_reporting::report::DEFAULT_PALETTE,
         threading,
         exec_mode: ExecutionMode::Test,
     };
@@ -639,8 +646,8 @@ pub fn build(
                     roc_run(&arena, opt_level, triple, args, bytes, expect_metadata)
                 }
                 BuildAndRunIfNoErrors => {
-                    debug_assert!(
-                        problems.errors == 0,
+                    debug_assert_eq!(
+                        problems.errors, 0,
                         "if there are errors, they should have been returned as an error variant"
                     );
                     if problems.warnings > 0 {
@@ -768,6 +775,16 @@ fn roc_run<'a, I: IntoIterator<Item = &'a OsStr>>(
 }
 
 #[cfg(target_family = "unix")]
+fn os_str_as_utf8_bytes(os_str: &OsStr) -> &[u8] {
+    use std::os::unix::ffi::OsStrExt;
+    os_str.as_bytes()
+}
+
+#[cfg(not(target_family = "unix"))]
+fn os_str_as_utf8_bytes(os_str: &OsStr) -> &[u8] {
+    os_str.to_str().unwrap().as_bytes()
+}
+
 fn make_argv_envp<'a, I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
     arena: &'a Bump,
     executable: &ExecutableFile,
@@ -777,10 +794,9 @@ fn make_argv_envp<'a, I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
     bumpalo::collections::Vec<'a, CString>,
 ) {
     use bumpalo::collections::CollectIn;
-    use std::os::unix::ffi::OsStrExt;
 
     let path = executable.as_path();
-    let path_cstring = CString::new(path.as_os_str().as_bytes()).unwrap();
+    let path_cstring = CString::new(os_str_as_utf8_bytes(path.as_os_str())).unwrap();
 
     // argv is an array of pointers to strings passed to the new program
     // as its command-line arguments.  By convention, the first of these
@@ -789,7 +805,7 @@ fn make_argv_envp<'a, I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
     // by a NULL pointer. (Thus, in the new program, argv[argc] will be NULL.)
     let it = args
         .into_iter()
-        .map(|x| CString::new(x.as_ref().as_bytes()).unwrap());
+        .map(|x| CString::new(os_str_as_utf8_bytes(x.as_ref())).unwrap());
 
     let argv_cstrings: bumpalo::collections::Vec<CString> =
         std::iter::once(path_cstring).chain(it).collect_in(arena);
@@ -803,55 +819,9 @@ fn make_argv_envp<'a, I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
             buffer.clear();
 
             use std::io::Write;
-            buffer.write_all(k.as_bytes()).unwrap();
+            buffer.write_all(os_str_as_utf8_bytes(&k)).unwrap();
             buffer.write_all(b"=").unwrap();
-            buffer.write_all(v.as_bytes()).unwrap();
-
-            CString::new(buffer.as_slice()).unwrap()
-        })
-        .collect_in(arena);
-
-    (argv_cstrings, envp_cstrings)
-}
-
-#[cfg_attr(not(target_family = "windows"), allow(unused))]
-fn make_argv_envp_windows<'a, I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
-    arena: &'a Bump,
-    executable: &ExecutableFile,
-    args: I,
-) -> (
-    bumpalo::collections::Vec<'a, CString>,
-    bumpalo::collections::Vec<'a, CString>,
-) {
-    use bumpalo::collections::CollectIn;
-
-    let path = executable.as_path();
-    let path_cstring = CString::new(path.as_os_str().to_str().unwrap().as_bytes()).unwrap();
-
-    // argv is an array of pointers to strings passed to the new program
-    // as its command-line arguments.  By convention, the first of these
-    // strings (i.e., argv[0]) should contain the filename associated
-    // with the file being executed.  The argv array must be terminated
-    // by a NULL pointer. (Thus, in the new program, argv[argc] will be NULL.)
-    let it = args
-        .into_iter()
-        .map(|x| CString::new(x.as_ref().to_str().unwrap().as_bytes()).unwrap());
-
-    let argv_cstrings: bumpalo::collections::Vec<CString> =
-        std::iter::once(path_cstring).chain(it).collect_in(arena);
-
-    // envp is an array of pointers to strings, conventionally of the
-    // form key=value, which are passed as the environment of the new
-    // program.  The envp array must be terminated by a NULL pointer.
-    let mut buffer = Vec::with_capacity(100);
-    let envp_cstrings: bumpalo::collections::Vec<CString> = std::env::vars_os()
-        .map(|(k, v)| {
-            buffer.clear();
-
-            use std::io::Write;
-            buffer.write_all(k.to_str().unwrap().as_bytes()).unwrap();
-            buffer.write_all(b"=").unwrap();
-            buffer.write_all(v.to_str().unwrap().as_bytes()).unwrap();
+            buffer.write_all(os_str_as_utf8_bytes(&v)).unwrap();
 
             CString::new(buffer.as_slice()).unwrap()
         })
@@ -970,7 +940,11 @@ fn roc_dev_native(
     expect_metadata: ExpectMetadata,
 ) -> ! {
     use roc_repl_expect::run::ExpectMemory;
-    use signal_hook::{consts::signal::SIGCHLD, consts::signal::SIGUSR1, iterator::Signals};
+    use signal_hook::{
+        consts::signal::SIGCHLD,
+        consts::signal::{SIGUSR1, SIGUSR2},
+        iterator::Signals,
+    };
 
     let ExpectMetadata {
         mut expectations,
@@ -978,7 +952,7 @@ fn roc_dev_native(
         layout_interner,
     } = expect_metadata;
 
-    let mut signals = Signals::new(&[SIGCHLD, SIGUSR1]).unwrap();
+    let mut signals = Signals::new(&[SIGCHLD, SIGUSR1, SIGUSR2]).unwrap();
 
     // let shm_name =
     let shm_name = format!("/roc_expect_buffer_{}", std::process::id());
@@ -1015,6 +989,19 @@ fn roc_dev_native(
                         // this is the signal we use for an expect failure. Let's see what the child told us
 
                         roc_repl_expect::run::render_expects_in_memory(
+                            &mut writer,
+                            arena,
+                            &mut expectations,
+                            &interns,
+                            &layout_interner,
+                            &memory,
+                        )
+                        .unwrap();
+                    }
+                    SIGUSR2 => {
+                        // this is the signal we use for a dbg
+
+                        roc_repl_expect::run::render_dbgs_in_memory(
                             &mut writer,
                             arena,
                             &mut expectations,
@@ -1122,7 +1109,7 @@ fn roc_run_native<I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
         let executable = roc_run_executable_file_path(binary_bytes)?;
 
         // TODO forward the arguments
-        let (argv_cstrings, envp_cstrings) = make_argv_envp_windows(&arena, &executable, args);
+        let (argv_cstrings, envp_cstrings) = make_argv_envp(&arena, &executable, args);
 
         let argv: bumpalo::collections::Vec<*const c_char> = argv_cstrings
             .iter()
@@ -1186,12 +1173,17 @@ fn run_with_wasmer<I: Iterator<Item = S>, S: AsRef<[u8]>>(_wasm_path: &std::path
     println!("Running wasm files is not supported on this target.");
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, EnumIter, IntoStaticStr, PartialEq, Eq)]
 pub enum Target {
+    #[strum(serialize = "system")]
     System,
+    #[strum(serialize = "linux32")]
     Linux32,
+    #[strum(serialize = "linux64")]
     Linux64,
+    #[strum(serialize = "windows64")]
     Windows64,
+    #[strum(serialize = "wasm32")]
     Wasm32,
 }
 
@@ -1202,27 +1194,6 @@ impl Default for Target {
 }
 
 impl Target {
-    const fn as_str(&self) -> &'static str {
-        use Target::*;
-
-        match self {
-            System => "system",
-            Linux32 => "linux32",
-            Linux64 => "linux64",
-            Windows64 => "windows64",
-            Wasm32 => "wasm32",
-        }
-    }
-
-    /// NOTE keep up to date!
-    const OPTIONS: &'static [&'static str] = &[
-        Target::System.as_str(),
-        Target::Linux32.as_str(),
-        Target::Linux64.as_str(),
-        Target::Windows64.as_str(),
-        Target::Wasm32.as_str(),
-    ];
-
     pub fn to_triple(self) -> Triple {
         use Target::*;
 
@@ -1268,7 +1239,7 @@ impl From<&Target> for Triple {
 
 impl std::fmt::Display for Target {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
+        write!(f, "{}", Into::<&'static str>::into(self))
     }
 }
 

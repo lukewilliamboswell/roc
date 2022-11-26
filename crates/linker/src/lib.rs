@@ -1,10 +1,15 @@
+//! Surgical linker that links platforms to Roc applications. We created our own
+//! linker for performance, since regular linkers add complexity that is not
+//! needed for linking Roc apps. Because we want `roc` to manage the build
+//! system and final linking of the executable, it is significantly less
+//! practical to use a regular linker.
 use memmap2::{Mmap, MmapMut};
 use object::Object;
 use roc_build::link::{rebuild_host, LinkType};
 use roc_error_macros::internal_error;
 use roc_load::{EntryPoint, ExecutionMode, LoadConfig, Threading};
 use roc_mono::ir::OptLevel;
-use roc_reporting::report::RenderTarget;
+use roc_reporting::report::{RenderTarget, DEFAULT_PALETTE};
 use std::cmp::Ordering;
 use std::mem;
 use std::path::{Path, PathBuf};
@@ -72,7 +77,7 @@ pub fn build_and_preprocess_host(
     generate_dynamic_lib(target, &stub_dll_symbols, &stub_lib);
     rebuild_host(opt_level, target, host_input_path, Some(&stub_lib));
     let metadata = host_input_path.with_file_name("metadata");
-    // let prehost = host_input_path.with_file_name("preprocessedhost");
+    // let prehost = host_input_path.with_file_name(preprocessed_host_filename(target).unwrap());
 
     preprocess(
         target,
@@ -112,6 +117,7 @@ pub fn generate_stub_lib(input_path: &Path, triple: &Triple) -> std::io::Result<
         LoadConfig {
             target_info,
             render: RenderTarget::Generic,
+            palette: DEFAULT_PALETTE,
             threading: Threading::AllAvailable,
             exec_mode: ExecutionMode::Executable,
         },
@@ -192,7 +198,9 @@ fn generate_dynamic_lib(target: &Triple, stub_dll_symbols: &[String], stub_lib_p
         let bytes = crate::generate_dylib::generate(target, stub_dll_symbols)
             .unwrap_or_else(|e| internal_error!("{e}"));
 
-        std::fs::write(stub_lib_path, &bytes).unwrap_or_else(|e| internal_error!("{e}"));
+        if let Err(e) = std::fs::write(stub_lib_path, &bytes) {
+            internal_error!("failed to write stub lib to {:?}: {e}", stub_lib_path)
+        }
 
         if let target_lexicon::OperatingSystem::Windows = target.operating_system {
             generate_import_library(stub_lib_path, stub_dll_symbols);
@@ -206,8 +214,9 @@ fn generate_import_library(stub_lib_path: &Path, custom_names: &[String]) {
     let mut def_path = stub_lib_path.to_owned();
     def_path.set_extension("def");
 
-    std::fs::write(def_path, def_file_content.as_bytes())
-        .unwrap_or_else(|e| internal_error!("{e}"));
+    if let Err(e) = std::fs::write(&def_path, def_file_content.as_bytes()) {
+        internal_error!("failed to write import library to {:?}: {e}", def_path)
+    }
 
     let mut def_filename = PathBuf::from(generate_dylib::APP_DLL);
     def_filename.set_extension("def");
@@ -493,7 +502,7 @@ pub(crate) fn open_mmap(path: &Path) -> Mmap {
     let in_file = std::fs::OpenOptions::new()
         .read(true)
         .open(path)
-        .unwrap_or_else(|e| internal_error!("{e}"));
+        .unwrap_or_else(|e| internal_error!("failed to open file {path:?}: {e}"));
 
     unsafe { Mmap::map(&in_file).unwrap_or_else(|e| internal_error!("{e}")) }
 }
@@ -504,7 +513,7 @@ pub(crate) fn open_mmap_mut(path: &Path, length: usize) -> MmapMut {
         .write(true)
         .create(true)
         .open(path)
-        .unwrap_or_else(|e| internal_error!("{e}"));
+        .unwrap_or_else(|e| internal_error!("failed to create or open file {path:?}: {e}"));
     out_file
         .set_len(length as u64)
         .unwrap_or_else(|e| internal_error!("{e}"));

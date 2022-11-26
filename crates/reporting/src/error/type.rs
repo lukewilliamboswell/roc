@@ -6,9 +6,9 @@ use roc_collections::VecMap;
 use roc_error_macros::internal_error;
 use roc_exhaustive::{CtorName, ListArity};
 use roc_module::called_via::{BinOp, CalledVia};
-use roc_module::ident::{Ident, IdentStr, Lowercase, TagName};
+use roc_module::ident::{IdentStr, Lowercase, TagName};
 use roc_module::symbol::Symbol;
-use roc_region::all::{LineInfo, Loc, Region};
+use roc_region::all::{LineInfo, Region};
 use roc_solve_problem::{
     NotDerivableContext, NotDerivableDecode, NotDerivableEq, TypeError, UnderivableReason,
     Unfulfilled,
@@ -22,7 +22,6 @@ use roc_types::types::{
 use std::path::PathBuf;
 use ven_pretty::DocAllocator;
 
-const DUPLICATE_NAME: &str = "DUPLICATE NAME";
 const ADD_ANNOTATIONS: &str = r#"Can more type annotations be added? Type annotations always help me give more specific messages, and I think they could help a lot in this case"#;
 
 const OPAQUE_NUM_SYMBOLS: &[Symbol] = &[
@@ -74,66 +73,6 @@ pub fn type_problem<'b>(
                 .append(alloc.reflow("."));
 
             report(title, doc, filename)
-        }
-        BadType(type_problem) => {
-            use roc_types::types::Problem::*;
-            match type_problem {
-                BadTypeArguments {
-                    symbol,
-                    region,
-                    type_got,
-                    alias_needs,
-                    alias_kind,
-                } => {
-                    let needed_arguments = if alias_needs == 1 {
-                        alloc.reflow("1 type argument")
-                    } else {
-                        alloc
-                            .text(alias_needs.to_string())
-                            .append(alloc.reflow(" type arguments"))
-                    };
-
-                    let found_arguments = alloc.text(type_got.to_string());
-
-                    let doc = alloc.stack([
-                        alloc.concat([
-                            alloc.reflow("The "),
-                            alloc.symbol_unqualified(symbol),
-                            alloc.reflow(" "),
-                            alloc.reflow(alias_kind.as_str()),
-                            alloc.reflow(" expects "),
-                            needed_arguments,
-                            alloc.reflow(", but it got "),
-                            found_arguments,
-                            alloc.reflow(" instead:"),
-                        ]),
-                        alloc.region(lines.convert_region(region)),
-                        alloc.reflow("Are there missing parentheses?"),
-                    ]);
-
-                    let title = if type_got > alias_needs {
-                        "TOO MANY TYPE ARGUMENTS".to_string()
-                    } else {
-                        "TOO FEW TYPE ARGUMENTS".to_string()
-                    };
-
-                    report(title, doc, filename)
-                }
-                Shadowed(original_region, shadow) => {
-                    let doc = report_shadowing(alloc, lines, original_region, shadow);
-                    let title = DUPLICATE_NAME.to_string();
-
-                    report(title, doc, filename)
-                }
-
-                SolvedTypeError => None, // Don't re-report cascading errors - see https://github.com/roc-lang/roc/pull/1711
-
-                // We'll also report these as a canonicalization problem, no need to re-report them.
-                CyclicAlias(..) => None,
-                UnrecognizedIdent(..) => None,
-
-                other => panic!("unhandled bad type: {:?}", other),
-            }
         }
         UnfulfilledAbility(incomplete) => {
             let title = "INCOMPLETE ABILITY IMPLEMENTATION".to_string();
@@ -453,26 +392,6 @@ fn underivable_hint<'b>(
             }
         },
     }
-}
-
-fn report_shadowing<'b>(
-    alloc: &'b RocDocAllocator<'b>,
-    lines: &LineInfo,
-    original_region: Region,
-    shadow: Loc<Ident>,
-) -> RocDocBuilder<'b> {
-    let line = r#"Since these types have the same name, it's easy to use the wrong one on accident. Give one of them a new name."#;
-
-    alloc.stack([
-        alloc
-            .text("The ")
-            .append(alloc.ident(shadow.value))
-            .append(alloc.reflow(" name is first defined here:")),
-        alloc.region(lines.convert_region(original_region)),
-        alloc.reflow("But then it's defined a second time here:"),
-        alloc.region(lines.convert_region(shadow.region)),
-        alloc.reflow(line),
-    ])
 }
 
 pub fn cyclic_alias<'b>(
@@ -1456,6 +1375,42 @@ fn to_expr_report<'b>(
                 }
             }
 
+            Reason::CrashArg => {
+                let this_is = alloc.reflow("The value is");
+
+                let wanted = alloc.concat([
+                    alloc.reflow("But I can only "),
+                    alloc.keyword("crash"),
+                    alloc.reflow(" with messages of type"),
+                ]);
+
+                let details = None;
+
+                let lines = [
+                    alloc
+                        .reflow("This value passed to ")
+                        .append(alloc.keyword("crash"))
+                        .append(alloc.reflow(" is not a string:")),
+                    alloc.region(lines.convert_region(region)),
+                    type_comparison(
+                        alloc,
+                        found,
+                        expected_type,
+                        ExpectationContext::WhenCondition,
+                        add_category(alloc, this_is, &category),
+                        wanted,
+                        details,
+                    ),
+                ];
+
+                Report {
+                    filename,
+                    title: "TYPE MISMATCH".to_string(),
+                    doc: alloc.stack(lines),
+                    severity: Severity::RuntimeError,
+                }
+            }
+
             Reason::LowLevelOpArg { op, arg_index } => {
                 panic!(
                     "Compiler bug: argument #{} to low-level operation {:?} was the wrong type!",
@@ -1761,6 +1716,10 @@ fn format_category<'b>(
             alloc.concat([this_is, alloc.text(" an uniqueness attribute")]),
             alloc.text(" of type:"),
         ),
+        Crash => {
+            internal_error!("calls to crash should be unconditionally admitted in any context, unexpected reachability!");
+        }
+
         Storage(..) | Unknown => (
             alloc.concat([this_is, alloc.text(" a value")]),
             alloc.text(" of type:"),
@@ -1775,6 +1734,10 @@ fn format_category<'b>(
         ),
         Expect => (
             alloc.concat([this_is, alloc.text(" an expectation")]),
+            alloc.text(" of type:"),
+        ),
+        Dbg => (
+            alloc.concat([this_is, alloc.text(" a dbg statement")]),
             alloc.text(" of type:"),
         ),
     }
@@ -2492,47 +2455,56 @@ fn count_generated_name_usages<'a>(
     usages: &mut VecMap<Lowercase, usize>,
     types: impl IntoIterator<Item = &'a ErrorType>,
 ) {
-    let mut stack = types.into_iter().collect::<Vec<_>>();
+    // Stack consists of (type, only_unseen) where if `only_unseen`, then the count should only be
+    // incremented if the variable has not already been seen. This is to deal with counting phantom
+    // variables in type aliases, while not double-counting alias type arguments that also appear
+    // in the real type.
+    let mut stack = types.into_iter().map(|t| (t, false)).collect::<Vec<_>>();
 
     let mut ext_stack = vec![];
 
     use ErrorType::*;
-    while let Some(tipe) = stack.pop() {
+    while let Some((tipe, only_unseen)) = stack.pop() {
         match tipe {
             FlexVar(name) | FlexAbleVar(name, _) => {
                 if is_generated_name(name) {
                     let count = usages.get_or_insert(name.clone(), || 0);
-                    *count += 1;
+                    if !only_unseen || *count == 0 {
+                        *count += 1;
+                    }
                 }
             }
             RigidVar(name) | RigidAbleVar(name, _) => {
                 debug_assert!(!is_generated_name(name));
             }
             Type(_, tys) => {
-                stack.extend(tys);
+                stack.extend(tys.iter().map(|t| (t, only_unseen)));
             }
             Record(fields, ext) => {
-                stack.extend(fields.values().map(|f| f.as_inner()));
-                ext_stack.push(ext);
+                stack.extend(fields.values().map(|f| (f.as_inner(), only_unseen)));
+                ext_stack.push((ext, only_unseen));
             }
             TagUnion(tags, ext, _) => {
-                stack.extend(tags.values().flatten());
-                ext_stack.push(ext);
+                stack.extend(tags.values().flatten().map(|t| (t, only_unseen)));
+                ext_stack.push((ext, only_unseen));
             }
             RecursiveTagUnion(rec, tags, ext, _) => {
-                stack.push(rec);
-                stack.extend(tags.values().flatten());
-                ext_stack.push(ext);
+                stack.push((rec, only_unseen));
+                stack.extend(tags.values().flatten().map(|t| (t, only_unseen)));
+                ext_stack.push((ext, only_unseen));
             }
             Function(args, _lset, ret) => {
-                stack.extend(args);
-                stack.push(ret);
+                stack.extend(args.iter().map(|t| (t, only_unseen)));
+                stack.push((ret, only_unseen));
             }
-            Alias(_, _args, real, _) => {
-                // Since the arguments should always be captured in the real type,
-                // only look at the real type. Otherwise we might think a variable appears twice
-                // when it doesn't.
-                stack.push(real);
+            Alias(_, args, real, _) => {
+                // Then, count up any phantom args that were missed b/c they're not referenced in
+                // the real var. Set `only_unseen` so that we don not double-count vars that do
+                // appear in the real var.
+                stack.extend(args.iter().map(|t| (t, true)));
+
+                // First, count the occurrences in the real var
+                stack.push((real, only_unseen));
             }
             Infinite | Error => {}
             Range(_) => {}
@@ -2544,14 +2516,16 @@ fn count_generated_name_usages<'a>(
 
 fn count_generated_name_usages_in_exts<'a>(
     usages: &mut VecMap<Lowercase, usize>,
-    exts: impl IntoIterator<Item = &'a TypeExt>,
+    exts: impl IntoIterator<Item = (&'a TypeExt, bool)>,
 ) {
-    for ext in exts {
+    for (ext, only_unseen) in exts {
         match ext {
             TypeExt::FlexOpen(name) => {
                 if is_generated_name(name) {
                     let count = usages.get_or_insert(name.clone(), || 0);
-                    *count += 1;
+                    if !only_unseen || *count == 0 {
+                        *count += 1;
+                    }
                 }
             }
             TypeExt::RigidOpen(name) => {
@@ -3174,13 +3148,13 @@ fn diff_tag_union<'b>(
     let gen_usages1 = {
         let mut usages = VecMap::default();
         count_generated_name_usages(&mut usages, fields1.values().flatten());
-        count_generated_name_usages_in_exts(&mut usages, [&ext1]);
+        count_generated_name_usages_in_exts(&mut usages, [(&ext1, false)]);
         usages
     };
     let gen_usages2 = {
         let mut usages = VecMap::default();
         count_generated_name_usages(&mut usages, fields2.values().flatten());
-        count_generated_name_usages_in_exts(&mut usages, [&ext2]);
+        count_generated_name_usages_in_exts(&mut usages, [(&ext2, false)]);
         usages
     };
 

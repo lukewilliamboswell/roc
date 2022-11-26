@@ -86,6 +86,7 @@ mod test_reporting {
             let load_config = LoadConfig {
                 target_info: roc_target::TargetInfo::default_x86_64(),
                 render: RenderTarget::Generic,
+                palette: DEFAULT_PALETTE,
                 threading: Threading::Single,
                 exec_mode: ExecutionMode::Check,
             };
@@ -202,6 +203,7 @@ mod test_reporting {
             home,
             interns,
             problems: can_problems,
+            mut types,
             ..
         } = can_expr(arena, expr_src)?;
         let mut subs = Subs::new_from_varstore(var_store);
@@ -217,7 +219,7 @@ mod test_reporting {
         let mut solve_aliases = roc_solve::solve::Aliases::default();
 
         for (name, alias) in output.aliases {
-            solve_aliases.insert(name, alias);
+            solve_aliases.insert(&mut types, name, alias);
         }
 
         let mut unify_problems = Vec::new();
@@ -225,6 +227,7 @@ mod test_reporting {
         let (_content, _subs) = infer_expr(
             subs,
             &mut unify_problems,
+            types,
             &constraints,
             &constraint,
             // Use `new_report_problem_as` in order to get proper derives.
@@ -1141,20 +1144,20 @@ mod test_reporting {
         @r###"
     ── TYPE MISMATCH ───────────────────────────────────────── /code/proj/Main.roc ─
 
-    This expression is used in an unexpected way:
+    This 1st argument to `f` has an unexpected type:
 
     7│      g = \x -> f [x]
-                      ^^^^^
+                        ^^^
 
-    This `f` call produces:
-
-        List List b
-
-    But you are trying to use it as:
+    The argument is a list of type:
 
         List b
 
-    Tip: The type annotation uses the type variable `b` to say that this
+    But `f` needs its 1st argument to be:
+
+        a
+
+    Tip: The type annotation uses the type variable `a` to say that this
     definition can produce any type of value. But in the body I see that
     it will only produce a `List` value of a single specific type. Maybe
     change the type annotation to be more specific? Maybe change the code
@@ -4407,13 +4410,14 @@ mod test_reporting {
         @r###"
     ── UNFINISHED PARENTHESES ────────────────── tmp/type_in_parens_start/Test.roc ─
 
-    I just started parsing a type in parentheses, but I got stuck here:
+    I am partway through parsing a type in parentheses, but I got stuck
+    here:
 
     4│      f : (
                  ^
 
-    Tag unions look like [Many I64, None], so I was expecting to see a tag
-    name next.
+    I was expecting to see a parenthesis before this, so try adding a )
+    and see if that helps?
 
     Note: I may be confused by indentation
     "###
@@ -4433,12 +4437,12 @@ mod test_reporting {
     here:
 
     4│      f : ( I64
-                     ^
+    5│
+    6│
+        ^
 
-    I was expecting to see a parenthesis before this, so try adding a )
-    and see if that helps?
-
-    Note: I may be confused by indentation
+    I was expecting to see a closing parenthesis before this, so try
+    adding a ) and see if that helps?
     "###
     );
 
@@ -4851,6 +4855,7 @@ mod test_reporting {
 
     I am partway through parsing a `when` expression, but got stuck here:
 
+    4│      when Just 4 is
     5│          Just when ->
                      ^
 
@@ -4886,6 +4891,8 @@ mod test_reporting {
 
     I was partway through parsing a `when` expression, but I got stuck here:
 
+    4│      when 5 is
+    5│          1 -> 2
     6│          _
                  ^
 
@@ -5005,12 +5012,13 @@ mod test_reporting {
     I am parsing a `when` expression right now, but this arrow is confusing
     me:
 
+    5│          5 -> 2
     6│           _ -> 2
                    ^^
 
     It makes sense to see arrows around here, so I suspect it is something
-    earlier.Maybe this pattern is indented a bit farther from the previous
-    patterns?
+    earlier. Maybe this pattern is indented a bit farther from the
+    previous patterns?
 
     Note: Here is an example of a valid `when` expression for reference.
 
@@ -5041,12 +5049,13 @@ mod test_reporting {
     I am parsing a `when` expression right now, but this arrow is confusing
     me:
 
+    5│          5 -> Num.neg
     6│           2 -> 2
                    ^^
 
     It makes sense to see arrows around here, so I suspect it is something
-    earlier.Maybe this pattern is indented a bit farther from the previous
-    patterns?
+    earlier. Maybe this pattern is indented a bit farther from the
+    previous patterns?
 
     Note: Here is an example of a valid `when` expression for reference.
 
@@ -5289,6 +5298,7 @@ mod test_reporting {
 
     This multiline string is not sufficiently indented:
 
+    4│          """
     5│        testing
               ^
 
@@ -5942,12 +5952,12 @@ All branches in an `if` must have the same type!
     here:
 
     4│      \( a
-                ^
+    5│
+    6│
+        ^
 
     I was expecting to see a closing parenthesis before this, so try
     adding a ) and see if that helps?
-
-    Note: I may be confused by indentation
     "###
     );
 
@@ -5965,7 +5975,9 @@ All branches in an `if` must have the same type!
     here:
 
     4│      \( a,
-                ^
+    5│
+    6│
+        ^
 
     I was expecting to see a closing parenthesis before this, so try
     adding a ) and see if that helps?
@@ -5986,17 +5998,17 @@ All branches in an `if` must have the same type!
     here:
 
     4│      \( a
-                ^
+    5│
+    6│
+        ^
 
     I was expecting to see a closing parenthesis before this, so try
     adding a ) and see if that helps?
-
-    Note: I may be confused by indentation
     "###
     );
 
     test_report!(
-        pattern_in_parens_indent_end,
+        unfinished_closure_pattern_in_parens,
         indoc!(
             r#"
             x = \( a
@@ -6004,17 +6016,15 @@ All branches in an `if` must have the same type!
             "#
         ),
         @r###"
-    ── NEED MORE INDENTATION ─────────── tmp/pattern_in_parens_indent_end/Test.roc ─
+    ── UNFINISHED FUNCTION ───── tmp/unfinished_closure_pattern_in_parens/Test.roc ─
 
-    I am partway through parsing a pattern in parentheses, but I got stuck
-    here:
+    I was partway through parsing a  function, but I got stuck here:
 
     4│      x = \( a
     5│      )
-            ^
+             ^
 
-    I need this parenthesis to be indented more. Try adding more spaces
-    before it!
+    I just saw a pattern, so I was expecting to see a -> next.
     "###
     );
 
@@ -6037,33 +6047,6 @@ All branches in an `if` must have the same type!
     to see a field name next.
 
     Note: I may be confused by indentation
-    "###
-    );
-
-    test_report!(
-        outdented_in_parens,
-        indoc!(
-            r#"
-            Box : (
-                Str
-            )
-
-            4
-            "#
-        ),
-        @r###"
-    ── NEED MORE INDENTATION ──────────────────── tmp/outdented_in_parens/Test.roc ─
-
-    I am partway through parsing a type in parentheses, but I got stuck
-    here:
-
-    4│      Box : (
-    5│          Str
-    6│      )
-            ^
-
-    I need this parenthesis to be indented more. Try adding more spaces
-    before it!
     "###
     );
 
@@ -8063,6 +8046,7 @@ All branches in an `if` must have the same type!
         I was partway through parsing an ability definition, but I got stuck
         here:
 
+        4│      MEq has
         5│          eq b c : a, a -> U64 | a has MEq
                        ^
 
@@ -8635,38 +8619,23 @@ All branches in an `if` must have the same type!
             hash = \@Id n -> n
             "#
         ),
-        @r#"
-        ── TYPE MISMATCH ───────────────────────────────────────── /code/proj/Main.roc ─
+        @r###"
+    ── TYPE MISMATCH ───────────────────────────────────────── /code/proj/Main.roc ─
 
-        Something is off with the body of the `hash` definition:
+    Something is off with the body of the `hash` definition:
 
-        8│  hash : Id -> U32
-        9│  hash = \@Id n -> n
-                             ^
+    8│  hash : Id -> U32
+    9│  hash = \@Id n -> n
+                         ^
 
-        This `n` value is a:
+    This `n` value is a:
 
-            U64
+        U64
 
-        But the type annotation on `hash` says it should be:
+    But the type annotation on `hash` says it should be:
 
-            U32
-
-        ── TYPE MISMATCH ───────────────────────────────────────── /code/proj/Main.roc ─
-
-        Something is off with this specialization of `hash`:
-
-        9│  hash = \@Id n -> n
-                   ^^^^^^^^^^^
-
-        This value is a declared specialization of type:
-
-            Id -> U32
-
-        But the type annotation on `hash` says it must match:
-
-            Id -> U64
-        "#
+        U32
+    "###
     );
 
     test_report!(
@@ -11766,14 +11735,19 @@ All branches in an `if` must have the same type!
     @r###"
     ── UNNECESSARY WILDCARD ────────────────────────────────── /code/proj/Main.roc ─
 
-    I see you annotated a wildcard in a place where it's not needed:
+    This type annotation has a wildcard type variable (`*`) that isn't
+    needed.
 
     4│      f : {} -> [A, B]*
                             ^
 
-    Tag unions that are constants, or the return values of functions, are
-    always inferred to be open by default! You can remove this annotation
-    safely.
+    Annotations for tag unions which are constants, or which are returned
+    from functions, work the same way with or without a `*` at the end. (The
+    `*` means something different when the tag union is an argument to a
+    function, though!)
+
+    You can safely remove this to make the code more concise without
+    changing what it means.
     "###
     );
 
@@ -12409,5 +12383,139 @@ All branches in an `if` must have the same type!
                 _ -> ""
             "#
         )
+    );
+
+    test_report!(
+        polymorphic_recursion_forces_ungeneralized_type,
+        indoc!(
+            r#"
+            foo : a, Bool -> Str
+            foo = \in, b -> if b then "done" else bar in
+
+            bar = \_ -> foo {} Bool.true
+
+            foo "" Bool.false
+            "#
+        ),
+    @r###"
+    ── TYPE MISMATCH ───────────────────────────────────────── /code/proj/Main.roc ─
+
+    This 1st argument to `foo` has an unexpected type:
+
+    9│      foo "" Bool.false
+                ^^
+
+    The argument is a string of type:
+
+        Str
+
+    But `foo` needs its 1st argument to be:
+
+        a
+
+    Tip: The type annotation uses the type variable `a` to say that this
+    definition can produce any type of value. But in the body I see that
+    it will only produce a `Str` value of a single specific type. Maybe
+    change the type annotation to be more specific? Maybe change the code
+    to be more general?
+    "###
+    );
+
+    test_report!(
+        suggest_binding_rigid_var_to_ability,
+        indoc!(
+            r#"
+            app "test" provides [f] to "./p"
+
+            f : List e -> List e
+            f = \l -> if l == l then l else l
+            "#
+        ),
+    @r###"
+    ── TYPE MISMATCH ───────────────────────────────────────── /code/proj/Main.roc ─
+
+    This expression has a type that does not implement the abilities it's expected to:
+
+    4│  f = \l -> if l == l then l else l
+                     ^
+
+    I can't generate an implementation of the `Eq` ability for
+
+        List e
+
+    In particular, an implementation for
+
+        e
+
+    cannot be generated.
+
+    Tip: This type variable is not bound to `Eq`. Consider adding a `has`
+    clause to bind the type variable, like `| e has Bool.Eq`
+    "###
+    );
+
+    test_report!(
+        crash_given_non_string,
+        indoc!(
+            r#"
+            crash {}
+            "#
+        ),
+    @r###"
+    ── TYPE MISMATCH ───────────────────────────────────────── /code/proj/Main.roc ─
+
+    This value passed to `crash` is not a string:
+
+    4│      crash {}
+                  ^^
+
+    The value is a record of type:
+
+        {}
+
+    But I can only `crash` with messages of type
+
+        Str
+    "###
+    );
+
+    test_report!(
+        crash_unapplied,
+        indoc!(
+            r#"
+            crash
+            "#
+        ),
+    @r###"
+    ── UNAPPLIED CRASH ─────────────────────────────────────── /code/proj/Main.roc ─
+
+    This `crash` doesn't have a message given to it:
+
+    4│      crash
+            ^^^^^
+
+    `crash` must be passed a message to crash with at the exact place it's
+    used. `crash` can't be used as a value that's passed around, like
+    functions can be - it must be applied immediately!
+    "###
+    );
+
+    test_report!(
+        crash_overapplied,
+        indoc!(
+            r#"
+            crash "" ""
+            "#
+        ),
+    @r###"
+    ── OVERAPPLIED CRASH ───────────────────────────────────── /code/proj/Main.roc ─
+
+    This `crash` has too many values given to it:
+
+    4│      crash "" ""
+                  ^^^^^
+
+    `crash` must be given exacly one message to crash with.
+    "###
     );
 }

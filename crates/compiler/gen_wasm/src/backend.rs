@@ -1,7 +1,6 @@
 use bitvec::vec::BitVec;
 use bumpalo::collections::{String, Vec};
 
-use code_builder::Align;
 use roc_builtins::bitcode::{FloatWidth, IntWidth};
 use roc_collections::all::MutMap;
 use roc_error_macros::internal_error;
@@ -9,26 +8,28 @@ use roc_module::low_level::{LowLevel, LowLevelWrapperType};
 use roc_module::symbol::{Interns, Symbol};
 use roc_mono::code_gen_help::{CodeGenHelp, HelperOp, REFCOUNT_MAX};
 use roc_mono::ir::{
-    BranchInfo, CallType, Expr, JoinPointId, ListLiteralElement, Literal, ModifyRc, Param, Proc,
-    ProcLayout, Stmt,
+    BranchInfo, CallType, CrashTag, Expr, JoinPointId, ListLiteralElement, Literal, ModifyRc,
+    Param, Proc, ProcLayout, Stmt,
 };
 use roc_mono::layout::{Builtin, Layout, LayoutIds, TagIdIntType, UnionLayout};
 use roc_std::RocDec;
 
-use crate::layout::{CallConv, ReturnMethod, WasmLayout};
-use crate::low_level::{call_higher_order_lowlevel, LowLevelCall};
-use crate::storage::{AddressValue, Storage, StoredValue, StoredVarKind};
-use crate::wasm_module::linking::{DataSymbol, WasmObjectSymbol};
-use crate::wasm_module::sections::{
+use roc_wasm_module::linking::{DataSymbol, WasmObjectSymbol};
+use roc_wasm_module::sections::{
     ConstExpr, DataMode, DataSegment, Export, Global, GlobalType, Import, ImportDesc, Limits,
     MemorySection, NameSection,
 };
-use crate::wasm_module::{
-    code_builder, CodeBuilder, ExportType, LocalId, Signature, SymInfo, ValueType, WasmModule,
+use roc_wasm_module::{
+    round_up_to_alignment, Align, ExportType, LocalId, Signature, SymInfo, ValueType, WasmModule,
 };
+
+use crate::code_builder::CodeBuilder;
+use crate::layout::{CallConv, ReturnMethod, WasmLayout};
+use crate::low_level::{call_higher_order_lowlevel, LowLevelCall};
+use crate::storage::{AddressValue, Storage, StoredValue, StoredVarKind};
 use crate::{
-    copy_memory, round_up_to_alignment, CopyMemoryConfig, Env, DEBUG_SETTINGS, MEMORY_NAME,
-    PTR_SIZE, PTR_TYPE, TARGET_INFO,
+    copy_memory, CopyMemoryConfig, Env, DEBUG_SETTINGS, MEMORY_NAME, PTR_SIZE, PTR_TYPE,
+    TARGET_INFO,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -55,7 +56,8 @@ pub struct WasmBackend<'a> {
     module: WasmModule<'a>,
     layout_ids: LayoutIds<'a>,
     pub fn_index_offset: u32,
-    called_preload_fns: BitVec<usize>,
+    import_fn_count: u32,
+    called_fns: BitVec<usize>,
     pub proc_lookup: Vec<'a, ProcLookupData<'a>>,
     host_lookup: Vec<'a, (&'a str, u32)>,
     helper_proc_gen: CodeGenHelp<'a>,
@@ -103,10 +105,12 @@ impl<'a> WasmBackend<'a> {
         }
 
         module.link_host_to_app_calls(env.arena, host_to_app_map);
-        module.code.code_builders.reserve(proc_lookup.len());
-
-        let host_function_count = module.import.imports.len()
-            + (module.code.dead_import_dummy_count + module.code.preloaded_count) as usize;
+        let import_fn_count = module.import.function_count();
+        let host_function_count = import_fn_count
+            + module.code.dead_import_dummy_count as usize
+            + module.code.function_count as usize;
+        let mut called_fns = BitVec::repeat(false, host_function_count);
+        called_fns.extend(std::iter::repeat(true).take(proc_lookup.len()));
 
         WasmBackend {
             env,
@@ -114,10 +118,10 @@ impl<'a> WasmBackend<'a> {
 
             // Module-level data
             module,
-
             layout_ids,
             fn_index_offset,
-            called_preload_fns: BitVec::repeat(false, host_function_count),
+            import_fn_count: import_fn_count as u32,
+            called_fns,
             proc_lookup,
             host_lookup,
             helper_proc_gen,
@@ -211,7 +215,7 @@ impl<'a> WasmBackend<'a> {
                     self.module.data.end_addr += PTR_SIZE;
 
                     self.module.reloc_code.apply_relocs_u32(
-                        &mut self.module.code.preloaded_bytes,
+                        &mut self.module.code.bytes,
                         sym_index as u32,
                         global_value_addr,
                     );
@@ -261,6 +265,8 @@ impl<'a> WasmBackend<'a> {
             source,
         });
 
+        self.called_fns.push(true);
+
         let linker_symbol = SymInfo::Function(WasmObjectSymbol::ExplicitlyNamed {
             flags: 0,
             index: wasm_fn_index,
@@ -278,7 +284,7 @@ impl<'a> WasmBackend<'a> {
         self.maybe_call_host_main();
         let fn_table_size = 1 + self.module.element.max_table_index();
         self.module.table.function_table.limits = Limits::MinMax(fn_table_size, fn_table_size);
-        (self.module, self.called_preload_fns)
+        (self.module, self.called_fns)
     }
 
     /// If the host has a `main` function then we need to insert a `_start` to call it.
@@ -319,7 +325,7 @@ impl<'a> WasmBackend<'a> {
         self.module.export.append(Export {
             name: START,
             ty: ExportType::Func,
-            index: self.fn_index_offset + self.module.code.code_builders.len() as u32,
+            index: self.module.code.function_count,
         });
 
         self.code_builder.i32_const(0); // argc=0
@@ -329,7 +335,7 @@ impl<'a> WasmBackend<'a> {
         self.code_builder.build_fn_header_and_footer(&[], 0, None);
         self.reset();
 
-        self.called_preload_fns.set(main_fn_index as usize, true);
+        self.called_fns.set(main_fn_index as usize, true);
     }
 
     /// Register the debug names of Symbols in a global lookup table
@@ -363,11 +369,8 @@ impl<'a> WasmBackend<'a> {
 
     /// Reset function-level data
     fn reset(&mut self) {
-        // Push the completed CodeBuilder into the module and swap it for a new empty one
-        let mut swap_code_builder = CodeBuilder::new(self.env.arena);
-        std::mem::swap(&mut swap_code_builder, &mut self.code_builder);
-        self.module.code.code_builders.push(swap_code_builder);
-
+        self.code_builder.insert_into_module(&mut self.module);
+        self.code_builder.clear();
         self.storage.clear();
         self.joinpoint_label_map.clear();
         assert_eq!(self.block_depth, 0);
@@ -714,7 +717,7 @@ impl<'a> WasmBackend<'a> {
             Stmt::Expect { .. } => todo!("expect is not implemented in the wasm backend"),
             Stmt::ExpectFx { .. } => todo!("expect-fx is not implemented in the wasm backend"),
 
-            Stmt::RuntimeError(msg) => self.stmt_runtime_error(msg),
+            Stmt::Crash(sym, tag) => self.stmt_crash(*sym, *tag),
         }
     }
 
@@ -984,19 +987,31 @@ impl<'a> WasmBackend<'a> {
         self.stmt(rc_stmt);
     }
 
-    pub fn stmt_runtime_error(&mut self, msg: &'a str) {
-        // Create a zero-terminated version of the message string
-        let mut bytes = Vec::with_capacity_in(msg.len() + 1, self.env.arena);
-        bytes.extend_from_slice(msg.as_bytes());
-        bytes.push(0);
+    pub fn stmt_internal_error(&mut self, msg: &'a str) {
+        let msg_sym = self.create_symbol("panic_str");
+        let msg_storage = self.storage.allocate_var(
+            self.env.layout_interner,
+            Layout::Builtin(Builtin::Str),
+            msg_sym,
+            StoredVarKind::Variable,
+        );
 
-        // Store it in the app's data section
-        let elements_addr = self.store_bytes_in_data_section(&bytes);
+        // Store the message as a RocStr on the stack
+        let (local_id, offset) = match msg_storage {
+            StoredValue::StackMemory { location, .. } => {
+                location.local_and_offset(self.storage.stack_frame_pointer)
+            }
+            _ => internal_error!("String must always have stack memory"),
+        };
+        self.expr_string_literal(msg, local_id, offset);
 
-        // Pass its address to roc_panic
-        let tag_id = 0;
-        self.code_builder.i32_const(elements_addr as i32);
-        self.code_builder.i32_const(tag_id);
+        self.stmt_crash(msg_sym, CrashTag::Roc);
+    }
+
+    pub fn stmt_crash(&mut self, msg: Symbol, tag: CrashTag) {
+        // load the pointer
+        self.storage.load_symbols(&mut self.code_builder, &[msg]);
+        self.code_builder.i32_const(tag as _);
         self.call_host_fn_after_loading_args("roc_panic", 2, false);
 
         self.code_builder.unreachable_();
@@ -1125,45 +1140,7 @@ impl<'a> WasmBackend<'a> {
                         let (local_id, offset) =
                             location.local_and_offset(self.storage.stack_frame_pointer);
 
-                        let len = string.len();
-                        if len < 12 {
-                            // Construct the bytes of the small string
-                            let mut bytes = [0; 12];
-                            bytes[0..len].clone_from_slice(string.as_bytes());
-                            bytes[11] = 0x80 | (len as u8);
-
-                            // Transform into two integers, to minimise number of instructions
-                            let bytes_split: &([u8; 8], [u8; 4]) =
-                                unsafe { std::mem::transmute(&bytes) };
-                            let int64 = i64::from_le_bytes(bytes_split.0);
-                            let int32 = i32::from_le_bytes(bytes_split.1);
-
-                            // Write the integers to memory
-                            self.code_builder.get_local(local_id);
-                            self.code_builder.i64_const(int64);
-                            self.code_builder.i64_store(Align::Bytes4, offset);
-                            self.code_builder.get_local(local_id);
-                            self.code_builder.i32_const(int32);
-                            self.code_builder.i32_store(Align::Bytes4, offset + 8);
-                        } else {
-                            let bytes = string.as_bytes();
-                            let elements_addr = self.store_bytes_in_data_section(bytes);
-
-                            // ptr
-                            self.code_builder.get_local(local_id);
-                            self.code_builder.i32_const(elements_addr as i32);
-                            self.code_builder.i32_store(Align::Bytes4, offset);
-
-                            // len
-                            self.code_builder.get_local(local_id);
-                            self.code_builder.i32_const(string.len() as i32);
-                            self.code_builder.i32_store(Align::Bytes4, offset + 4);
-
-                            // capacity
-                            self.code_builder.get_local(local_id);
-                            self.code_builder.i32_const(string.len() as i32);
-                            self.code_builder.i32_store(Align::Bytes4, offset + 8);
-                        };
+                        self.expr_string_literal(string, local_id, offset);
                     }
                     // Bools and bytes should not be stored in the stack frame
                     Literal::Bool(_) | Literal::Byte(_) => invalid_error(),
@@ -1171,6 +1148,47 @@ impl<'a> WasmBackend<'a> {
             }
 
             _ => invalid_error(),
+        };
+    }
+
+    fn expr_string_literal(&mut self, string: &str, local_id: LocalId, offset: u32) {
+        let len = string.len();
+        if len < 12 {
+            // Construct the bytes of the small string
+            let mut bytes = [0; 12];
+            bytes[0..len].clone_from_slice(string.as_bytes());
+            bytes[11] = 0x80 | (len as u8);
+
+            // Transform into two integers, to minimise number of instructions
+            let bytes_split: &([u8; 8], [u8; 4]) = unsafe { std::mem::transmute(&bytes) };
+            let int64 = i64::from_le_bytes(bytes_split.0);
+            let int32 = i32::from_le_bytes(bytes_split.1);
+
+            // Write the integers to memory
+            self.code_builder.get_local(local_id);
+            self.code_builder.i64_const(int64);
+            self.code_builder.i64_store(Align::Bytes4, offset);
+            self.code_builder.get_local(local_id);
+            self.code_builder.i32_const(int32);
+            self.code_builder.i32_store(Align::Bytes4, offset + 8);
+        } else {
+            let bytes = string.as_bytes();
+            let elements_addr = self.store_bytes_in_data_section(bytes);
+
+            // ptr
+            self.code_builder.get_local(local_id);
+            self.code_builder.i32_const(elements_addr as i32);
+            self.code_builder.i32_store(Align::Bytes4, offset);
+
+            // len
+            self.code_builder.get_local(local_id);
+            self.code_builder.i32_const(string.len() as i32);
+            self.code_builder.i32_store(Align::Bytes4, offset + 4);
+
+            // capacity
+            self.code_builder.get_local(local_id);
+            self.code_builder.i32_const(string.len() as i32);
+            self.code_builder.i32_store(Align::Bytes4, offset + 8);
         };
     }
 
@@ -1340,10 +1358,9 @@ impl<'a> WasmBackend<'a> {
             .find(|(fn_name, _)| *fn_name == name)
             .unwrap_or_else(|| panic!("The Roc app tries to call `{}` but I can't find it!", name));
 
-        self.called_preload_fns.set(*fn_index as usize, true);
+        self.called_fns.set(*fn_index as usize, true);
 
-        let host_import_count = self.fn_index_offset - self.module.code.preloaded_count;
-        if *fn_index < host_import_count {
+        if *fn_index < self.import_fn_count {
             self.code_builder
                 .call_import(*fn_index, num_wasm_args, has_return_val);
         } else {

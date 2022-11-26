@@ -4,14 +4,13 @@ use std::path::PathBuf;
 use inkwell::module::Module;
 use libloading::Library;
 use roc_build::link::llvm_module_to_dylib;
-use roc_build::program::FunctionIterator;
 use roc_collections::all::MutSet;
 use roc_gen_llvm::llvm::externs::add_default_roc_externs;
 use roc_gen_llvm::{llvm::build::LlvmBackendMode, run_roc::RocCallResult};
 use roc_load::{EntryPoint, ExecutionMode, LoadConfig, Threading};
-use roc_mono::ir::OptLevel;
+use roc_mono::ir::{CrashTag, OptLevel};
 use roc_region::all::LineInfo;
-use roc_reporting::report::RenderTarget;
+use roc_reporting::report::{RenderTarget, DEFAULT_PALETTE};
 use roc_utils::zig;
 use target_lexicon::Triple;
 
@@ -71,6 +70,7 @@ fn create_llvm_module<'a>(
     let load_config = LoadConfig {
         target_info,
         render: RenderTarget::ColorTerminal,
+        palette: DEFAULT_PALETTE,
         threading: Threading::Single,
         exec_mode: ExecutionMode::Executable,
     };
@@ -106,7 +106,7 @@ fn create_llvm_module<'a>(
     let mut delayed_errors = Vec::new();
 
     for (home, (module_path, src)) in loaded.sources {
-        use roc_reporting::report::{can_problem, type_problem, RocDocAllocator, DEFAULT_PALETTE};
+        use roc_reporting::report::{can_problem, type_problem, RocDocAllocator};
 
         let can_problems = loaded.can_problems.remove(&home).unwrap_or_default();
         let type_problems = loaded.type_problems.remove(&home).unwrap_or_default();
@@ -192,7 +192,7 @@ fn create_llvm_module<'a>(
     debug_assert!(kind_id > 0);
     let attr = context.create_enum_attribute(kind_id, 1);
 
-    for function in FunctionIterator::from_module(module) {
+    for function in module.get_functions() {
         let name = function.get_name().to_str().unwrap();
         if name.starts_with("roc_builtins") {
             if name.starts_with("roc_builtins.expect") {
@@ -544,7 +544,10 @@ macro_rules! assert_wasm_evals_to {
 }
 
 #[allow(dead_code)]
-pub fn try_run_lib_function<T>(main_fn_name: &str, lib: &libloading::Library) -> Result<T, String> {
+pub fn try_run_lib_function<T>(
+    main_fn_name: &str,
+    lib: &libloading::Library,
+) -> Result<T, (String, CrashTag)> {
     unsafe {
         let main: libloading::Symbol<unsafe extern "C" fn(*mut RocCallResult<T>)> = lib
             .get(main_fn_name.as_bytes())
@@ -565,6 +568,7 @@ macro_rules! assert_llvm_evals_to {
         use bumpalo::Bump;
         use inkwell::context::Context;
         use roc_gen_llvm::llvm::build::LlvmBackendMode;
+        use roc_mono::ir::CrashTag;
 
         let arena = Bump::new();
         let context = Context::create();
@@ -594,7 +598,10 @@ macro_rules! assert_llvm_evals_to {
                 #[cfg(windows)]
                 std::mem::forget(given);
             }
-            Err(msg) => panic!("Roc failed with message: \"{}\"", msg),
+            Err((msg, tag)) => match tag {
+                CrashTag::Roc => panic!(r#"Roc failed with message: "{}""#, msg),
+                CrashTag::User => panic!(r#"User crash with message: "{}""#, msg),
+            },
         }
 
         // artificially extend the lifetime of `lib`
@@ -655,29 +662,6 @@ macro_rules! assert_evals_to {
     }};
 }
 
-#[allow(unused_macros)]
-macro_rules! expect_runtime_error_panic {
-    ($src:expr) => {{
-        #[cfg(feature = "gen-llvm-wasm")]
-        $crate::helpers::llvm::assert_wasm_evals_to!(
-            $src,
-            false, // fake value/type for eval
-            bool,
-            $crate::helpers::llvm::identity,
-            true // ignore problems
-        );
-
-        #[cfg(not(feature = "gen-llvm-wasm"))]
-        $crate::helpers::llvm::assert_llvm_evals_to!(
-            $src,
-            false, // fake value/type for eval
-            bool,
-            $crate::helpers::llvm::identity,
-            true // ignore problems
-        );
-    }};
-}
-
 #[allow(dead_code)]
 pub fn identity<T>(value: T) -> T {
     value
@@ -689,5 +673,3 @@ pub(crate) use assert_evals_to;
 pub(crate) use assert_llvm_evals_to;
 #[allow(unused_imports)]
 pub(crate) use assert_wasm_evals_to;
-#[allow(unused_imports)]
-pub(crate) use expect_runtime_error_panic;

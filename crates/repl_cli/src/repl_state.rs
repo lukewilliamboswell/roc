@@ -6,6 +6,7 @@ use roc_collections::MutSet;
 use roc_mono::ir::OptLevel;
 use roc_parse::ast::{Expr, Pattern, TypeDef, TypeHeader, ValueDef};
 use roc_parse::expr::{parse_single_def, ExprParseOptions, SingleDef};
+use roc_parse::parser::Parser;
 use roc_parse::parser::{EClosure, EExpr, EPattern};
 use roc_parse::parser::{EWhen, Either};
 use roc_parse::state::State;
@@ -195,6 +196,9 @@ impl ReplState {
                     | ValueDef::AnnotatedBody { .. } => {
                         todo!("handle pattern other than identifier (which repl doesn't support)")
                     }
+                    ValueDef::Dbg { .. } => {
+                        todo!("handle receiving a `dbg` - what should the repl do for that?")
+                    }
                     ValueDef::Expect { .. } => {
                         todo!("handle receiving an `expect` - what should the repl do for that?")
                     }
@@ -317,15 +321,15 @@ fn parse_src<'a>(arena: &'a Bump, line: &'a str) -> ParseOutcome<'a> {
         _ => {
             let src_bytes = line.as_bytes();
 
-            match roc_parse::expr::parse_loc_expr(arena, State::new(src_bytes), 0) {
+            match roc_parse::expr::loc_expr().parse(arena, State::new(src_bytes), 0) {
                 Ok((_, loc_expr, _)) => ParseOutcome::Expr(loc_expr.value),
                 // Special case some syntax errors to allow for multi-line inputs
-                Err((_, EExpr::Closure(EClosure::Body(_, _), _), _))
-                | Err((_, EExpr::When(EWhen::Pattern(EPattern::Start(_), _), _), _))
-                | Err((_, EExpr::Start(_), _))
-                | Err((_, EExpr::IndentStart(_), _)) => ParseOutcome::Incomplete,
-                Err((_, EExpr::DefMissingFinalExpr(_), _))
-                | Err((_, EExpr::DefMissingFinalExpr2(_, _), _)) => {
+                Err((_, EExpr::Closure(EClosure::Body(_, _), _)))
+                | Err((_, EExpr::When(EWhen::Pattern(EPattern::Start(_), _), _)))
+                | Err((_, EExpr::Start(_)))
+                | Err((_, EExpr::IndentStart(_))) => ParseOutcome::Incomplete,
+                Err((_, EExpr::DefMissingFinalExpr(_)))
+                | Err((_, EExpr::DefMissingFinalExpr2(_, _))) => {
                     // This indicates that we had an attempted def; re-parse it as a single-line def.
                     match parse_single_def(
                         ExprParseOptions {
