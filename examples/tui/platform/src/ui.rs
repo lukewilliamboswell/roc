@@ -532,12 +532,6 @@ fn getKeyMedia(mediaKey: crossterm::event::MediaKeyCode) -> crate::glue::MediaKe
     }
 }
 
-// TODO glue is currently generating the wrong type, I expect this to be ScrollOffset
-// but because it is identical to CursorPosition this is what is emplaced here instead.
-// When glue is fixed this wont compile here
-//
-// fn getScroll( scroll: crate::glue::ScrollOffset) -> (u16, u16) {
-//
 fn getScroll(scroll: u16) -> (u16, u16) {
 
     // TODO the following will crash if you give it too large a value
