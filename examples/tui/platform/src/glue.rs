@@ -123,7 +123,9 @@ pub union Event {
 #[repr(C)]
 pub struct Model {
     pub text: roc_std::RocStr,
-    pub scroll: R2,
+    pub todos: roc_std::RocList<roc_std::RocStr>,
+    pub bounds: Bounds,
+    pub scroll: u16,
 }
 
 #[cfg(any(
