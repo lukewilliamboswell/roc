@@ -10,6 +10,7 @@ interface Model
 
 Model : {
     text : Str,
+    todos : List Str,
     scroll : U16,
     bounds : { height : U16, width : U16 },
 }

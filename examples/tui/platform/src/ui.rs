@@ -278,7 +278,7 @@ fn renderParagraph<B: tui::backend::Backend>(
             // will be hidden if not set
         },
         Some((x,y)) => {
-            f.set_cursor(x,y);
+            f.set_cursor(area.x + x,area.y + y);
         },
     }
 

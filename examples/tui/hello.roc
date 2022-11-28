@@ -10,7 +10,8 @@ app "hello"
 # Initialise the Application
 init : Bounds -> Model
 init = \bounds -> {
-    text: "Luke!",
+    text: "",
+    todos: [],
     scroll: 0u16,
     bounds: bounds,
 }
@@ -18,13 +19,18 @@ init = \bounds -> {
 # Handle events from the platform
 update : Model, Event -> Model
 update = \model, event ->
+    # newTodos = List.append model.todos model.text
     when event is
         KeyPressed code ->
             when code is
+                Scalar char -> { model & text: Str.concat model.text char }
+                Delete | Backspace -> { model & text: removeLastCharacter model.text }
                 Left -> Model.updateScroll model Left
                 Right -> Model.updateScroll model Right
                 Up -> Model.updateScroll model Up
                 Down -> Model.updateScroll model Down
+                Enter ->
+                    { model & text: "", todos : ["newTodos", "asd"] }
                 _ -> model
 
         Resize newBounds ->
@@ -33,6 +39,12 @@ update = \model, event ->
         _ ->
             model
 
+removeLastCharacter = \text ->
+    text
+    |> Str.graphemes
+    |> List.dropLast
+    |> Str.joinWith ""
+
 # Build views to render to the terminal
 helpBar = Elem.paragraph {
     block: Elem.blockConfig {
@@ -40,14 +52,29 @@ helpBar = Elem.paragraph {
     },
 }
 
-inputBox = Elem.paragraph {
-    text: [Elem.unstyled "Almost have the cursor working..."],
-    block: Elem.blockConfig {
-        title: Elem.styled "Enter your todo:" { fg: Blue },
-        borders: [All],
-        borderStyle: Elem.st { fg: Blue },
-    },
-}
+inputBox = \text ->
+    length = text |> Str.graphemes |> List.len |> Num.toU16
+
+    if length == 0 then
+        Elem.paragraph {
+            text: [Elem.styled "Give me a todo..." { fg: Red }],
+            block: Elem.blockConfig {
+                title: Elem.styled "Enter your todo:" { fg: Blue },
+                borders: [All],
+                borderStyle: Elem.st { fg: Blue },
+            },
+        }
+    else
+        Elem.paragraph {
+            text: [Elem.styled text { fg: Green }],
+            block: Elem.blockConfig {
+                title: Elem.styled "Enter your todo:" { fg: Blue },
+                borders: [All],
+                borderStyle: Elem.st { fg: Blue },
+            },
+            cursor: At { row: 1, col: length + 1 },
+        }
+
 paragraphs = \scroll, text ->
     Elem.paragraph {
         text: text,
@@ -61,20 +88,27 @@ render : Model -> List Elem
 render = \model ->
     scrollStr = Num.toStr model.scroll
     boundsStr = boundsToStr model.bounds
+    body =
+        if List.len model.todos == 0 then
+            [
+                Elem.styled boundsStr { bg: Black, fg: White },
+                Elem.styled "Scroll is \(scrollStr)" { bg: Black, fg: Green },
+                Elem.styled ">> Resize the window to update window bounds value." { fg: Blue },
+                Elem.unstyled "",
+                Elem.styled ">> Use the up-down keys to scroll the body element" { fg: Red },
+                Elem.styled ">> Type in todos, and press enter to 'save' to list..." { fg: Green },
+                Elem.unstyled loremIpsum1,
+            ]
+        else
+            # []
+            # List.map model.todos Elem.unstyled 
+            [Elem.unstyled (Str.joinWith model.todos "")]
 
     root = Elem.layout
         [
             helpBar,
-            inputBox,
-            paragraphs model.scroll [
-                Elem.styled boundsStr { bg: Black, fg: White },
-                Elem.styled "Scroll is \(scrollStr)" { bg: Black, fg: Green },
-                Elem.styled ">> Hello\n" { fg: Blue },
-                Elem.unstyled "",
-                Elem.styled ">> World" { fg: Red },
-                Elem.unstyled "!",
-                Elem.unstyled loremIpsum1,
-            ],
+            inputBox model.text,
+            paragraphs model.scroll body,
         ]
         { constraints: [Min 2, Min 3, Ratio 1 1] }
 
