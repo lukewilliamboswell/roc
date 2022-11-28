@@ -258,10 +258,11 @@ impl<'a> TypeSection<'a> {
         self.bytes.is_empty()
     }
 
-    pub fn look_up_arg_count(&self, sig_index: u32) -> u32 {
+    pub fn look_up_arg_type_bytes(&self, sig_index: u32) -> &[u8] {
         let mut offset = self.offsets[sig_index as usize];
         offset += 1; // separator
-        u32::parse((), &self.bytes, &mut offset).unwrap()
+        let count = u32::parse((), &self.bytes, &mut offset).unwrap() as usize;
+        &self.bytes[offset..][..count]
     }
 }
 
@@ -1164,6 +1165,13 @@ pub struct ElementSegment<'a> {
 }
 
 impl<'a> ElementSegment<'a> {
+    pub fn new(arena: &'a Bump) -> Self {
+        ElementSegment {
+            offset: ConstExpr::I32(0),
+            fn_indices: Vec::new_in(arena),
+        }
+    }
+
     fn size(&self) -> usize {
         let variant_id = 1;
         let constexpr_opcode = 1;
@@ -1265,6 +1273,14 @@ impl<'a> ElementSection<'a> {
 
     pub fn is_empty(&self) -> bool {
         self.segments.iter().all(|seg| seg.fn_indices.is_empty())
+    }
+
+    /// Look up a "function pointer" (element index) and return the function index.
+    pub fn lookup(&self, element_index: u32) -> Option<u32> {
+        self.segments.iter().find_map(|seg| {
+            let adjusted_index = element_index as usize - seg.offset.unwrap_i32() as usize;
+            seg.fn_indices.get(adjusted_index).copied()
+        })
     }
 }
 
