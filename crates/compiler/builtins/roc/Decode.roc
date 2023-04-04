@@ -52,7 +52,7 @@ interface Decode
         Bool.{ Bool },
     ]
 
-DecodeError : [TooShort]
+DecodeError : [TooShort, NotARecord]
 
 DecodeResult val : { result : Result val DecodeError, rest : List U8 }
 
@@ -113,6 +113,7 @@ fromBytes = \bytes, fmt ->
                 when result is
                     Ok val -> Ok val
                     Err TooShort -> Err TooShort
+                    Err NotARecord -> Err NotARecord
             else
                 Err (Leftover rest)
 

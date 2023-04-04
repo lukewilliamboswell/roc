@@ -1082,7 +1082,7 @@ decodeRecord = \initialState, stepField, finalizer -> Decode.custom \bytes, @Jso
             valueBytes = List.drop bytesAfterField countBytesBeforeValue
 
             when fieldNameResult is
-                Err TooShort ->
+                Err _ ->
                     # Invalid object, unable to decode field name or find colon ':'
                     # after field and before the value
                     { result: Err TooShort, rest: bytes }
@@ -1127,19 +1127,15 @@ decodeRecord = \initialState, stepField, finalizer -> Decode.custom \bytes, @Jso
                             # Invalid object
                             { result: Err TooShort, rest: bytesAfterValue }
 
-        countBytesBeforeFirstField =
-            when List.walkUntil bytes (BeforeOpeningBrace 0) objectHelp is
-                ObjectFieldNameStart n -> n
-                _ -> 0
+        when List.walkUntil bytes (BeforeOpeningBrace 0) objectHelp is
+            ObjectFieldNameStart n ->
+                bytesBeforeFirstField = List.drop bytes n
 
-        if countBytesBeforeFirstField == 0 then
-            # Invalid object, expected opening brace '{' followed by a field
-            { result: Err TooShort, rest: bytes }
-        else
-            bytesBeforeFirstField = List.drop bytes countBytesBeforeFirstField
-
-            # Begin decoding field:value pairs
-            decodeFields initialState bytesBeforeFirstField
+                # Begin decoding field:value pairs
+                decodeFields initialState bytesBeforeFirstField
+            _ ->
+                # Invalid object, expected opening brace '{' followed by a field
+                { result: Err NotARecord, rest: bytes }
 
 objectHelp : ObjectState, U8 -> [Break ObjectState, Continue ObjectState]
 objectHelp = \state, byte ->
@@ -1194,11 +1190,11 @@ ObjectState : [
 
 # Test decode of simple Json Object
 # TODO this test makes `decodeBool` tests fail
-# expect
-#     input = Str.toUtf8 "{\"fruit\": true }"
+expect
+    input = Str.toUtf8 "{\"fruit\": true }"
 
-#     actual : DecodeResult { fruit : Bool }
-#     actual = Decode.fromBytesPartial input fromUtf8
-#     expected = Ok { fruit: Bool.true }
+    actual : DecodeResult { fruit : Bool }
+    actual = Decode.fromBytesPartial input fromUtf8
+    expected = Ok { fruit: Bool.true }
 
-#     actual.result == expected
+    actual.result == expected
