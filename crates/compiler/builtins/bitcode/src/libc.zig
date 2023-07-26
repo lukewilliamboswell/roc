@@ -9,7 +9,9 @@ comptime {
     // TODO: remove this workaround.
     // Our wasm llvm pipeline always links in memcpy.
     // As such, our impl will conflict.
-    if (arch != .wasm32) {
+    //
+    // For some reason memcpy is duplicated on Windows, removing here stops the error message
+    if (arch != .wasm32 and builtin.os.tag != .windows) {
         @export(memcpy, .{ .name = "memcpy", .linkage = .Strong });
     }
 }
