@@ -244,6 +244,24 @@ fn __roc_force_longjmp(a0: [*c]c_int, a1: c_int) callconv(.C) noreturn {
     longjmp(a0, a1);
 }
 
+fn roc_setjmp_windows_stub(it: [*c]c_int) callconv(.C) c_int {
+    _ = it;
+    return 0;
+}
+
+fn roc_longjmp_windows_stub(a0: [*c]c_int, a1: c_int) callconv(.C) noreturn {
+    _ = a0;
+    _ = a1;
+    std.os.exit(1);
+}
+
+comptime {
+    if (builtin.os.tag == .windows) {
+        @export(roc_longjmp_windows_stub, .{ .name = "longjmp", .linkage = .Strong });
+        @export(roc_setjmp_windows_stub, .{ .name = "setjmp", .linkage = .Strong });
+    }
+}
+
 // Export helpers - Must be run inside a comptime
 fn exportBuiltinFn(comptime func: anytype, comptime func_name: []const u8) void {
     @export(func, .{ .name = "roc_builtins." ++ func_name, .linkage = .Strong });
