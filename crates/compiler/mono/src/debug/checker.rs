@@ -30,6 +30,7 @@ pub enum UseKind {
     ErasedMake(ErasedField),
     Erased,
     FunctionPointer,
+    Alloca,
 }
 
 pub enum ProblemKind<'a> {
@@ -374,12 +375,7 @@ impl<'a, 'r> Ctx<'a, 'r> {
                     self.problem(ProblemKind::RedefinedJoinPoint { id, old_line })
                 }
                 self.in_scope(|ctx| {
-                    for Param {
-                        symbol,
-                        layout,
-                        ownership: _,
-                    } in parameters
-                    {
+                    for Param { symbol, layout } in parameters {
                         ctx.insert(*symbol, *layout);
                     }
                     ctx.check_stmt(body)
@@ -397,11 +393,7 @@ impl<'a, 'r> Ctx<'a, 'r> {
                         });
                     }
                     for (arg, param) in symbols.iter().zip(parameters.iter()) {
-                        let Param {
-                            symbol: _,
-                            ownership: _,
-                            layout,
-                        } = param;
+                        let Param { symbol: _, layout } = param;
                         self.check_sym_layout(*arg, *layout, UseKind::JumpArg);
                     }
                 } else {
@@ -531,6 +523,17 @@ impl<'a, 'r> Ctx<'a, 'r> {
                 update_mode: _,
             } => {
                 self.check_sym_exists(symbol);
+                None
+            }
+            Expr::Alloca {
+                initializer,
+                element_layout,
+            } => {
+                if let Some(initializer) = initializer {
+                    self.check_sym_exists(*initializer);
+                    self.check_sym_layout(*initializer, *element_layout, UseKind::Alloca);
+                }
+
                 None
             }
             Expr::RuntimeErrorFunction(_) => None,

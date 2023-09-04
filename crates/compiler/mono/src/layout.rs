@@ -580,7 +580,9 @@ impl<'a> RawFunctionLayout<'a> {
                 cacheable(Ok(Self::ZeroArgumentThunk(Layout::usize(env.target_info))))
             }
 
-            Alias(symbol, _, _, _) if symbol.is_builtin() => {
+            Alias(Symbol::INSPECT_ELEM_WALKER | Symbol::INSPECT_KEY_VAL_WALKER, _, var, _) => Self::from_var(env, var),
+
+            Alias(symbol, _, var, _) if symbol.is_builtin() => {
                 Layout::new_help(env, var, content).then(Self::ZeroArgumentThunk)
             }
 
@@ -2843,7 +2845,10 @@ impl<'a> LayoutRepr<'a> {
         }
     }
 
-    pub fn is_refcounted(&self) -> bool {
+    pub fn is_refcounted<I>(&self, interner: &I) -> bool
+    where
+        I: LayoutInterner<'a>,
+    {
         use self::Builtin::*;
         use LayoutRepr::*;
 
@@ -2857,6 +2862,8 @@ impl<'a> LayoutRepr<'a> {
             Builtin(List(_)) | Builtin(Str) => true,
 
             Erased(_) => true,
+
+            LambdaSet(lambda_set) => interner.is_refcounted(lambda_set.runtime_representation()),
 
             _ => false,
         }

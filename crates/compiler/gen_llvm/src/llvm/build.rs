@@ -43,7 +43,7 @@ use roc_error_macros::{internal_error, todo_lambda_erasure};
 use roc_module::symbol::{Interns, Symbol};
 use roc_mono::ir::{
     BranchInfo, CallType, CrashTag, EntryPoint, GlueLayouts, HostExposedLambdaSet,
-    ListLiteralElement, ModifyRc, OptLevel, ProcLayout, SingleEntryPoint,
+    HostExposedLambdaSets, ListLiteralElement, ModifyRc, OptLevel, ProcLayout, SingleEntryPoint,
 };
 use roc_mono::layout::{
     Builtin, InLayout, LambdaName, LambdaSet, Layout, LayoutIds, LayoutInterner, LayoutRepr, Niche,
@@ -1600,6 +1600,24 @@ pub(crate) fn build_exp_expr<'a, 'ctx>(
 
             get_tag_id(env, layout_interner, parent, union_layout, argument).into()
         }
+
+        Alloca {
+            initializer,
+            element_layout,
+        } => {
+            let element_type = basic_type_from_layout(
+                env,
+                layout_interner,
+                layout_interner.get_repr(*element_layout),
+            );
+            let ptr = entry_block_alloca_zerofill(env, element_type, "stack_value");
+
+            if let Some(initializer) = initializer {
+                env.builder.build_store(ptr, scope.load_symbol(initializer));
+            }
+
+            ptr.into()
+        }
     }
 }
 
@@ -2872,8 +2890,7 @@ pub(crate) fn build_exp_stmt<'a, 'ctx>(
                 DecRef(symbol) => {
                     let (value, layout) = scope.load_symbol_and_layout(symbol);
 
-                    let lay = layout_interner.get_repr(layout);
-                    match lay {
+                    match layout_interner.runtime_representation(layout) {
                         LayoutRepr::Builtin(Builtin::Str) => todo!(),
                         LayoutRepr::Builtin(Builtin::List(element_layout)) => {
                             debug_assert!(value.is_struct_value());
@@ -2883,16 +2900,19 @@ pub(crate) fn build_exp_stmt<'a, 'ctx>(
                             build_list::decref(env, value.into_struct_value(), alignment);
                         }
 
-                        _ if lay.is_refcounted() => {
+                        other_layout if other_layout.is_refcounted(layout_interner) => {
                             if value.is_pointer_value() {
-                                let value_ptr = match lay {
-                                    LayoutRepr::Union(union_layout)
-                                        if union_layout
-                                            .stores_tag_id_in_pointer(env.target_info) =>
-                                    {
-                                        tag_pointer_clear_tag_id(env, value.into_pointer_value())
+                                let clear_tag_id = match other_layout {
+                                    LayoutRepr::Union(union_layout) => {
+                                        union_layout.stores_tag_id_in_pointer(env.target_info)
                                     }
-                                    _ => value.into_pointer_value(),
+                                    _ => false,
+                                };
+
+                                let value_ptr = if clear_tag_id {
+                                    tag_pointer_clear_tag_id(env, value.into_pointer_value())
+                                } else {
+                                    value.into_pointer_value()
                                 };
 
                                 let then_block = env.context.append_basic_block(parent, "then");
@@ -2945,7 +2965,7 @@ pub(crate) fn build_exp_stmt<'a, 'ctx>(
                     debug_assert!(value.is_pointer_value());
                     let value = value.into_pointer_value();
 
-                    let clear_tag_id = match layout_interner.chase_recursive(layout) {
+                    let clear_tag_id = match layout_interner.runtime_representation(layout) {
                         LayoutRepr::Union(union) => union.stores_tag_id_in_pointer(env.target_info),
                         _ => false,
                     };
@@ -4900,6 +4920,7 @@ pub fn build_procedures<'a>(
     layout_interner: &STLayoutInterner<'a>,
     opt_level: OptLevel,
     procedures: MutMap<(Symbol, ProcLayout<'a>), roc_mono::ir::Proc<'a>>,
+    host_exposed_lambda_sets: HostExposedLambdaSets<'a>,
     entry_point: EntryPoint<'a>,
     debug_output_file: Option<&Path>,
     glue_layouts: &GlueLayouts<'a>,
@@ -4909,6 +4930,7 @@ pub fn build_procedures<'a>(
         layout_interner,
         opt_level,
         procedures,
+        host_exposed_lambda_sets,
         entry_point,
         debug_output_file,
     );
@@ -4962,6 +4984,7 @@ pub fn build_wasm_test_wrapper<'a, 'ctx>(
         layout_interner,
         opt_level,
         procedures,
+        vec![],
         EntryPoint::Single(entry_point),
         Some(&std::env::temp_dir().join("test.ll")),
     );
@@ -4980,6 +5003,7 @@ pub fn build_procedures_return_main<'a, 'ctx>(
     layout_interner: &STLayoutInterner<'a>,
     opt_level: OptLevel,
     procedures: MutMap<(Symbol, ProcLayout<'a>), roc_mono::ir::Proc<'a>>,
+    host_exposed_lambda_sets: HostExposedLambdaSets<'a>,
     entry_point: SingleEntryPoint<'a>,
 ) -> (&'static str, FunctionValue<'ctx>) {
     let mod_solutions = build_procedures_help(
@@ -4987,6 +5011,7 @@ pub fn build_procedures_return_main<'a, 'ctx>(
         layout_interner,
         opt_level,
         procedures,
+        host_exposed_lambda_sets,
         EntryPoint::Single(entry_point),
         Some(&std::env::temp_dir().join("test.ll")),
     );
@@ -5014,6 +5039,7 @@ pub fn build_procedures_expose_expects<'a>(
         layout_interner,
         opt_level,
         procedures,
+        vec![],
         entry_point,
         Some(&std::env::temp_dir().join("test.ll")),
     );
@@ -5076,20 +5102,23 @@ fn build_procedures_help<'a>(
     layout_interner: &STLayoutInterner<'a>,
     opt_level: OptLevel,
     procedures: MutMap<(Symbol, ProcLayout<'a>), roc_mono::ir::Proc<'a>>,
+    host_exposed_lambda_sets: HostExposedLambdaSets<'a>,
     entry_point: EntryPoint<'a>,
     debug_output_file: Option<&Path>,
 ) -> &'a ModSolutions {
     let mut layout_ids = roc_mono::layout::LayoutIds::default();
     let mut scope = Scope::default();
 
-    let it = procedures.iter().map(|x| x.1);
+    let it1 = procedures.iter().map(|x| x.1);
+    let it2 = host_exposed_lambda_sets.iter().map(|(_, _, hels)| hels);
 
     let solutions = match roc_alias_analysis::spec_program(
         env.arena,
         layout_interner,
         opt_level,
         entry_point,
-        it,
+        it1,
+        it2,
     ) {
         Err(e) => panic!("Error in alias analysis: {e}"),
         Ok(solutions) => solutions,
@@ -5127,7 +5156,6 @@ fn build_procedures_help<'a>(
             build_proc(
                 env,
                 layout_interner,
-                mod_solutions,
                 &mut layout_ids,
                 func_spec_solutions,
                 scope.clone(),
@@ -5168,6 +5196,26 @@ fn build_procedures_help<'a>(
                     mode,
                     )
                 }
+            }
+        }
+    }
+
+    use LlvmBackendMode::*;
+    match env.mode {
+        GenTest | WasmGenTest | CliTest => { /* no host, or exposing types is not supported */ }
+        Binary | BinaryDev | BinaryGlue => {
+            for (proc_name, alias_name, hels) in host_exposed_lambda_sets.iter() {
+                let ident_string = proc_name.name().as_str(&env.interns);
+                let fn_name: String = format!("{}_{}", ident_string, hels.id.0);
+
+                expose_alias_to_host(
+                    env,
+                    layout_interner,
+                    mod_solutions,
+                    &fn_name,
+                    *alias_name,
+                    hels,
+                )
             }
         }
     }
@@ -5538,43 +5586,12 @@ fn build_host_exposed_alias_size_help<'a, 'ctx>(
 fn build_proc<'a, 'ctx>(
     env: &Env<'a, 'ctx, '_>,
     layout_interner: &STLayoutInterner<'a>,
-    mod_solutions: &'a ModSolutions,
     layout_ids: &mut LayoutIds<'a>,
     func_spec_solutions: &FuncSpecSolutions,
     mut scope: Scope<'a, 'ctx>,
     proc: &roc_mono::ir::Proc<'a>,
     fn_val: FunctionValue<'ctx>,
 ) {
-    use roc_mono::ir::HostExposedLayouts;
-
-    match &proc.host_exposed_layouts {
-        HostExposedLayouts::NotHostExposed => {}
-        HostExposedLayouts::HostExposed { aliases, .. } => {
-            use LlvmBackendMode::*;
-
-            match env.mode {
-                GenTest | WasmGenTest | CliTest => {
-                    /* no host, or exposing types is not supported */
-                }
-                Binary | BinaryDev | BinaryGlue => {
-                    for (alias_name, hels) in aliases.iter() {
-                        let ident_string = proc.name.name().as_str(&env.interns);
-                        let fn_name: String = format!("{}_{}", ident_string, hels.id.0);
-
-                        expose_alias_to_host(
-                            env,
-                            layout_interner,
-                            mod_solutions,
-                            &fn_name,
-                            *alias_name,
-                            hels,
-                        )
-                    }
-                }
-            }
-        }
-    };
-
     let args = proc.args;
     let context = &env.context;
 

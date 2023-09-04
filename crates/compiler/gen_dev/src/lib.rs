@@ -45,6 +45,13 @@ impl AssemblyBackendMode {
             AssemblyBackendMode::Test => true,
         }
     }
+
+    fn generate_roc_panic(self) -> bool {
+        match self {
+            AssemblyBackendMode::Binary => false,
+            AssemblyBackendMode::Test => true,
+        }
+    }
 }
 
 pub struct Env<'a> {
@@ -183,9 +190,14 @@ impl<'a> LastSeenMap<'a> {
                     Expr::Reset { symbol, .. } | Expr::ResetRef { symbol, .. } => {
                         self.set_last_seen(*symbol, stmt);
                     }
+                    Expr::Alloca { initializer, .. } => {
+                        if let Some(initializer) = initializer {
+                            self.set_last_seen(*initializer, stmt);
+                        }
+                    }
+                    Expr::RuntimeErrorFunction(_) => {}
                     Expr::FunctionPointer { .. } => todo_lambda_erasure!(),
                     Expr::EmptyArray => {}
-                    Expr::RuntimeErrorFunction(_) => {}
                 }
                 self.scan_ast_help(following);
             }
@@ -286,6 +298,7 @@ trait Backend<'a> {
     fn interns(&self) -> &Interns;
     fn interns_mut(&mut self) -> &mut Interns;
     fn interner(&self) -> &STLayoutInterner<'a>;
+    fn relocations_mut(&mut self) -> &mut Vec<'a, Relocation>;
 
     fn interner_mut(&mut self) -> &mut STLayoutInterner<'a> {
         self.module_interns_helpers_mut().1
@@ -457,6 +470,11 @@ trait Backend<'a> {
 
     /// Used for generating wrappers for malloc/realloc/free
     fn build_wrapped_jmp(&mut self) -> (&'a [u8], u64);
+
+    // use for roc_panic
+    fn build_roc_setjmp(&mut self) -> &'a [u8];
+    fn build_roc_longjmp(&mut self) -> &'a [u8];
+    fn build_roc_panic(&mut self) -> (&'a [u8], Vec<'a, Relocation>);
 
     /// build_proc creates a procedure and outputs it to the wrapped object writer.
     /// Returns the procedure bytes, its relocations, and the names of the refcounting functions it references.
@@ -894,6 +912,12 @@ trait Backend<'a> {
                 }
 
                 self.build_expr(sym, &new_expr, &Layout::BOOL)
+            }
+            Expr::Alloca {
+                initializer,
+                element_layout,
+            } => {
+                self.build_alloca(*sym, *initializer, *element_layout);
             }
             Expr::RuntimeErrorFunction(_) => todo!(),
         }
@@ -1615,10 +1639,6 @@ trait Backend<'a> {
                 self.build_ptr_clear_tag_id(*sym, args[0]);
             }
 
-            LowLevel::Alloca => {
-                self.build_alloca(*sym, args[0], arg_layouts[0]);
-            }
-
             LowLevel::RefCountDecRcPtr => self.build_fn_call(
                 sym,
                 bitcode::UTILS_DECREF_RC_PTR.to_string(),
@@ -1654,6 +1674,23 @@ trait Backend<'a> {
                 arg_layouts,
                 ret_layout,
             ),
+            LowLevel::SetJmp => self.build_fn_call(
+                sym,
+                String::from("roc_setjmp"),
+                args,
+                arg_layouts,
+                ret_layout,
+            ),
+            LowLevel::LongJmp => self.build_fn_call(
+                sym,
+                String::from("roc_longjmp"),
+                args,
+                arg_layouts,
+                ret_layout,
+            ),
+            LowLevel::SetLongJmpBuffer => {
+                self.build_data_pointer(sym, String::from("setlongjmp_buffer"));
+            }
             LowLevel::DictPseudoSeed => self.build_fn_call(
                 sym,
                 bitcode::UTILS_DICT_PSEUDO_SEED.to_string(),
@@ -1956,6 +1993,7 @@ trait Backend<'a> {
     );
 
     fn build_fn_pointer(&mut self, dst: &Symbol, fn_name: String);
+    fn build_data_pointer(&mut self, dst: &Symbol, data_name: String);
 
     /// Move a returned value into `dst`
     fn move_return_value(&mut self, dst: &Symbol, ret_layout: &InLayout<'a>);
@@ -2259,7 +2297,7 @@ trait Backend<'a> {
 
     fn build_ptr_clear_tag_id(&mut self, sym: Symbol, ptr: Symbol);
 
-    fn build_alloca(&mut self, sym: Symbol, value: Symbol, element_layout: InLayout<'a>);
+    fn build_alloca(&mut self, sym: Symbol, value: Option<Symbol>, element_layout: InLayout<'a>);
 
     /// literal_map gets the map from symbol to literal and layout, used for lazy loading and literal folding.
     fn literal_map(&mut self) -> &mut MutMap<Symbol, (*const Literal<'a>, *const InLayout<'a>)>;

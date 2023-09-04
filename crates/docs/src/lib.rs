@@ -11,6 +11,7 @@ use roc_load::{ExecutionMode, LoadConfig, LoadedModule, LoadingProblem, Threadin
 use roc_module::symbol::{Interns, Symbol};
 use roc_packaging::cache::{self, RocCacheDir};
 use roc_parse::ident::{parse_ident, Accessor, Ident};
+use roc_parse::keyword;
 use roc_parse::state::State;
 use roc_region::all::Region;
 use std::fs;
@@ -25,8 +26,8 @@ pub fn generate_docs_html(root_file: PathBuf) {
     let loaded_module = load_module_for_docs(root_file);
 
     // TODO get these from the platform's source file rather than hardcoding them!
+    // github.com/roc-lang/roc/issues/5712
     let package_name = "Documentation".to_string();
-    let version = String::new();
 
     // Clear out the generated-docs dir (we'll create a fresh one at the end)
     if build_dir.exists() {
@@ -143,8 +144,8 @@ pub fn generate_docs_html(root_file: PathBuf) {
                 page_title(package_name.as_str(), "").as_str(),
             )
             .replace(
-                "<!-- Package Name and Version -->",
-                render_name_and_version(package_name.as_str(), version.as_str()).as_str(),
+                "<!-- Package Name -->",
+                render_name_link(package_name.as_str()).as_str(),
             )
             .replace(
                 "<!-- Module Docs -->",
@@ -170,8 +171,8 @@ pub fn generate_docs_html(root_file: PathBuf) {
                 page_title(package_name.as_str(), module_name).as_str(),
             )
             .replace(
-                "<!-- Package Name and Version -->",
-                render_name_and_version(package_name.as_str(), version.as_str()).as_str(),
+                "<!-- Package Name -->",
+                render_name_link(package_name.as_str()).as_str(),
             )
             .replace(
                 "<!-- Module Docs -->",
@@ -260,7 +261,13 @@ fn render_module_documentation(
                     let type_ann = &doc_def.type_annotation;
 
                     if !matches!(type_ann, TypeAnnotation::NoTypeAnn) {
-                        content.push_str(" : ");
+                        // Ability declarations don't have ":" after the name, just `implements`
+                        if !matches!(type_ann, TypeAnnotation::Ability { .. }) {
+                            content.push_str(" :");
+                        }
+
+                        content.push(' ');
+
                         type_annotation_to_html(0, &mut content, type_ann, false);
                     }
 
@@ -354,33 +361,23 @@ fn base_url() -> String {
     }
 }
 
-fn render_name_and_version(name: &str, version: &str) -> String {
+// TODO render version as well
+fn render_name_link(name: &str) -> String {
     let mut buf = String::new();
-    let mut url_str = base_url();
-
-    url_str.push_str(name);
 
     push_html(&mut buf, "h1", vec![("class", "pkg-full-name")], {
         let mut link_buf = String::new();
 
-        push_html(&mut link_buf, "a", vec![("href", url_str.as_str())], name);
+        // link to root (= docs overview page)
+        push_html(
+            &mut link_buf,
+            "a",
+            vec![("href", base_url().as_str())],
+            name,
+        );
 
         link_buf
     });
-
-    let mut versions_url_str = base_url();
-
-    versions_url_str.push('/');
-    versions_url_str.push_str(name);
-    versions_url_str.push('/');
-    versions_url_str.push_str(version);
-
-    push_html(
-        &mut buf,
-        "a",
-        vec![("class", "version"), ("href", versions_url_str.as_str())],
-        version,
-    );
 
     buf
 }
@@ -636,6 +633,7 @@ fn type_annotation_to_html(
         TypeAnnotation::Function { args, output } => {
             let mut paren_is_open = false;
             let mut peekable_args = args.iter().peekable();
+
             while let Some(arg) = peekable_args.next() {
                 if is_multiline {
                     if !should_be_multiline(arg) {
@@ -648,8 +646,7 @@ fn type_annotation_to_html(
                     paren_is_open = true;
                 }
 
-                let child_needs_parens =
-                    matches!(arg, TypeAnnotation::Function { args: _, output: _ });
+                let child_needs_parens = matches!(arg, TypeAnnotation::Function { .. });
                 type_annotation_to_html(indent_level, buf, arg, child_needs_parens);
 
                 if peekable_args.peek().is_some() {
@@ -660,9 +657,11 @@ fn type_annotation_to_html(
             if is_multiline {
                 new_line(buf);
                 indent(buf, indent_level + 1);
+            } else {
+                buf.push(' ');
             }
 
-            buf.push_str(" -> ");
+            buf.push_str("-> ");
 
             let mut next_indent_level = indent_level;
 
@@ -675,8 +674,54 @@ fn type_annotation_to_html(
                 buf.push(')');
             }
         }
-        TypeAnnotation::Ability { members: _ } => {
-            // TODO(abilities): fill me in
+        TypeAnnotation::Ability { members } => {
+            buf.push_str(keyword::IMPLEMENTS);
+
+            for member in members {
+                new_line(buf);
+                indent(buf, indent_level + 1);
+
+                // TODO use member.docs somehow. This doesn't look good though:
+                // if let Some(docs) = &member.docs {
+                //     buf.push_str("## ");
+                //     buf.push_str(docs);
+
+                //     new_line(buf);
+                //     indent(buf, indent_level + 1);
+                // }
+
+                buf.push_str(&member.name);
+                buf.push_str(" : ");
+
+                type_annotation_to_html(indent_level + 1, buf, &member.type_annotation, false);
+
+                if !member.able_variables.is_empty() {
+                    new_line(buf);
+                    indent(buf, indent_level + 2);
+                    buf.push_str(keyword::WHERE);
+
+                    for (index, (name, type_anns)) in member.able_variables.iter().enumerate() {
+                        if index != 0 {
+                            buf.push(',');
+                        }
+
+                        buf.push(' ');
+                        buf.push_str(name);
+                        buf.push(' ');
+                        buf.push_str(keyword::IMPLEMENTS);
+
+                        for (index, ann) in type_anns.iter().enumerate() {
+                            if index != 0 {
+                                buf.push_str(" &");
+                            }
+
+                            buf.push(' ');
+
+                            type_annotation_to_html(indent_level + 2, buf, ann, false);
+                        }
+                    }
+                }
+            }
         }
         TypeAnnotation::ObscuredTagUnion => {
             buf.push_str("[@..]");
@@ -686,77 +731,146 @@ fn type_annotation_to_html(
         }
         TypeAnnotation::NoTypeAnn => {}
         TypeAnnotation::Wildcard => buf.push('*'),
+        TypeAnnotation::Tuple { elems, extension } => {
+            let elems_len = elems.len();
+            let tuple_indent = indent_level + 1;
+
+            if is_multiline {
+                new_line(buf);
+                indent(buf, tuple_indent);
+            }
+
+            buf.push('(');
+
+            if is_multiline {
+                new_line(buf);
+            }
+
+            let next_indent_level = tuple_indent + 1;
+
+            for (index, elem) in elems.iter().enumerate() {
+                if is_multiline {
+                    indent(buf, next_indent_level);
+                }
+
+                type_annotation_to_html(next_indent_level, buf, elem, false);
+
+                if is_multiline {
+                    if index < (elems_len - 1) {
+                        buf.push(',');
+                    }
+
+                    new_line(buf);
+                }
+            }
+
+            if is_multiline {
+                indent(buf, tuple_indent);
+            }
+
+            buf.push(')');
+
+            type_annotation_to_html(indent_level, buf, extension, true);
+        }
+        TypeAnnotation::Where { ann, implements } => {
+            type_annotation_to_html(indent_level, buf, ann, false);
+
+            new_line(buf);
+            indent(buf, indent_level + 1);
+
+            buf.push_str(keyword::WHERE);
+
+            let multiline_implements = implements
+                .iter()
+                .any(|imp| imp.abilities.iter().any(should_be_multiline));
+
+            for (index, imp) in implements.iter().enumerate() {
+                if index != 0 {
+                    buf.push(',');
+                }
+
+                if multiline_implements {
+                    new_line(buf);
+                    indent(buf, indent_level + 2);
+                } else {
+                    buf.push(' ')
+                }
+
+                buf.push_str(&imp.name);
+                buf.push(' ');
+                buf.push_str(keyword::IMPLEMENTS);
+                buf.push(' ');
+
+                for (index, ability) in imp.abilities.iter().enumerate() {
+                    if index != 0 {
+                        buf.push_str(" & ");
+                    }
+
+                    type_annotation_to_html(indent_level, buf, ability, false);
+                }
+            }
+        }
+        TypeAnnotation::As { ann, name, vars } => {
+            type_annotation_to_html(indent_level, buf, ann, true);
+            buf.push(' ');
+            buf.push_str(name);
+
+            for var in vars {
+                buf.push(' ');
+                buf.push_str(var);
+            }
+        }
     }
 }
 
 fn should_be_multiline(type_ann: &TypeAnnotation) -> bool {
     match type_ann {
         TypeAnnotation::TagUnion { tags, extension } => {
-            let mut is_multiline = should_be_multiline(extension) || tags.len() > 1;
-
-            for tag in tags {
-                for value in &tag.values {
-                    if is_multiline {
-                        break;
-                    }
-                    is_multiline = should_be_multiline(value);
-                }
-            }
-
-            is_multiline
+            tags.len() > 1
+                || should_be_multiline(extension)
+                || tags
+                    .iter()
+                    .any(|tag| tag.values.iter().any(should_be_multiline))
         }
         TypeAnnotation::Function { args, output } => {
-            let mut is_multiline = should_be_multiline(output) || args.len() > 2;
-
-            for arg in args {
-                if is_multiline {
-                    break;
-                }
-
-                is_multiline = should_be_multiline(arg);
-            }
-
-            is_multiline
+            args.len() > 2 || should_be_multiline(output) || args.iter().any(should_be_multiline)
         }
         TypeAnnotation::ObscuredTagUnion => false,
         TypeAnnotation::ObscuredRecord => false,
         TypeAnnotation::BoundVariable(_) => false,
-        TypeAnnotation::Apply { parts, .. } => {
-            let mut is_multiline = false;
-
-            for part in parts {
-                is_multiline = should_be_multiline(part);
-
-                if is_multiline {
-                    break;
-                }
-            }
-
-            is_multiline
-        }
+        TypeAnnotation::Apply { parts, .. } => parts.iter().any(should_be_multiline),
         TypeAnnotation::Record { fields, extension } => {
-            let mut is_multiline = should_be_multiline(extension) || fields.len() > 1;
-
-            for field in fields {
-                if is_multiline {
-                    break;
-                }
-                match field {
+            fields.len() > 1
+                || should_be_multiline(extension)
+                || fields.iter().any(|field| match field {
                     RecordField::RecordField {
                         type_annotation, ..
-                    } => is_multiline = should_be_multiline(type_annotation),
+                    } => should_be_multiline(type_annotation),
                     RecordField::OptionalField {
                         type_annotation, ..
-                    } => is_multiline = should_be_multiline(type_annotation),
-                    RecordField::LabelOnly { .. } => {}
-                }
-            }
-
-            is_multiline
+                    } => should_be_multiline(type_annotation),
+                    RecordField::LabelOnly { .. } => false,
+                })
         }
         TypeAnnotation::Ability { .. } => true,
         TypeAnnotation::Wildcard => false,
         TypeAnnotation::NoTypeAnn => false,
+        TypeAnnotation::Tuple { elems, extension } => {
+            elems.len() > 1
+                || should_be_multiline(extension)
+                || elems.iter().any(should_be_multiline)
+        }
+        TypeAnnotation::Where { ann, implements } => {
+            should_be_multiline(ann)
+                || implements
+                    .iter()
+                    .any(|imp| imp.abilities.iter().any(should_be_multiline))
+        }
+        TypeAnnotation::As {
+            ann,
+            name: _,
+            vars: _,
+        } => should_be_multiline(ann),
     }
 }
 

@@ -1144,6 +1144,11 @@ impl<'a, 'r> WasmBackend<'a, 'r> {
 
             Expr::ResetRef { symbol: arg, .. } => self.expr_resetref(*arg, sym, storage),
 
+            Expr::Alloca {
+                initializer,
+                element_layout,
+            } => self.expr_alloca(*initializer, *element_layout, sym, storage),
+
             Expr::RuntimeErrorFunction(_) => {
                 todo!("Expression `{}`", expr.to_pretty(100, false))
             }
@@ -1155,8 +1160,13 @@ impl<'a, 'r> WasmBackend<'a, 'r> {
      *******************************************************************/
 
     fn expr_literal(&mut self, lit: &Literal<'a>, storage: &StoredValue) {
-        let invalid_error =
-            || internal_error!("Literal value {:?} has invalid storage {:?}", lit, storage);
+        let invalid_error = || {
+            internal_error!(
+                "Literal value {:?} implements invalid storage {:?}",
+                lit,
+                storage
+            )
+        };
 
         match storage {
             StoredValue::VirtualMachineStack { value_type, .. } => {
@@ -2140,6 +2150,48 @@ impl<'a, 'r> WasmBackend<'a, 'r> {
         );
     }
 
+    fn expr_alloca(
+        &mut self,
+        initializer: Option<Symbol>,
+        element_layout: InLayout<'a>,
+        ret_symbol: Symbol,
+        ret_storage: &StoredValue,
+    ) {
+        // Alloca : a -> Ptr a
+        let (size, alignment_bytes) = self
+            .layout_interner
+            .stack_size_and_alignment(element_layout);
+
+        let (frame_ptr, offset) = self
+            .storage
+            .allocate_anonymous_stack_memory(size, alignment_bytes);
+
+        // write the default value into the stack memory
+        if let Some(initializer) = initializer {
+            self.storage.copy_value_to_memory(
+                &mut self.code_builder,
+                frame_ptr,
+                offset,
+                initializer,
+            );
+        }
+
+        // create a local variable for the pointer
+        let ptr_local_id = match self.storage.ensure_value_has_local(
+            &mut self.code_builder,
+            ret_symbol,
+            ret_storage.clone(),
+        ) {
+            StoredValue::Local { local_id, .. } => local_id,
+            _ => internal_error!("A pointer will always be an i32"),
+        };
+
+        self.code_builder.get_local(frame_ptr);
+        self.code_builder.i32_const(offset as i32);
+        self.code_builder.i32_add();
+        self.code_builder.set_local(ptr_local_id);
+    }
+
     /// Generate a refcount helper procedure and return a pointer (table index) to it
     /// This allows it to be indirectly called from Zig code
     pub fn get_refcount_fn_index(&mut self, layout: InLayout<'a>, op: HelperOp) -> u32 {
@@ -2158,10 +2210,15 @@ impl<'a, 'r> WasmBackend<'a, 'r> {
             self.register_helper_proc(spec_sym, spec_layout, ProcSource::Helper);
         }
 
+        let layout_repr = self.layout_interner.runtime_representation(layout);
+        let same_layout =
+            |layout| self.layout_interner.runtime_representation(layout) == layout_repr;
         let proc_index = self
             .proc_lookup
             .iter()
-            .position(|lookup| lookup.name == proc_symbol && lookup.layout.arguments[0] == layout)
+            .position(|lookup| {
+                lookup.name == proc_symbol && same_layout(lookup.layout.arguments[0])
+            })
             .unwrap();
 
         self.fn_index_offset + proc_index as u32
