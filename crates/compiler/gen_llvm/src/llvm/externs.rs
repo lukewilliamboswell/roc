@@ -168,7 +168,6 @@ pub fn add_default_roc_externs(env: &Env<'_, '_, '_>) {
         }
 
         add_sjlj_roc_panic(env)
-        
     }
 }
 
