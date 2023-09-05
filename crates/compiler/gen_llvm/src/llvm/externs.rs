@@ -160,7 +160,7 @@ pub fn add_default_roc_externs(env: &Env<'_, '_, '_>) {
             }
         }
 
-        #[cfg(not(windows))]
+        #[cfg(not(target_os = "windows"))]
         {
             unreachable_function(env, "roc_getppid");
             unreachable_function(env, "roc_mmap");

@@ -12,7 +12,7 @@ comptime {
     //
     // For some reason memcpy is duplicated on Windows, removing here stops the error message
     if (arch != .wasm32 and builtin.os.tag != .windows) {
-        @export(memcpy, .{ .name = "memcpy", .linkage = .Strong });
+        @export(memcpy, .{ .name = "memcpy", .linkage = .Weak });
     }
 }
 
