@@ -122,7 +122,7 @@ comptime {
     exportNumFn(num.greaterThanU128, "greater_than.u128");
     exportNumFn(num.greaterThanOrEqualU128, "greater_than_or_equal.u128");
 
-    inline for (INTEGERS) |T, i| {
+    inline for (INTEGERS, 0..) |T, i| {
         num.exportPow(T, ROC_BUILTINS ++ "." ++ NUM ++ ".pow_int.");
         num.exportDivCeil(T, ROC_BUILTINS ++ "." ++ NUM ++ ".div_ceil.");
 
@@ -310,12 +310,9 @@ fn exportUtilsFn(comptime func: anytype, comptime func_name: []const u8) void {
 }
 
 // Custom panic function, as builtin Zig version errors during LLVM verification
-pub fn panic(message: []const u8, stacktrace: ?*std.builtin.StackTrace) noreturn {
+pub fn panic(message: []const u8, stacktrace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     if (builtin.is_test) {
         std.debug.print("{s}: {?}", .{ message, stacktrace });
-    } else {
-        _ = message;
-        _ = stacktrace;
     }
 
     unreachable;
@@ -323,7 +320,7 @@ pub fn panic(message: []const u8, stacktrace: ?*std.builtin.StackTrace) noreturn
 
 // Run all tests in imported modules
 // https://github.com/ziglang/zig/blob/master/lib/std/std.zig#L94
-test "" {
+test {
     const testing = std.testing;
 
     testing.refAllDecls(@This());
