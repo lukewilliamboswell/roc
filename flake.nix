@@ -2,7 +2,7 @@
   description = "Roc flake";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs?rev=821c72743ceae44bdd09718d47cab98fd5fd90af";
+    nixpkgs.url = "github:nixos/nixpkgs?rev=5148520bfab61f99fd25fb9ff7bfbb50dad3c9db";
 
     # rust from nixpkgs has some libc problems, this is patched in the rust-overlay
     rust-overlay = {
@@ -29,8 +29,8 @@
         pkgs = import nixpkgs { inherit system overlays; };
 
         # When updating the zig or llvm version, make sure they stay in sync.
-        zigPkg = pkgs.zig_0_9;
-        llvmPkgs = pkgs.llvmPackages_13;
+        zigPkg = pkgs.zig_0_11;
+        llvmPkgs = pkgs.llvmPackages_16;
         llvmVersion = builtins.splitVersion llvmPkgs.release_version;
         llvmMajorMinorStr = builtins.elemAt llvmVersion 0 + builtins.elemAt llvmVersion 1;
 
@@ -118,7 +118,8 @@
           python3
           libiconv # for examples/gui
           libxkbcommon # for examples/gui
-          debugir # used in crates/compiler/build/src/program.rs
+          # debugir needs to be updated to llvm 15
+          # debugir # used in crates/compiler/build/src/program.rs
           cargo-criterion # for benchmarks
           simple-http-server # to view roc website when trying out edits
           wasm-pack # for repl_wasm
