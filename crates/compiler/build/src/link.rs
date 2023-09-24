@@ -1238,7 +1238,6 @@ fn link_windows(
                     &format!("glue::{}", find_zig_glue_path().to_str().unwrap()),
                     "--deps",
                     "glue",
-                    "--strip",
                     "-O",
                     "Debug",
                     "-dynamic",
