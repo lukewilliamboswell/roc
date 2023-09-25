@@ -98,27 +98,36 @@ fn call_bitcode_fn_help<'ctx>(
 pub fn call_bitcode_fn_fixing_for_convention<'a, 'ctx, 'env>(
     env: &Env<'a, 'ctx, 'env>,
     layout_interner: &STLayoutInterner<'a>,
-    bitcode_return_type: StructType<'ctx>,
+    bitcode_return_type: BasicTypeEnum<'ctx>,
     args: &[BasicValueEnum<'ctx>],
     return_layout: InLayout<'a>,
     fn_name: &str,
 ) -> BasicValueEnum<'ctx> {
+
+    let roc_return_type = basic_type_from_layout(
+        env,
+        layout_interner,
+        layout_interner.get_repr(return_layout),
+    );
+
     // Calling zig bitcode, so we must follow C calling conventions.
     let cc_return = to_cc_return(env, layout_interner, return_layout);
     match cc_return {
         CCReturn::Return => {
             // We'll get a return value
-            call_bitcode_fn(env, args, fn_name)
+            let cc_return_value = call_bitcode_fn(env, args, fn_name);
+
+            complex_bitcast_check_size(
+                env,
+                cc_return_value,
+                roc_return_type,
+                "c_value_to_roc_value",
+            )
         }
         CCReturn::ByPointer => {
             // We need to pass the return value by pointer.
-            let roc_return_type = basic_type_from_layout(
-                env,
-                layout_interner,
-                layout_interner.get_repr(return_layout),
-            );
 
-            let cc_return_type: BasicTypeEnum<'ctx> = bitcode_return_type.into();
+            let cc_return_type: BasicTypeEnum<'ctx> = bitcode_return_type;
 
             // when we write an i128 into this (happens in NumToInt), zig expects this pointer to
             // be 16-byte aligned. Not doing so is UB and will immediately fail on CI

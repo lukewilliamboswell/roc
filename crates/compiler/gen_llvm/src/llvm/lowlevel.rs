@@ -26,7 +26,7 @@ use crate::llvm::{
     bitcode::{
         call_bitcode_fn, call_bitcode_fn_fixing_for_convention, call_list_bitcode_fn,
         call_str_bitcode_fn, call_void_bitcode_fn, pass_list_or_string_to_zig_32bit,
-        pass_string_to_zig_wasm, BitcodeReturns,
+        pass_string_to_zig_wasm, BitcodeReturns, pass_list_to_zig_64bit,
     },
     build::{
         cast_basic_basic, complex_bitcast_check_size, create_entry_block_alloca,
@@ -324,7 +324,7 @@ pub(crate) fn run_low_level<'a, 'ctx>(
                         call_bitcode_fn_fixing_for_convention(
                             env,
                             layout_interner,
-                            bitcode_return_type,
+                            bitcode_return_type.into(),
                             &[string],
                             layout,
                             intrinsic,
@@ -1100,13 +1100,21 @@ pub(crate) fn run_low_level<'a, 'ctx>(
         NumBytesToU128 => {
             arguments!(list, position);
 
-            call_list_bitcode_fn(
+            call_bitcode_fn_fixing_for_convention(
                 env,
-                &[list.into_struct_value()],
-                &[position],
-                BitcodeReturns::Basic,
+                layout_interner,
+                env.context.i64_type().array_type(2).into(),
+                &[pass_list_to_zig_64bit(env, list).into(), position],
+                layout,
                 bitcode::NUM_BYTES_TO_U128,
             )
+            // call_list_bitcode_fn(
+            //     env,
+            //     &[list.into_struct_value()],
+            //     &[position],
+            //     BitcodeReturns::Basic,
+            //     bitcode::NUM_BYTES_TO_U128,
+            // )
         }
         NumCompare => {
             arguments_with_layouts!((lhs_arg, lhs_layout), (rhs_arg, rhs_layout));
@@ -2369,18 +2377,10 @@ fn build_dec_binop<'a, 'ctx>(
         ),
         NumDivFrac => dec_binop_with_unchecked(env, bitcode::DEC_DIV, lhs, rhs),
 
-        NumLt => call_bitcode_fn(env, &[lhs, rhs], &bitcode::NUM_LESS_THAN[IntWidth::I128]),
-        NumGt => call_bitcode_fn(env, &[lhs, rhs], &bitcode::NUM_GREATER_THAN[IntWidth::I128]),
-        NumLte => call_bitcode_fn(
-            env,
-            &[lhs, rhs],
-            &bitcode::NUM_LESS_THAN_OR_EQUAL[IntWidth::I128],
-        ),
-        NumGte => call_bitcode_fn(
-            env,
-            &[lhs, rhs],
-            &bitcode::NUM_GREATER_THAN_OR_EQUAL[IntWidth::I128],
-        ),
+        NumLt => dec_binop_with_unchecked(env, &bitcode::NUM_LESS_THAN[IntWidth::I128], lhs, rhs ),
+        NumGt => dec_binop_with_unchecked(env, &bitcode::NUM_GREATER_THAN[IntWidth::I128], lhs, rhs ),
+        NumLte => dec_binop_with_unchecked(env,&bitcode::NUM_LESS_THAN_OR_EQUAL[IntWidth::I128], lhs, rhs ),
+        NumGte => dec_binop_with_unchecked(env,&bitcode::NUM_GREATER_THAN_OR_EQUAL[IntWidth::I128],lhs, rhs ),
         _ => {
             unreachable!("Unrecognized dec binary operation: {:?}", op);
         }
@@ -2602,7 +2602,7 @@ fn build_int_unary_op<'a, 'ctx, 'env>(
                             call_bitcode_fn_fixing_for_convention(
                                 env,
                                 layout_interner,
-                                bitcode_return_type,
+                                bitcode_return_type.into(),
                                 &[arg.into()],
                                 return_layout,
                                 intrinsic,
