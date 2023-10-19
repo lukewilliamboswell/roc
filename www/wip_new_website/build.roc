@@ -38,6 +38,14 @@ main =
         |> Task.onErr \_ -> crash "Failed to copy static files"
         |> Task.await
 
+    # Download the repl nightly and copy to dist
+    {} <- 
+        Cmd.new "bash"
+        |> Cmd.args ["download-repl.sh"]
+        |> Cmd.status
+        |> Task.onErr \_ -> crash "Failed to copy static files"
+        |> Task.await
+
     # Copy font files - assume that www/build.sh has been run previously and the
     # fonts are available locally in ../build/fonts
     {} <- 
