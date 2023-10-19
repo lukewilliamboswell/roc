@@ -27,9 +27,13 @@ main =
         |> Task.await
 
     # Copy static files
+    # TODO figure out why we can't copy the whole folder here
+    # works when doing one file at a time
+    # Must be related to the implementation of Cmd in basic-cli
+    # Use a bash script as a workaround
     {} <- 
-        Cmd.new "cp"
-        |> Cmd.args ["-r", "static/site.css", "dist/wip/"]
+        Cmd.new "bash"
+        |> Cmd.args ["copy-static.sh"]
         |> Cmd.status
         |> Task.onErr \_ -> crash "Failed to copy static files"
         |> Task.await
