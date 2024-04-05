@@ -370,6 +370,27 @@ pub fn is_loc_expr_suffixed(loc_expr: &Loc<Expr>) -> bool {
             is_loc_expr_suffixed(sub_loc_expr) || sum > 0
         }
 
+        // // expression in a if-then-else, `if isOk! then "ok" else doSomething!`
+        // Expr::If(if_thens, final_else) => {
+        //     let sum: isize = if_thens
+        //         .iter()
+        //         .map(|(if_then, else_expr)| -> isize {
+        //             if is_loc_expr_suffixed(if_then) || is_loc_expr_suffixed(else_expr) {
+        //                 1
+        //             } else {
+        //                 0
+        //             }
+        //         })
+        //         .sum();
+
+        //     is_loc_expr_suffixed(final_else) || sum > 0
+        // }
+
+        // // expression in parens `(read!)`
+        // Expr::ParensAround(sub_loc_expr) => {
+        //     is_loc_expr_suffixed(&Loc::at(loc_expr.region, *sub_loc_expr))
+        // }
+
         _ => false,
     }
 }
@@ -519,6 +540,13 @@ impl<'a> Defs<'a> {
         self.tags.iter().map(|tag| match tag.split() {
             Ok(type_index) => Ok(&self.type_defs[type_index.index()]),
             Err(value_index) => Err(&self.value_defs[value_index.index()]),
+        })
+    }
+
+    pub fn list_value_defs(&self) -> impl Iterator<Item = (usize, &ValueDef<'a>)> {
+        self.tags.iter().enumerate().filter_map(|(tag_index, tag)| match tag.split() {
+            Ok(_) => None,
+            Err(value_index) => Some((tag_index, &self.value_defs[value_index.index()])),
         })
     }
 
