@@ -10,7 +10,7 @@ use roc_module::ident::ModuleName;
 use roc_parse::ast::Expr::{self, *};
 use roc_parse::ast::{
     AssignedField, Collection, ModuleImportParams, OldRecordBuilderField, Pattern, StrLiteral,
-    StrSegment, ValueDef, WhenBranch,
+    StrSegment, TypeAnnotation, ValueDef, WhenBranch,
 };
 use roc_region::all::{LineInfo, Loc, Region};
 
@@ -86,13 +86,13 @@ fn desugar_value_def<'a>(
         AnnotatedBody {
             ann_pattern,
             ann_type,
-            comment,
+            lines_between,
             body_pattern,
             body_expr,
         } => AnnotatedBody {
             ann_pattern,
             ann_type,
-            comment: *comment,
+            lines_between,
             body_pattern: desugar_loc_pattern(arena, body_pattern, src, line_info, module_path),
             body_expr: desugar_expr(arena, body_expr, src, line_info, module_path),
         },
@@ -154,15 +154,26 @@ fn desugar_value_def<'a>(
         IngestedFileImport(_) => *def,
 
         Stmt(stmt_expr) => {
-            // desugar into a Body({}, stmt_expr)
-            let loc_pattern = arena.alloc(Loc::at(
-                stmt_expr.region,
-                Pattern::RecordDestructure(Collection::empty()),
-            ));
-            Body(
-                loc_pattern,
-                desugar_expr(arena, stmt_expr, src, line_info, module_path),
-            )
+            // desugar `stmt_expr!` to
+            // _ : {}
+            // _ = stmt_expr!
+
+            let region = stmt_expr.region;
+            let new_pat = arena.alloc(Loc::at(region, Pattern::Underscore("#!stmt")));
+
+            ValueDef::AnnotatedBody {
+                ann_pattern: new_pat,
+                ann_type: arena.alloc(Loc::at(
+                    region,
+                    TypeAnnotation::Record {
+                        fields: Collection::empty(),
+                        ext: None,
+                    },
+                )),
+                lines_between: &[],
+                body_pattern: new_pat,
+                body_expr: desugar_expr(arena, stmt_expr, src, line_info, module_path),
+            }
         }
     }
 }
@@ -211,7 +222,7 @@ pub fn desugar_value_def_suffixed<'a>(arena: &'a Bump, value_def: ValueDef<'a>) 
                     arena,
                     Body(
                         loc_pattern,
-                        apply_task_await(arena, loc_expr.region, sub_arg, sub_pat, sub_new),
+                        apply_task_await(arena, loc_expr.region, sub_arg, sub_pat, sub_new, None),
                     ),
                 ),
                 Err(..) => Body(
@@ -224,7 +235,7 @@ pub fn desugar_value_def_suffixed<'a>(arena: &'a Bump, value_def: ValueDef<'a>) 
         AnnotatedBody {
             ann_pattern,
             ann_type,
-            comment,
+            lines_between,
             body_pattern,
             body_expr,
         } => {
@@ -233,7 +244,7 @@ pub fn desugar_value_def_suffixed<'a>(arena: &'a Bump, value_def: ValueDef<'a>) 
                 Ok(new_expr) => AnnotatedBody {
                     ann_pattern,
                     ann_type,
-                    comment,
+                    lines_between,
                     body_pattern,
                     body_expr: new_expr,
                 },
@@ -246,7 +257,7 @@ pub fn desugar_value_def_suffixed<'a>(arena: &'a Bump, value_def: ValueDef<'a>) 
                     AnnotatedBody {
                         ann_pattern,
                         ann_type,
-                        comment,
+                        lines_between,
                         body_pattern,
                         body_expr: apply_task_await(
                             arena,
@@ -254,13 +265,14 @@ pub fn desugar_value_def_suffixed<'a>(arena: &'a Bump, value_def: ValueDef<'a>) 
                             sub_arg,
                             sub_pat,
                             sub_new,
+                            Some((ann_pattern, ann_type)),
                         ),
                     },
                 ),
                 Err(..) => AnnotatedBody {
                     ann_pattern,
                     ann_type,
-                    comment,
+                    lines_between,
                     body_pattern,
                     body_expr: arena.alloc(Loc::at(body_expr.region, MalformedSuffixed(body_expr))),
                 },
@@ -1349,10 +1361,6 @@ fn binop_to_function(binop: BinOp) -> (&'static str, &'static str) {
         And => (ModuleName::BOOL, "and"),
         Or => (ModuleName::BOOL, "or"),
         Pizza => unreachable!("Cannot desugar the |> operator"),
-        Assignment => unreachable!("Cannot desugar the = operator"),
-        IsAliasType => unreachable!("Cannot desugar the : operator"),
-        IsOpaqueType => unreachable!("Cannot desugar the := operator"),
-        Backpassing => unreachable!("Cannot desugar the <- operator"),
     }
 }
 

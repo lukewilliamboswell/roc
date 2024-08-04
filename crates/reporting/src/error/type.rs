@@ -675,9 +675,24 @@ fn to_expr_report<'b>(
             }
         }
         Expected::FromAnnotation(name, _arity, annotation_source, expected_type) => {
+            use roc_can::pattern::Pattern;
             use roc_types::types::AnnotationSource::*;
 
+            let is_suffixed = match &name.value {
+                Pattern::Identifier(symbol) => symbol.as_str(alloc.interns).starts_with("#!"),
+                _ => false,
+            };
+
+            let is_suffixed_stmt = match &name.value {
+                Pattern::Identifier(symbol) => {
+                    let ident = symbol.as_str(alloc.interns);
+                    ident.starts_with("#!") && ident.ends_with("_stmt")
+                }
+                _ => false,
+            };
+
             let (the_name_text, on_name_text) = match pattern_to_doc(alloc, &name.value) {
+                _ if is_suffixed => (alloc.text("this suffixed"), alloc.nil()),
                 Some(doc) => (
                     alloc.concat([alloc.reflow("the "), doc.clone()]),
                     alloc.concat([alloc.reflow(" on "), doc]),
@@ -713,6 +728,11 @@ fn to_expr_report<'b>(
                     alloc.reflow(" branch of this "),
                     alloc.keyword("when"),
                     alloc.text(" expression:"),
+                ]),
+                TypedBody { .. } if is_suffixed_stmt => alloc.concat([
+                    alloc.text("body of "),
+                    the_name_text,
+                    alloc.text(" statement:"),
                 ]),
                 TypedBody { .. } => alloc.concat([
                     alloc.text("body of "),
@@ -769,11 +789,18 @@ fn to_expr_report<'b>(
                     expected_type,
                     expectation_context,
                     add_category(alloc, alloc.text(it_is), &category),
-                    alloc.concat([
-                        alloc.text("But the type annotation"),
-                        on_name_text,
-                        alloc.text(" says it should be:"),
-                    ]),
+                    if is_suffixed_stmt {
+                        // TODO: add a tip for using underscore
+                        alloc.text(
+                            "But a suffixed statement is expected to resolve to an empty record:",
+                        )
+                    } else {
+                        alloc.concat([
+                            alloc.text("But the type annotation"),
+                            on_name_text,
+                            alloc.text(" says it should be:"),
+                        ])
+                    },
                     None,
                 )
             };
@@ -4761,17 +4788,14 @@ fn type_problem_to_pretty<'b>(
             alloc.reflow("Learn more about optional fields at TODO."),
         ])),
 
-        (OpaqueComparedToNonOpaque, _) => alloc.tip().append(alloc.concat([
-            alloc.reflow(
-                "Type comparisons between an opaque type are only ever \
-                equal if both types are the same opaque type. Did you mean \
-                to create an opaque type by wrapping it? If I have an opaque type ",
-            ),
-            alloc.type_str("Age := U32"),
-            alloc.reflow(" I can create an instance of this opaque type by doing "),
-            alloc.type_str("@Age 23"),
-            alloc.reflow("."),
-        ])),
+        (OpaqueComparedToNonOpaque, _) => alloc.tip().append(
+            alloc.concat([
+                alloc
+                    .reflow("Add type annotations")
+                    .annotate(Annotation::Emphasized),
+                alloc.reflow(" to functions or values to help you figure this out."),
+            ]),
+        ),
 
         (BoolVsBoolTag(tag), _) => alloc.tip().append(alloc.concat([
             alloc.reflow("Did you mean to use "),

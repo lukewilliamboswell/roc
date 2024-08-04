@@ -154,7 +154,7 @@ Let's move out of the REPL and create our first Roc application!
 Make a file named `main.roc` and put this in it:
 
 ```roc
-app [main] { pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.10.0/vNe6s9hWzoTZtFmNkvEICPErI9ptji_ySjicO6CkucY.tar.br" }
+app [main] { pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.12.0/Lb8EgiejTUzbggO2HVVuPJFkwvvsfW6LojkLR20kTVE.tar.br" }
 
 import pf.Stdout
 import pf.Task
@@ -476,8 +476,10 @@ third = tuple.2 # ["list"]
 # tuple destructuring
 (first, second, third) = ("hello", 42, ["list"])
 ```
-
-By the way, there are two common ways to pronounce "tuple"—one sounds like "two-pull" and the other rhymes with "supple"—and although no clear consensus has emerged in the programming world, people seem generally accepting when others pronounce it differently than they do.
+<details>
+    <summary>Pronouncing Tuple</summary>
+    By the way, there are two common ways to pronounce "tuple"—one sounds like "two-pull" and the other rhymes with "supple"—and although no clear consensus has emerged in the programming world, people seem generally accepting when others pronounce it differently than they do.
+</details>
 
 ## [Pattern Matching](#pattern-matching) {#pattern-matching}
 
@@ -816,6 +818,20 @@ Result.isOk (List.get ["a", "b", "c"] 1)
 
 # Note: There's a Result.isErr function that works similarly.
 ```
+
+```roc
+Result.try (Str.toU64 "2") \idx -> List.get ["a", "b", "c", "d"] idx
+# returns `Ok "c"`
+
+# Notes:
+#  - `Str.toU64 "2"` parses the string "2" to the integer 2, and returns `Ok 2` (more on
+#    integer types later)
+#  - since parsing is successful, `Result.try` passes 2 to the function `\idx -> ...`
+#  - passing "abc" or "1000" instead of "2" would have resulted in `Err InvalidNumStr`
+#    or `Err OutOfBounds` respectively
+```
+
+`Result.try` is often used to chain functions that can fail (as in the example above), returning the first error if any occurs. There is [a discussion](https://github.com/roc-lang/roc/issues/6828) to add syntax sugar for such chaining.
 
 ### [Walking the elements in a list](#walking-the-elements-in-a-list) {#walking-the-elements-in-a-list}
 
@@ -1454,7 +1470,7 @@ Besides being built into the compiler, the builtin modules are different from ot
 Let's take a closer look at the part of `main.roc` above the `main` def:
 
 ```roc
-app [main] { pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.10.0/vNe6s9hWzoTZtFmNkvEICPErI9ptji_ySjicO6CkucY.tar.br" }
+app [main] { pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.12.0/Lb8EgiejTUzbggO2HVVuPJFkwvvsfW6LojkLR20kTVE.tar.br" }
 
 import pf.Stdout
 ```
@@ -1572,7 +1588,7 @@ We'll use these four operations to learn about tasks.
 Let's start with a basic "Hello World" program.
 
 ```roc
-app [main] { pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.10.0/vNe6s9hWzoTZtFmNkvEICPErI9ptji_ySjicO6CkucY.tar.br" }
+app [main] { pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.12.0/Lb8EgiejTUzbggO2HVVuPJFkwvvsfW6LojkLR20kTVE.tar.br" }
 
 import pf.Stdout
 
@@ -1605,7 +1621,7 @@ Once this task runs, we'll end up with the [tag union](https://www.roc-lang.org/
 Let's change `main` to read a line from `stdin`, and then print what we got:
 
 ```roc
-app [main] { pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.10.0/vNe6s9hWzoTZtFmNkvEICPErI9ptji_ySjicO6CkucY.tar.br" }
+app [main] { pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.12.0/Lb8EgiejTUzbggO2HVVuPJFkwvvsfW6LojkLR20kTVE.tar.br" }
 
 import pf.Stdout
 import pf.Stdin
@@ -2230,9 +2246,13 @@ See the [Record Builder Example](https://www.roc-lang.org/examples/RecordBuilder
 
 ### [Reserved Keywords](#reserved-keywords) {#reserved-keywords}
 
-These are all the reserved keywords in Roc. You can't choose any of these as names, except as record field names.
+These are reserved keywords in Roc. You can't choose any of them as names, except as record field names.
 
-`if`, `then`, `else`, `when`, `as`, `is`, `dbg`, `import`, `expect`, `expect-fx`, `crash`, `module`, `app`, `package`, `platform`, `hosted`, `exposes`, `with`, `generates`, `packages`, `requires`
+`as`, `crash`, `dbg`, `else`, `expect`, `expect-fx`, `if`, `import`, `is`, `then`, `when`
+
+Other keywords are used only in specific places, so they are not reserved. This includes:
+
+`app`, `exposes`, `exposing`, `generates`, `implements`, `module`, `package`, `packages`, `platform`, `requires`, `where`, `with`
 
 ## [Operator Desugaring Table](#operator-desugaring-table) {#operator-desugaring-table}
 
