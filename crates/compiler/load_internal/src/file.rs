@@ -1336,11 +1336,11 @@ fn load_packages_from_main<'a>(
             Ok(STATIC_FILE_APP_MAIN)
         } else if filename.ends_with("platform/main.roc") {
             Ok(STATIC_FILE_PLATFORM_MAIN)
-        } else if filename.ends_with("Stdout.roc") {
+        } else if filename.ends_with("platform/Stdout.roc") {
             Ok(STATIC_FILE_PLATFORM_EFFECT)
-        } else if filename.ends_with("Effect.roc") {
+        } else if filename.ends_with("platform/Effect.roc") {
             Ok(STATIC_FILE_PLATFORM_STDOUT)
-        } else if filename.ends_with("Task.roc") {
+        } else if filename.ends_with("platform/Task.roc") {
             Ok(STATIC_FILE_PLATFORM_TASK)
         } else {
             Err(LoadingProblem::FileProblem {
@@ -3379,11 +3379,11 @@ fn load_package_from_disk<'a>(
             Ok(Vec::from(STATIC_FILE_APP_MAIN))
         } else if filename.ends_with("platform/main.roc") {
             Ok(Vec::from(STATIC_FILE_PLATFORM_MAIN))
-        } else if filename.ends_with("Stdout.roc") {
+        } else if filename.ends_with("platform/Stdout.roc") {
             Ok(Vec::from(STATIC_FILE_PLATFORM_STDOUT))
-        } else if filename.ends_with("Effect.roc") {
+        } else if filename.ends_with("platform/Effect.roc") {
             Ok(Vec::from(STATIC_FILE_PLATFORM_EFFECT))
-        } else if filename.ends_with("Task.roc") {
+        } else if filename.ends_with("platform/Task.roc") {
             Ok(Vec::from(STATIC_FILE_PLATFORM_TASK))
         } else {
             Err(LoadingProblem::FileProblem {
