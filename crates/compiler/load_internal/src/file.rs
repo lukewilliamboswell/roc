@@ -69,12 +69,12 @@ use roc_types::types::{Alias, Types};
 use roc_worker::{ChannelProblem, WorkerMsg};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
+use std::env;
 use std::io;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::str::from_utf8_unchecked;
 use std::sync::Arc;
-use std::{env, fs};
 #[cfg(not(target_family = "wasm"))]
 use {
     roc_packaging::cache::{self},
@@ -100,11 +100,11 @@ const DEFAULT_MAIN_NAME: &str = "main.roc";
 
 const EXPANDED_STACK_SIZE: usize = 8 * 1024 * 1024;
 
-const STATIC_FILE_APP_MAIN: &[u8] = include_bytes!("static/app.roc") as &[_];
-const STATIC_FILE_PLATFORM_EFFECT: &[u8] = include_bytes!("static/Effect.roc") as &[_];
-const STATIC_FILE_PLATFORM_MAIN: &[u8] = include_bytes!("static/platform.roc") as &[_];
-const STATIC_FILE_PLATFORM_STDOUT: &[u8] = include_bytes!("static/Stdout.roc") as &[_];
-const STATIC_FILE_PLATFORM_TASK: &[u8] = include_bytes!("static/Task.roc") as &[_];
+const STATIC_FILE_APP_MAIN: &[u8] = include_bytes!("static/app.roc");
+const STATIC_FILE_PLATFORM_EFFECT: &[u8] = include_bytes!("static/Effect.roc");
+const STATIC_FILE_PLATFORM_MAIN: &[u8] = include_bytes!("static/platform.roc");
+const STATIC_FILE_PLATFORM_STDOUT: &[u8] = include_bytes!("static/Stdout.roc");
+const STATIC_FILE_PLATFORM_TASK: &[u8] = include_bytes!("static/Task.roc");
 
 macro_rules! log {
     ($($arg:tt)*) => (dbg_do!(ROC_PRINT_LOAD_LOG, println!($($arg)*)))
@@ -1326,27 +1326,24 @@ fn load_packages_from_main<'a>(
     arc_shorthands: Arc<Mutex<MutMap<&'a str, ShorthandPath>>>,
     cache_dir: &Path,
 ) -> Result<(), LoadingProblem<'a>> {
-    // let src_bytes = fs::read(&filename).map_err(|err| LoadingProblem::FileProblem {
-    //     filename: filename.clone(),
-    //     error: err.kind(),
-    // })?;
-
     let src_bytes = {
         if filename.ends_with("app.roc") {
             Ok(STATIC_FILE_APP_MAIN)
-        } else if filename.ends_with("platform/main.roc") {
+        } else if filename.ends_with("main.roc") {
             Ok(STATIC_FILE_PLATFORM_MAIN)
-        } else if filename.ends_with("platform/Stdout.roc") {
+        } else if filename.ends_with("Stdout.roc") {
             Ok(STATIC_FILE_PLATFORM_EFFECT)
-        } else if filename.ends_with("platform/Effect.roc") {
+        } else if filename.ends_with("Effect.roc") {
             Ok(STATIC_FILE_PLATFORM_STDOUT)
-        } else if filename.ends_with("platform/Task.roc") {
+        } else if filename.ends_with("Task.roc") {
             Ok(STATIC_FILE_PLATFORM_TASK)
         } else {
-            Err(LoadingProblem::FileProblem {
-                filename: filename.clone(),
-                error: io::ErrorKind::NotFound,
-            })
+            panic!("{:?}", filename);
+
+            // Err(LoadingProblem::FileProblem {
+            //     filename: filename.clone(),
+            //     error: io::ErrorKind::NotFound,
+            // })
         }
     }?;
 
@@ -3373,23 +3370,25 @@ fn load_package_from_disk<'a>(
 ) -> Result<Msg<'a>, LoadingProblem<'a>> {
     let module_start_time = Instant::now();
     let file_io_start = module_start_time;
-    // let read_result = fs::read(filename);
+
     let bytes_vec = {
         if filename.ends_with("app.roc") {
             Ok(Vec::from(STATIC_FILE_APP_MAIN))
-        } else if filename.ends_with("platform/main.roc") {
+        } else if filename.ends_with("main.roc") {
             Ok(Vec::from(STATIC_FILE_PLATFORM_MAIN))
-        } else if filename.ends_with("platform/Stdout.roc") {
+        } else if filename.ends_with("Stdout.roc") {
             Ok(Vec::from(STATIC_FILE_PLATFORM_STDOUT))
-        } else if filename.ends_with("platform/Effect.roc") {
+        } else if filename.ends_with("Effect.roc") {
             Ok(Vec::from(STATIC_FILE_PLATFORM_EFFECT))
-        } else if filename.ends_with("platform/Task.roc") {
+        } else if filename.ends_with("Task.roc") {
             Ok(Vec::from(STATIC_FILE_PLATFORM_TASK))
         } else {
-            Err(LoadingProblem::FileProblem {
-                filename: filename.into(),
-                error: io::ErrorKind::NotFound,
-            })
+            panic!("{:?}", filename);
+
+            // Err(LoadingProblem::FileProblem {
+            //     filename: filename.into(),
+            //     error: io::ErrorKind::NotFound,
+            // })
         }
     }?;
 
@@ -4195,7 +4194,27 @@ fn load_filename<'a>(
     module_start_time: Instant,
 ) -> Result<HeaderOutput<'a>, LoadingProblem<'a>> {
     let file_io_start = Instant::now();
-    let file = fs::read(&filename);
+
+    let file: Result<&[u8], ()> = {
+        if filename.ends_with("app.roc") {
+            Ok(STATIC_FILE_APP_MAIN)
+        } else if filename.ends_with("main.roc") {
+            Ok(STATIC_FILE_PLATFORM_MAIN)
+        } else if filename.ends_with("Stdout.roc") {
+            Ok(STATIC_FILE_PLATFORM_EFFECT)
+        } else if filename.ends_with("Effect.roc") {
+            Ok(STATIC_FILE_PLATFORM_STDOUT)
+        } else if filename.ends_with("Task.roc") {
+            Ok(STATIC_FILE_PLATFORM_TASK)
+        } else {
+            panic!("{:?}", filename);
+            // Err(LoadingProblem::FileProblem {
+            //     filename: filename.clone(),
+            //     error: io::ErrorKind::NotFound,
+            // })
+        }
+    };
+
     let file_io_duration = file_io_start.elapsed();
 
     match file {
@@ -4212,9 +4231,9 @@ fn load_filename<'a>(
             roc_cache_dir,
             module_start_time,
         ),
-        Err(err) => Err(LoadingProblem::FileProblem {
+        Err(..) => Err(LoadingProblem::FileProblem {
             filename,
-            error: err.kind(),
+            error: io::ErrorKind::NotFound,
         }),
     }
 }
