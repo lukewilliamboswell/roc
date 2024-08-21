@@ -74,7 +74,8 @@ pub fn pretty_header(title: &str) -> String {
 }
 
 pub fn pretty_header_with_path(title: &str, path: &Path) -> String {
-    let cwd = std::env::current_dir().unwrap();
+    // let cwd = std::env::current_dir().unwrap();
+    let cwd = PathBuf::from("VIRTUAL DIRECTORY");
     let relative_path = match path.strip_prefix(cwd) {
         Ok(p) => p,
         _ => path,
