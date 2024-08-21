@@ -100,6 +100,12 @@ const DEFAULT_MAIN_NAME: &str = "main.roc";
 
 const EXPANDED_STACK_SIZE: usize = 8 * 1024 * 1024;
 
+const STATIC_FILE_APP_MAIN: &[u8] = include_bytes!("static/app.roc") as &[_];
+const STATIC_FILE_PLATFORM_EFFECT: &[u8] = include_bytes!("static/Effect.roc") as &[_];
+const STATIC_FILE_PLATFORM_MAIN: &[u8] = include_bytes!("static/platform.roc") as &[_];
+const STATIC_FILE_PLATFORM_STDOUT: &[u8] = include_bytes!("static/Stdout.roc") as &[_];
+const STATIC_FILE_PLATFORM_TASK: &[u8] = include_bytes!("static/Task.roc") as &[_];
+
 macro_rules! log {
     ($($arg:tt)*) => (dbg_do!(ROC_PRINT_LOAD_LOG, println!($($arg)*)))
 }
@@ -1320,10 +1326,29 @@ fn load_packages_from_main<'a>(
     arc_shorthands: Arc<Mutex<MutMap<&'a str, ShorthandPath>>>,
     cache_dir: &Path,
 ) -> Result<(), LoadingProblem<'a>> {
-    let src_bytes = fs::read(&filename).map_err(|err| LoadingProblem::FileProblem {
-        filename: filename.clone(),
-        error: err.kind(),
-    })?;
+    // let src_bytes = fs::read(&filename).map_err(|err| LoadingProblem::FileProblem {
+    //     filename: filename.clone(),
+    //     error: err.kind(),
+    // })?;
+
+    let src_bytes = {
+        if filename.ends_with("app.roc") {
+            Ok(STATIC_FILE_APP_MAIN)
+        } else if filename.ends_with("platform/main.roc") {
+            Ok(STATIC_FILE_PLATFORM_MAIN)
+        } else if filename.ends_with("Stdout.roc") {
+            Ok(STATIC_FILE_PLATFORM_EFFECT)
+        } else if filename.ends_with("Effect.roc") {
+            Ok(STATIC_FILE_PLATFORM_STDOUT)
+        } else if filename.ends_with("Task.roc") {
+            Ok(STATIC_FILE_PLATFORM_TASK)
+        } else {
+            Err(LoadingProblem::FileProblem {
+                filename: filename.clone(),
+                error: io::ErrorKind::NotFound,
+            })
+        }
+    }?;
 
     let parse_state = roc_parse::state::State::new(arena.alloc(src_bytes));
 
@@ -3348,157 +3373,167 @@ fn load_package_from_disk<'a>(
 ) -> Result<Msg<'a>, LoadingProblem<'a>> {
     let module_start_time = Instant::now();
     let file_io_start = module_start_time;
-    let read_result = fs::read(filename);
+    // let read_result = fs::read(filename);
+    let bytes_vec = {
+        if filename.ends_with("app.roc") {
+            Ok(Vec::from(STATIC_FILE_APP_MAIN))
+        } else if filename.ends_with("platform/main.roc") {
+            Ok(Vec::from(STATIC_FILE_PLATFORM_MAIN))
+        } else if filename.ends_with("Stdout.roc") {
+            Ok(Vec::from(STATIC_FILE_PLATFORM_STDOUT))
+        } else if filename.ends_with("Effect.roc") {
+            Ok(Vec::from(STATIC_FILE_PLATFORM_EFFECT))
+        } else if filename.ends_with("Task.roc") {
+            Ok(Vec::from(STATIC_FILE_PLATFORM_TASK))
+        } else {
+            Err(LoadingProblem::FileProblem {
+                filename: filename.into(),
+                error: io::ErrorKind::NotFound,
+            })
+        }
+    }?;
+
     let file_io_duration = file_io_start.elapsed();
 
-    match read_result {
-        Ok(bytes_vec) => {
-            let parse_start = Instant::now();
-            let bytes = arena.alloc(bytes_vec);
-            let parse_state = roc_parse::state::State::new(bytes);
-            let parsed = roc_parse::header::parse_header(arena, parse_state.clone());
-            let parse_header_duration = parse_start.elapsed();
+    let parse_start = Instant::now();
+    let bytes = arena.alloc(bytes_vec);
+    let parse_state = roc_parse::state::State::new(bytes);
+    let parsed = roc_parse::header::parse_header(arena, parse_state.clone());
+    let parse_header_duration = parse_start.elapsed();
 
-            // Insert the first entries for this module's timings
-            let mut pkg_module_timing = ModuleTiming::new(module_start_time);
+    // Insert the first entries for this module's timings
+    let mut pkg_module_timing = ModuleTiming::new(module_start_time);
 
-            pkg_module_timing.read_roc_file = file_io_duration;
-            pkg_module_timing.parse_header = parse_header_duration;
+    pkg_module_timing.read_roc_file = file_io_duration;
+    pkg_module_timing.parse_header = parse_header_duration;
 
-            match parsed {
-                Ok((
-                    ast::SpacesBefore {
-                        item: ast::Header::Module(header),
-                        ..
-                    },
-                    _parse_state,
-                )) => Err(LoadingProblem::UnexpectedHeader(format!(
-                    "expected platform/package module, got Module with header\n{header:?}"
-                ))),
-                Ok((
-                    ast::SpacesBefore {
-                        item: ast::Header::Hosted(header),
-                        ..
-                    },
-                    _parse_state,
-                )) => Err(LoadingProblem::UnexpectedHeader(format!(
-                    "expected platform/package module, got Hosted module with header\n{header:?}"
-                ))),
-                Ok((
-                    ast::SpacesBefore {
-                        item: ast::Header::App(header),
-                        ..
-                    },
-                    _parse_state,
-                )) => Err(LoadingProblem::UnexpectedHeader(format!(
-                    "expected platform/package module, got App with header\n{header:?}"
-                ))),
-                Ok((
-                    ast::SpacesBefore {
-                        item: ast::Header::Package(header),
-                        before: comments,
-                    },
-                    parser_state,
-                )) => {
-                    let mut parent_dir = filename.to_path_buf();
-                    parent_dir.pop();
+    match parsed {
+        Ok((
+            ast::SpacesBefore {
+                item: ast::Header::Module(header),
+                ..
+            },
+            _parse_state,
+        )) => Err(LoadingProblem::UnexpectedHeader(format!(
+            "expected platform/package module, got Module with header\n{header:?}"
+        ))),
+        Ok((
+            ast::SpacesBefore {
+                item: ast::Header::Hosted(header),
+                ..
+            },
+            _parse_state,
+        )) => Err(LoadingProblem::UnexpectedHeader(format!(
+            "expected platform/package module, got Hosted module with header\n{header:?}"
+        ))),
+        Ok((
+            ast::SpacesBefore {
+                item: ast::Header::App(header),
+                ..
+            },
+            _parse_state,
+        )) => Err(LoadingProblem::UnexpectedHeader(format!(
+            "expected platform/package module, got App with header\n{header:?}"
+        ))),
+        Ok((
+            ast::SpacesBefore {
+                item: ast::Header::Package(header),
+                before: comments,
+            },
+            parser_state,
+        )) => {
+            let mut parent_dir = filename.to_path_buf();
+            parent_dir.pop();
 
-                    let packages = unspace(arena, header.packages.value.items);
+            let packages = unspace(arena, header.packages.value.items);
 
-                    let (_, _, header) = build_package_header(
-                        arena,
-                        Some(shorthand),
-                        false, // cannot be the root if loaded as a package
-                        filename.to_path_buf(),
-                        parser_state,
-                        module_ids.clone(),
-                        ident_ids_by_module.clone(),
-                        &header,
-                        comments,
-                        pkg_module_timing,
-                    )?;
+            let (_, _, header) = build_package_header(
+                arena,
+                Some(shorthand),
+                false, // cannot be the root if loaded as a package
+                filename.to_path_buf(),
+                parser_state,
+                module_ids.clone(),
+                ident_ids_by_module.clone(),
+                &header,
+                comments,
+                pkg_module_timing,
+            )?;
 
-                    let filename = header.module_path.clone();
-                    let mut messages = Vec::with_capacity(packages.len() + 1);
-                    messages.push(Msg::Header(header));
+            let filename = header.module_path.clone();
+            let mut messages = Vec::with_capacity(packages.len() + 1);
+            messages.push(Msg::Header(header));
 
-                    load_packages(
-                        packages,
-                        &mut messages,
-                        roc_cache_dir,
-                        parent_dir,
-                        arena,
-                        None,
-                        module_ids,
-                        ident_ids_by_module,
-                        filename,
-                    );
+            load_packages(
+                packages,
+                &mut messages,
+                roc_cache_dir,
+                parent_dir,
+                arena,
+                None,
+                module_ids,
+                ident_ids_by_module,
+                filename,
+            );
 
-                    Ok(Msg::Many(messages))
-                }
-                Ok((
-                    ast::SpacesBefore {
-                        item: ast::Header::Platform(header),
-                        before: comments,
-                    },
-                    parser_state,
-                )) => {
-                    let mut parent_dir = filename.to_path_buf();
-                    parent_dir.pop();
-
-                    let packages = unspace(arena, header.packages.item.items);
-
-                    let exposes_ids = get_exposes_ids(
-                        header.exposes.item.items,
-                        arena,
-                        &module_ids,
-                        &ident_ids_by_module,
-                    );
-
-                    // make a `platform` module that ultimately exposes `main` to the host
-                    let (_, _, header) = build_platform_header(
-                        arena,
-                        Some(shorthand),
-                        false, // cannot be the root if loaded as a package
-                        app_module_id,
-                        filename.to_path_buf(),
-                        parser_state,
-                        module_ids.clone(),
-                        exposes_ids.into_bump_slice(),
-                        &header,
-                        comments,
-                        pkg_module_timing,
-                    )?;
-
-                    let filename = header.module_path.clone();
-                    let mut messages = Vec::with_capacity(packages.len() + 1);
-                    messages.push(Msg::Header(header));
-
-                    load_packages(
-                        packages,
-                        &mut messages,
-                        roc_cache_dir,
-                        parent_dir,
-                        arena,
-                        None,
-                        module_ids,
-                        ident_ids_by_module,
-                        filename,
-                    );
-
-                    Ok(Msg::Many(messages))
-                }
-                Err(fail) => Err(LoadingProblem::ParsingFailed(
-                    fail.map_problem(SyntaxError::Header)
-                        .into_file_error(filename.to_path_buf()),
-                )),
-            }
+            Ok(Msg::Many(messages))
         }
+        Ok((
+            ast::SpacesBefore {
+                item: ast::Header::Platform(header),
+                before: comments,
+            },
+            parser_state,
+        )) => {
+            let mut parent_dir = filename.to_path_buf();
+            parent_dir.pop();
 
-        Err(err) => Err(LoadingProblem::FileProblem {
-            filename: filename.to_path_buf(),
-            error: err.kind(),
-        }),
+            let packages = unspace(arena, header.packages.item.items);
+
+            let exposes_ids = get_exposes_ids(
+                header.exposes.item.items,
+                arena,
+                &module_ids,
+                &ident_ids_by_module,
+            );
+
+            // make a `platform` module that ultimately exposes `main` to the host
+            let (_, _, header) = build_platform_header(
+                arena,
+                Some(shorthand),
+                false, // cannot be the root if loaded as a package
+                app_module_id,
+                filename.to_path_buf(),
+                parser_state,
+                module_ids.clone(),
+                exposes_ids.into_bump_slice(),
+                &header,
+                comments,
+                pkg_module_timing,
+            )?;
+
+            let filename = header.module_path.clone();
+            let mut messages = Vec::with_capacity(packages.len() + 1);
+            messages.push(Msg::Header(header));
+
+            load_packages(
+                packages,
+                &mut messages,
+                roc_cache_dir,
+                parent_dir,
+                arena,
+                None,
+                module_ids,
+                ident_ids_by_module,
+                filename,
+            );
+
+            Ok(Msg::Many(messages))
+        }
+        Err(fail) => Err(LoadingProblem::ParsingFailed(
+            fail.map_problem(SyntaxError::Header)
+                .into_file_error(filename.to_path_buf()),
+        )),
     }
 }
 
