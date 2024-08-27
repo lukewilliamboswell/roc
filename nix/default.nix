@@ -26,6 +26,13 @@ let
     # only the CLI crate = executable provided in nightly releases
     roc-cli = (callPackage ./builder.nix { subPackage = "cli"; }).roc-release;
     roc-cli-debug = (callPackage ./builder.nix { subPackage = "cli"; }).roc-debug;
+
+    roc-docker = pkgs.dockerTools.buildImage {
+      name = "roc-docker";
+      config = {
+        Cmd = [ "${(callPackage ./builder.nix { subPackage = "cli"; }).roc-release}/bin/roc" ];
+      };
+    };
   };
 
 in

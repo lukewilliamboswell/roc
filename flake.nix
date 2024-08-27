@@ -154,6 +154,9 @@
 
           lang-server = rocBuild.roc-lang-server;
           lang-server-debug = rocBuild.roc-lang-server-debug;
+
+          # Build a docker image containing roc using `nix build .#docker`
+          docker = rocBuild.roc-docker;
         };
 
         apps = {
