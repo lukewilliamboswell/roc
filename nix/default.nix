@@ -29,8 +29,16 @@ let
 
     roc-docker = pkgs.dockerTools.buildImage {
       name = "roc-docker";
+      copyToRoot = pkgs.buildEnv {
+        name = "roc-env";
+        paths = [
+          pkgs.coreutils
+          pkgs.bashInteractive
+          (callPackage ./builder.nix { subPackage = "cli"; }).roc-release
+        ];
+      };
       config = {
-        Cmd = [ "${(callPackage ./builder.nix { subPackage = "cli"; }).roc-release}/bin/roc" ];
+        Cmd = [ "${pkgs.bashInteractive}/bin/bash" ];
       };
     };
   };
