@@ -20,6 +20,7 @@ use roc_can::module::{
     canonicalize_module_defs, ExposedByModule, ExposedForModule, ExposedModuleTypes, Module,
     ModuleParams, ResolvedImplementations, TypeState,
 };
+use roc_collections::soa::slice_extend_new;
 use roc_collections::{default_hasher, BumpMap, MutMap, MutSet, VecMap, VecSet};
 use roc_constrain::module::constrain_module;
 use roc_debug_flags::dbg_do;
@@ -51,7 +52,7 @@ use roc_parse::ast::{self, CommentOrNewline, ExtractSpaces, Spaced, ValueDef};
 use roc_parse::header::parse_module_defs;
 use roc_parse::header::{
     self, AppHeader, ExposedName, HeaderType, ImportsKeywordItem, PackageEntry, PackageHeader,
-    PlatformHeader, To, TypedIdent,
+    PlatformHeader, To,
 };
 use roc_parse::parser::{FileError, SourceError, SyntaxError};
 use roc_problem::Severity;
@@ -667,7 +668,7 @@ enum PlatformPath<'a> {
 #[derive(Debug)]
 struct PlatformData<'a> {
     module_id: ModuleId,
-    provides: &'a [(Loc<ExposedName<'a>>, Loc<TypedIdent<'a>>)],
+    provides: &'a [Loc<ExposedName<'a>>],
     is_prebuilt: bool,
 }
 
@@ -3172,7 +3173,7 @@ fn finish_specialization<'a>(
                             let proc_layout =
                                 proc_layout_for(state.procedures.keys().copied(), symbol);
 
-                            buf.push((symbol, proc_layout));
+                            buf.push(("", symbol, proc_layout));
                         }
 
                         buf.into_bump_slice()
@@ -3186,13 +3187,14 @@ fn finish_specialization<'a>(
                         let mut buf =
                             bumpalo::collections::Vec::with_capacity_in(provides.len(), arena);
 
-                        for (loc_name, _loc_typed_ident) in provides {
-                            let ident_id = ident_ids.get_or_insert(loc_name.value.as_str());
+                        for loc_name in provides {
+                            let fn_name = loc_name.value.as_str();
+                            let ident_id = ident_ids.get_or_insert(fn_name);
                             let symbol = Symbol::new(module_id, ident_id);
                             let proc_layout =
                                 proc_layout_for(state.procedures.keys().copied(), symbol);
 
-                            buf.push((symbol, proc_layout));
+                            buf.push((fn_name, symbol, proc_layout));
                         }
 
                         buf.into_bump_slice()
@@ -4370,7 +4372,7 @@ fn synth_list_len_type(subs: &mut Subs) -> Variable {
 
     // List.len : List a -> U64
     let a = synth_import(subs, Content::FlexVar(None));
-    let a_slice = SubsSlice::extend_new(&mut subs.variables, [a]);
+    let a_slice = slice_extend_new(&mut subs.variables, [a]);
     let list_a = synth_import(
         subs,
         Content::Structure(FlatType::Apply(Symbol::LIST_LIST, a_slice)),
@@ -4386,7 +4388,7 @@ fn synth_list_len_type(subs: &mut Subs) -> Variable {
             ambient_function: fn_var,
         }),
     );
-    let fn_args_slice = SubsSlice::extend_new(&mut subs.variables, [list_a]);
+    let fn_args_slice = slice_extend_new(&mut subs.variables, [list_a]);
     subs.set_content(
         fn_var,
         Content::Structure(FlatType::Func(fn_args_slice, clos_list_len, Variable::U64)),
@@ -4989,15 +4991,16 @@ fn build_platform_header<'a>(
     comments: &'a [CommentOrNewline<'a>],
     module_timing: ModuleTiming,
 ) -> Result<(ModuleId, PQModuleName<'a>, ModuleHeader<'a>), LoadingProblem<'a>> {
-    let requires = arena.alloc([Loc::at(
-        header.requires.item.signature.region,
-        header.requires.item.signature.extract_spaces().item,
-    )]);
+    let requires = header
+        .requires
+        .item
+        .signatures
+        .map_items(arena, |item| {
+            Loc::at(item.region, item.extract_spaces().item)
+        })
+        .items;
     let provides = bumpalo::collections::Vec::from_iter_in(
-        unspace(arena, header.provides.item.items)
-            .iter()
-            .copied()
-            .zip(requires.iter().copied()),
+        unspace(arena, header.provides.item.items).iter().copied(),
         arena,
     );
     let packages = unspace(arena, header.packages.item.items);
@@ -5450,7 +5453,7 @@ fn parse<'a>(
         if let HeaderType::Platform { provides, .. } = header.header_type {
             exposed.reserve(provides.len());
 
-            for (loc_name, _loc_typed_ident) in provides.iter() {
+            for loc_name in provides.iter() {
                 // Use get_or_insert here because the ident_ids may already
                 // created an IdentId for this, when it was imported exposed
                 // in a dependent module.

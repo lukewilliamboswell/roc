@@ -375,10 +375,10 @@ impl IterTokens for ProvidesTo<'_> {
 
 impl IterTokens for PlatformRequires<'_> {
     fn iter_tokens<'a>(&self, arena: &'a Bump) -> BumpVec<'a, Loc<Token>> {
-        let Self { rigids, signature } = self;
+        let Self { rigids, signatures } = self;
 
         (rigids.iter_tokens(arena).into_iter())
-            .chain(signature.iter_tokens(arena))
+            .chain(signatures.iter_tokens(arena))
             .collect_in(arena)
     }
 }
@@ -699,6 +699,7 @@ impl IterTokens for Loc<Expr<'_>> {
             Expr::LowLevelDbg(_, e1, e2) => (e1.iter_tokens(arena).into_iter())
                 .chain(e2.iter_tokens(arena))
                 .collect_in(arena),
+            Expr::Try => onetoken(Token::Keyword, region, arena),
             Expr::Apply(e1, e2, _called_via) => (e1.iter_tokens(arena).into_iter())
                 .chain(e2.iter_tokens(arena))
                 .collect_in(arena),
@@ -717,6 +718,11 @@ impl IterTokens for Loc<Expr<'_>> {
                 .collect_in(arena),
             Expr::When(e, branches) => (e.iter_tokens(arena).into_iter())
                 .chain(branches.iter_tokens(arena))
+                .collect_in(arena),
+            Expr::Return(ret_expr, after_ret) => ret_expr
+                .iter_tokens(arena)
+                .into_iter()
+                .chain(after_ret.iter_tokens(arena))
                 .collect_in(arena),
             Expr::SpaceBefore(e, _) | Expr::SpaceAfter(e, _) => {
                 Loc::at(region, *e).iter_tokens(arena)
