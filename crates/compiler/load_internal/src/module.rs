@@ -167,7 +167,6 @@ pub(crate) struct LateSpecializationsModule<'a> {
 #[derive(Debug, Default)]
 pub struct ToplevelExpects {
     pub pure: VecMap<Symbol, Region>,
-    pub fx: VecMap<Symbol, Region>,
 }
 
 #[derive(Debug)]
@@ -186,7 +185,7 @@ pub struct MonomorphizedModule<'a> {
     pub sources: MutMap<ModuleId, (PathBuf, Box<str>)>,
     pub timings: MutMap<ModuleId, ModuleTiming>,
     pub expectations: VecMap<ModuleId, Expectations>,
-    pub uses_prebuilt_platform: bool,
+    pub needs_prebuilt_host: bool,
     pub glue_layouts: GlueLayouts<'a>,
 }
 

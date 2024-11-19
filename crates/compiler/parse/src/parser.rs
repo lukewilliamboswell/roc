@@ -303,7 +303,6 @@ pub enum EExpr<'a> {
     Start(Position),
     End(Position),
     BadExprEnd(Position),
-    StmtAfterExpr(Position),
     Space(BadInputError, Position),
 
     Dot(Position),
@@ -1057,7 +1056,11 @@ where
         // the next character should not be an identifier character
         // to prevent treating `whence` or `iffy` as keywords
         match state.bytes().get(width) {
-            Some(next) if *next == b' ' || *next == b'#' || *next == b'\n' || *next == b'\r' => {
+            Some(
+                b' ' | b'#' | b'\n' | b'\r' | b'\t' | b',' | b'(' | b')' | b'[' | b']' | b'{'
+                | b'}' | b'"' | b'\'' | b'/' | b'\\' | b'+' | b'*' | b'%' | b'^' | b'&' | b'|'
+                | b'<' | b'>' | b'=' | b'!' | b'~' | b'`' | b';' | b':' | b'?' | b'.',
+            ) => {
                 state = state.advance(width);
                 Ok((MadeProgress, (), state))
             }

@@ -6,10 +6,14 @@ import pf.SSG
 import pf.Types exposing [Args]
 import pf.Html exposing [header, nav, div, link, attribute, text, a, span, html, head, body, meta, script, footer, br]
 import pf.Html.Attributes exposing [id, ariaLabel, ariaHidden, title, href, class, rel, type, content, lang, charset, name, color]
+import "content/tutorial.md" as tutorialMarkdown : Str
+
 import InteractiveExample
 
 main : Args -> Task {} _
 main = \{ inputDir, outputDir } ->
+
+    SSG.writeFile! { outputDir, relpath: Types.toRelPath "llms.txt", content: tutorialMarkdown }
 
     # get the path and url of markdown files in content directory
     files = SSG.files! inputDir
@@ -58,7 +62,7 @@ getPageInfo = \pagePathStr ->
         Ok pageInfo -> pageInfo
         Err KeyNotFound ->
             if Str.contains pagePathStr "/examples/" then
-                Str.split pagePathStr "/"
+                Str.splitOn pagePathStr "/"
                 |> List.takeLast 2
                 |> List.first # we use the folder for name for the page title, e.g. Json from examples/Json/README.html
                 |> unwrapOrCrash "This List.first should never fail. pagePathStr ($(pagePathStr)) did not contain any `/`."
