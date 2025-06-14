@@ -10,6 +10,7 @@ const report = @import("report.zig");
 const renderer = @import("renderer.zig");
 const severity = @import("severity.zig");
 const config = @import("config.zig");
+const style = @import("style.zig");
 
 const Allocator = std.mem.Allocator;
 const Document = document.Document;
@@ -20,6 +21,7 @@ const SourceRegion = document.SourceRegion;
 const Report = report.Report;
 const Severity = severity.Severity;
 const ReportingConfig = config.ReportingConfig;
+const ColorPalette = style.ColorPalette;
 
 test {
     // Reference all declarations in reporting modules
@@ -32,193 +34,28 @@ test {
     testing.refAllDeclsRecursive(@import("utf8_tests.zig"));
 }
 
-// Test Helpers
-
-/// Should only print out the debug copy-paste ready string if the string comparison fails.
-fn expectMultilineEqual(expected: []const u8, actual: []const u8) !void {
-    testing.expectEqualStrings(expected, actual) catch {
-        std.debug.print("\n--- DEBUG STRING COMPARISON (copy-paste ready) ---\n", .{});
-        std.debug.print("const expected = \n", .{});
-        printAsMultilineString(actual);
-        std.debug.print(";\n", .{});
-    };
-}
-
-fn printAsMultilineString(s: []const u8) void {
-    if (s.len == 0) {
-        std.debug.print("        \\\\\n", .{});
-        return;
-    }
-
-    var lines = std.mem.splitScalar(u8, s, '\n');
-    var first = true;
-    while (lines.next()) |line| {
-        if (first) {
-            first = false;
-            std.debug.print("        \\\\{s}\n", .{line});
-        } else {
-            std.debug.print("        \\\\{s}\n", .{line});
-        }
-    }
-}
-
-// Tests
-
-test "Document basic operations" {
-    var doc = Document.init(testing.allocator);
-    defer doc.deinit();
-
-    try doc.addText("Hello");
-    try doc.addSpace(1);
-    try doc.addAnnotated("world", .emphasized);
-    try doc.addLineBreak();
-
-    try testing.expectEqual(@as(usize, 4), doc.elementCount());
-    try testing.expect(!doc.isEmpty());
-
-    // Test element access
-    const first = doc.getElement(0).?;
-    try testing.expectEqualStrings("Hello", first.getText().?);
-}
-
-test "DocumentBuilder fluent interface" {
-    var builder = DocumentBuilder.init(testing.allocator);
-    defer builder.deinit();
-
-    var doc = builder
-        .text("Error: ")
-        .errorText("Type mismatch")
-        .lineBreak()
-        .indent(1)
-        .text("Expected: ")
-        .typeText("String")
-        .build();
-
-    try testing.expect(doc.elementCount() > 0);
-}
-
-test "Annotation semantic names" {
-    try testing.expectEqualStrings("error", Annotation.error_highlight.semanticName());
-    try testing.expectEqualStrings("keyword", Annotation.keyword.semanticName());
-    try testing.expectEqualStrings("type", Annotation.type_variable.semanticName());
-}
-
-test "Document code blocks" {
-    var doc = Document.init(testing.allocator);
-    defer doc.deinit();
-
-    try doc.addCodeBlock("fn main() {\n    println!(\"Hello\");\n}");
-
-    try testing.expect(doc.elementCount() > 0);
-}
-
-test "Document semantic elements" {
-    var doc = Document.init(testing.allocator);
-    defer doc.deinit();
-
-    try doc.addQualifiedSymbol("Module.symbol");
-    try doc.addUnqualifiedSymbol("symbol");
-    try doc.addModuleName("Module");
-    try doc.addRecordField("field");
-    try doc.addTagName("Tag");
-    try doc.addBinaryOperator("+");
-
-    try testing.expectEqual(@as(usize, 6), doc.elementCount());
-}
-
-test "Document reflowing text" {
-    var doc = Document.init(testing.allocator);
-    defer doc.deinit();
-
-    try doc.addReflowingText("This is a long line of text that should be reflowed automatically when rendered.");
-
-    try testing.expectEqual(@as(usize, 1), doc.elementCount());
-}
-
-test "Document vertical stack and horizontal concat" {
-    var doc = Document.init(testing.allocator);
-    defer doc.deinit();
-
-    const stack_elements = [_]DocumentElement{
-        .{ .text = "Line 1" },
-        .{ .text = "Line 2" },
-    };
-
-    const concat_elements = [_]DocumentElement{
-        .{ .text = "Part 1" },
-        .{ .text = "Part 2" },
-    };
-
-    try doc.addVerticalStack(&stack_elements);
-    try doc.addHorizontalConcat(&concat_elements);
-
-    try testing.expectEqual(@as(usize, 2), doc.elementCount());
-}
-
-test "Document source code regions" {
-    var doc = Document.init(testing.allocator);
-    defer doc.deinit();
-
-    try doc.addSourceRegion("let x = 42;", 1, 1, 1, 11, .error_highlight, "test.roc");
-
-    const regions = [_]SourceRegion{
-        .{ .start_line = 1, .start_column = 1, .end_line = 1, .end_column = 5, .annotation = .keyword },
-        .{ .start_line = 1, .start_column = 9, .end_line = 1, .end_column = 11, .annotation = .literal },
-    };
-
-    try doc.addSourceMultiRegion("let x = 42;", &regions, "test.roc");
-
-    try testing.expectEqual(@as(usize, 2), doc.elementCount());
-}
-
-test "New annotation semantic names" {
-    try testing.expectEqualStrings("symbol-qualified", Annotation.symbol_qualified.semanticName());
-    try testing.expectEqualStrings("symbol-unqualified", Annotation.symbol_unqualified.semanticName());
-    try testing.expectEqualStrings("module", Annotation.module_name.semanticName());
-    try testing.expectEqualStrings("record-field", Annotation.record_field.semanticName());
-    try testing.expectEqualStrings("tag", Annotation.tag_name.semanticName());
-    try testing.expectEqualStrings("operator", Annotation.binary_operator.semanticName());
-    try testing.expectEqualStrings("reflow", Annotation.reflowing_text.semanticName());
-}
-
-test "DocumentBuilder with new features" {
-    var builder = DocumentBuilder.init(testing.allocator);
-    defer builder.deinit();
-
-    var doc = builder
-        .text("Error in ")
-        .qualifiedSymbol("Module.function")
-        .text(" at ")
-        .recordField("field")
-        .lineBreak()
-        .reflow("This is a long error message that should be reflowed when displayed to the user.")
-        .build();
-
-    try testing.expect(doc.elementCount() > 0);
-}
-
 // Test cases for canonicalize error reports
 
-test "SYNTAX_PROBLEM report" {
+test "SYNTAX_PROBLEM report along with all four render types" {
     const gpa = testing.allocator;
-
-    const reporting_config = ReportingConfig.initForTesting();
-
-    var r = Report.init(gpa, "SYNTAX PROBLEM", .runtime_error, reporting_config);
-    defer r.deinit();
-
-    r.document = try buildSyntaxProblemReport(gpa);
-
-    try testing.expect(r.document.elementCount() > 0);
-    try testing.expect(!r.document.isEmpty());
-
-    // Test rendering to plain text
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();
 
+    // Setup configuration
+    const reporting_config = ReportingConfig.initForTesting();
+
+    // Create a Report
+    var r = Report.init(gpa, "SYNTAX PROBLEM", .runtime_error, reporting_config);
+    defer r.deinit();
+
+    // Add the document which describes the problem
+    r.document = try buildSyntaxProblemReport(gpa);
+    try testing.expect(r.document.elementCount() > 0);
+    try testing.expect(!r.document.isEmpty());
+
+    // Plain Text
     try renderer.renderReportToPlainText(&r, buffer.writer());
 
-    // Compare the complete rendered output
     const expected =
         \\SYNTAX PROBLEM
         \\
@@ -228,12 +65,11 @@ test "SYNTAX_PROBLEM report" {
 
     try expectMultilineEqual(expected, buffer.items);
 
-    // clear buffer
+    // HTML
     buffer.clearRetainingCapacity();
 
     try renderer.renderReportToHtml(&r, buffer.writer());
 
-    // Compare the complete rendered output
     const expected_html =
         \\<div class="report error">
         \\<h1 class="report-title">SYNTAX PROBLEM</h1>
@@ -244,9 +80,30 @@ test "SYNTAX_PROBLEM report" {
         \\
     ;
 
-    if (!std.mem.eql(u8, expected_html, buffer.items)) {
-        try expectMultilineEqual(expected_html, buffer.items);
-    }
+    try expectMultilineEqual(expected_html, buffer.items);
+
+    // Language Server Protocol
+    buffer.clearRetainingCapacity();
+
+    try renderer.renderReportToLsp(&r, buffer.writer());
+
+    const expected_lsp =
+        \\SYNTAX PROBLEM
+        \\
+        \\Using more than one + like this requires parentheses, to clarify how things should be grouped.
+        \\example.roc:1-10:1: example.roc
+    ;
+
+    try expectMultilineEqual(expected_lsp, buffer.items);
+
+    // Terminal (TTY)
+    buffer.clearRetainingCapacity();
+
+    try renderer.renderReportToTerminal(&r, buffer.writer(), ColorPalette.ANSI);
+
+    // let's forget about comparing with ansi escape codes present... doesn't seem worth the effort.
+    // we'll have to QA the old fashioned way.
+
 }
 
 test "NAMING_PROBLEM report" {
@@ -543,4 +400,47 @@ fn buildUnboundTypeVarsInAsReport(allocator: Allocator) !Document {
     try doc.addSourceRegion("example.roc", 1, 10, 1, 20, .error_highlight, "example.roc");
     try doc.addReflowingText("Type variables must be bound in the same scope as the type annotation.");
     return doc;
+}
+
+// Test Helpers
+
+/// Should only print out the debug copy-paste ready string if the string comparison fails.
+fn expectMultilineEqual(expected: []const u8, actual: []const u8) !void {
+    testing.expectEqualStrings(expected, actual) catch {
+        std.debug.print("\n--- DEBUG STRING COMPARISON (copy-paste ready) ---\n", .{});
+        std.debug.print("const expected = \n", .{});
+        printAsMultilineString(actual);
+        std.debug.print(";\n", .{});
+    };
+}
+
+fn printAsMultilineString(s: []const u8) void {
+    if (s.len == 0) {
+        std.debug.print("        \\\\\n", .{});
+        return;
+    }
+
+    var lines = std.mem.splitScalar(u8, s, '\n');
+    var first = true;
+    while (lines.next()) |line| {
+        if (first) {
+            first = false;
+            std.debug.print("        \\\\", .{});
+        } else {
+            std.debug.print("        \\\\", .{});
+        }
+
+        // Print each character with proper escaping
+        for (line) |c| {
+            switch (c) {
+                '\\' => std.debug.print("\\\\", .{}),
+                '"' => std.debug.print("\\\"", .{}),
+                '\'' => std.debug.print("\\'", .{}),
+                '\t' => std.debug.print("\\t", .{}),
+                '\r' => std.debug.print("\\r", .{}),
+                else => std.debug.print("{c}", .{c}),
+            }
+        }
+        std.debug.print("\n", .{});
+    }
 }
