@@ -9,6 +9,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const base = @import("base.zig");
 const collections = @import("collections.zig");
+const reporting = @import("reporting.zig");
 
 const Ident = base.Ident;
 const Region = base.Region;
@@ -57,7 +58,28 @@ pub const Problem = union(enum) {
     /// An index into a list of problems.
     pub const Idx = List.Idx;
 
-    /// Format a `Problem` for display.
+    /// Format a `Problem` for display using the new reporting system.
+    pub fn toReport(self: @This(), allocator: Allocator, source_files: anytype) !reporting.Report {
+        var processor = reporting.ProblemProcessor.init(allocator);
+        defer processor.deinit();
+        return processor.problemToReport(self, source_files);
+    }
+
+    /// Get the severity level for this problem.
+    pub fn getSeverity(self: @This()) reporting.Severity {
+        return switch (self) {
+            .tokenize => .runtime_error,
+            .parser => .runtime_error,
+            .canonicalize => .runtime_error,
+            .compiler => |compiler_error| switch (compiler_error) {
+                .canonicalize => .fatal,
+                else => .fatal,
+            },
+        };
+    }
+
+    /// Legacy method: Format a `Problem` for display.
+    /// Consider using `toReport` with the new reporting system instead.
     pub fn toStr(self: @This(), gpa: Allocator, source: []const u8, writer: anytype) !void {
 
         // use a stack allocation for printing our tag errors
@@ -106,5 +128,15 @@ pub const Problem = union(enum) {
                 try writer.writeAll(err_msg);
             },
         }
+    }
+
+    /// Check if this problem should block compilation completely.
+    pub fn isBlocking(self: @This()) bool {
+        return self.getSeverity().isBlocking();
+    }
+
+    /// Check if this problem indicates a compiler bug.
+    pub fn isCompilerBug(self: @This()) bool {
+        return self.getSeverity().isCompilerBug();
     }
 };
