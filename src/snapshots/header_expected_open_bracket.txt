@@ -4,7 +4,10 @@ type=file
 ~~~SOURCE
 module
 ~~~PROBLEMS
-PARSER: header_expected_open_square
+Expected '[' in header
+
+
+Note: This is a parse error. Check your syntax.
 ~~~TOKENS
 KwModule(1:1-1:7),EndOfFile(1:7-1:7),
 ~~~PARSE

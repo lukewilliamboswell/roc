@@ -5,7 +5,7 @@ const base = @import("base.zig");
 const cache = @import("cache.zig");
 const types = @import("types.zig");
 const collections = @import("collections.zig");
-const tokenize = @import("check/parse/tokenize.zig");
+
 const parse = @import("check/parse.zig");
 const can = @import("check/canonicalize.zig");
 const resolve = @import("check/resolve_imports.zig");

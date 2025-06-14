@@ -4,12 +4,13 @@ const std = @import("std");
 const parse = @import("check/parse.zig");
 const collections = @import("collections.zig");
 const Filesystem = @import("coordinate/Filesystem.zig");
-const tokenizer = @import("check/parse/tokenize.zig");
+
 const base = @import("base.zig");
 const tracy = @import("tracy.zig");
+const tokenize = @import("check/tokenize.zig");
 
-const TokenizedBuffer = tokenizer.TokenizedBuffer;
-const Token = tokenizer.Token;
+// const TokenizedBuffer = tokenize.TokenizedBuffer;
+const Token = tokenize.Token;
 const AST = parse.AST;
 const Node = parse.Node;
 const NodeStore = parse.NodeStore;
@@ -150,11 +151,11 @@ pub fn formatFilePath(gpa: std.mem.Allocator, base_dir: std.fs.Dir, path: []cons
 
     var parse_ast = parse.parse(&module_env, contents);
     defer parse_ast.deinit();
-    if (parse_ast.errors.len > 0) {
-        parse_ast.toSExprStr(&module_env, std.io.getStdErr().writer().any()) catch @panic("Failed to print SExpr");
-        try printParseErrors(gpa, contents, parse_ast);
-        return error.ParsingFailed;
-    }
+    // if (parse_ast.errors.len > 0) {
+    //     parse_ast.toSExprStr(&module_env, std.io.getStdErr().writer().any()) catch @panic("Failed to print SExpr");
+    //     try printParseErrors(gpa, contents, parse_ast);
+    //     return error.ParsingFailed;
+    // }
 
     const output_file = try base_dir.createFile(path, .{});
     defer output_file.close();
@@ -1861,8 +1862,6 @@ fn moduleFmtsSame(source: []const u8) !void {
     try std.testing.expectEqualStrings(source, result.items);
 }
 
-const tokenize = @import("check/parse/tokenize.zig");
-
 fn exprFmtsSame(source: []const u8, flags: FormatFlags) !void {
     try exprFmtsTo(source, source, flags);
 }
@@ -1957,7 +1956,7 @@ fn parseAndFmt(gpa: std.mem.Allocator, input: []const u8, debug: bool) ![]const 
         std.debug.print("\n==========\n\n", .{});
     }
 
-    std.testing.expectEqualSlices(AST.Diagnostic, &[_]AST.Diagnostic{}, parse_ast.errors) catch {
+    std.testing.expectEqualSlices(AST.Diagnostic, &[_]AST.Diagnostic{}, parse_ast.parse_diagnostics.items) catch {
         return error.ParseFailed;
     };
 

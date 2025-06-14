@@ -5,8 +5,8 @@ const std = @import("std");
 const testing = std.testing;
 const base = @import("../../base.zig");
 const types = @import("../../types.zig");
-const problem = @import("../../problem.zig");
 const collections = @import("../../collections.zig");
+const reporting = @import("../../reporting.zig");
 const Alias = @import("./Alias.zig");
 const sexpr = @import("../../base/sexpr.zig");
 const exitOnOom = collections.utils.exitOnOom;
@@ -19,9 +19,10 @@ const ModuleEnv = base.ModuleEnv;
 const StringLiteral = base.StringLiteral;
 const CalledVia = base.CalledVia;
 const TypeVar = types.Var;
-const Problem = problem.Problem;
 const Node = @import("Node.zig");
 const NodeStore = @import("NodeStore.zig");
+
+pub const Diagnostic = @import("Diagnostic.zig");
 
 const CIR = @This();
 
@@ -30,7 +31,7 @@ store: NodeStore,
 ingested_files: IngestedFile.List,
 imports: ModuleImport.Store,
 top_level_defs: Def.Span,
-diagnostics: std.ArrayListUnmanaged(CIR.Diagnostic),
+diagnostics: std.ArrayListUnmanaged(Diagnostic),
 
 /// Initialize the IR for a module's canonicalization info.
 ///
@@ -45,18 +46,13 @@ diagnostics: std.ArrayListUnmanaged(CIR.Diagnostic),
 ///
 /// Takes ownership of the module_env
 pub fn init(env: ModuleEnv) CIR {
-    // TODO: Figure out what capacity should be
-    return CIR.initCapacity(env, 1000);
-}
-
-/// Initialize the IR for a module's canonicalization info with a specified capacity.
-/// For more information refer to documentation on [init] as well
-pub fn initCapacity(env: ModuleEnv, capacity: usize) CIR {
     var ident_store = env.idents;
+
+    const NODE_STORE_CAPACITY = 10_000;
 
     return CIR{
         .env = env,
-        .store = NodeStore.initCapacity(env.gpa, capacity),
+        .store = NodeStore.initCapacity(env.gpa, NODE_STORE_CAPACITY),
         .ingested_files = .{},
         .imports = ModuleImport.Store.init(&.{}, &ident_store, env.gpa),
         .top_level_defs = .{ .span = .{ .start = 0, .len = 0 } },
@@ -71,27 +67,6 @@ pub fn deinit(self: *CIR) void {
     self.imports.deinit(self.env.gpa);
     self.diagnostics.deinit(self.env.gpa);
 }
-
-/// Diagnostics related to canonicalization
-pub const Diagnostic = struct {
-    tag: Tag,
-    region: Region,
-
-    /// different types of diagnostic errors
-    pub const Tag = enum {
-        not_implemented,
-        invalid_num_literal,
-        ident_already_in_scope,
-        ident_not_in_scope,
-        invalid_top_level_statement,
-        expr_not_canonicalized,
-        invalid_string_interpolation,
-        pattern_arg_invalid,
-        pattern_not_canonicalized,
-        can_lambda_not_implemented,
-        lambda_body_not_canonicalized,
-    };
-};
 
 /// Push a diagnostic error during canonicalization
 ///

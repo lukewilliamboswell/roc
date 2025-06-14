@@ -1,7 +1,6 @@
 const std = @import("std");
 const base = @import("../base.zig");
 const parse = @import("parse.zig");
-const problem = @import("../problem.zig");
 const collections = @import("../collections.zig");
 const types = @import("../types/types.zig");
 
@@ -19,7 +18,6 @@ const Region = base.Region;
 const TagName = base.TagName;
 const ModuleEnv = base.ModuleEnv;
 const CalledVia = base.CalledVia;
-const Problem = problem.Problem;
 const exitOnOom = collections.utils.exitOnOom;
 
 const BUILTIN_NUM_ADD: CIR.Pattern.Idx = @enumFromInt(0);
@@ -82,8 +80,6 @@ pub fn get_gpa(self: *Self) std.mem.Allocator {
 pub fn canonicalize_file(
     self: *Self,
 ) void {
-    const gpa = self.can_ir.env.gpa;
-
     const file = self.parse_ir.store.getFile();
 
     // canonicalize_header_packages();
@@ -116,7 +112,7 @@ pub fn canonicalize_file(
                 self.can_ir.pushDiagnostic(.invalid_top_level_statement, self.tokenizedRegionToRegion(crash.region));
             },
             .expect => |_| {
-                self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+                // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             },
             .@"for" => |f| {
                 // Not valid at top-level
@@ -127,10 +123,10 @@ pub fn canonicalize_file(
                 self.can_ir.pushDiagnostic(.invalid_top_level_statement, self.tokenizedRegionToRegion(return_stmt.region));
             },
             .type_decl => |_| {
-                self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+                // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             },
             .type_anno => |_| {
-                self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+                // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             },
             .malformed => |malformed| {
                 // We won't touch this since it's already a parse error.
@@ -159,11 +155,6 @@ pub fn canonicalize_file(
 
     // Create the span of all top-level defs
     self.can_ir.top_level_defs = self.can_ir.store.defSpanFrom(scratch_defs_start);
-
-    // Copy errors across to ModuleEnv problems
-    for (self.can_ir.diagnostics.items) |msg| {
-        _ = self.can_ir.env.problems.append(gpa, .{ .canonicalize = msg });
-    }
 }
 
 fn canonicalize_header_exposes(
@@ -263,9 +254,9 @@ fn bringIngestedFileIntoScope(
     );
 
     if (res.was_present) {
-        _ = self.can_ir.env.problems.append(Problem.Canonicalize.make(.DuplicateImport{
-            .duplicate_import_region = import.name_region,
-        }));
+        // _ = self.can_ir.env.problems.append(Problem.Canonicalize.make(.DuplicateImport{
+        //     .duplicate_import_region = import.name_region,
+        // }));
     }
 
     // scope.introduce(self: *Scope, comptime item_kind: Level.ItemKind, ident: Ident.Idx)
@@ -385,7 +376,7 @@ pub fn canonicalize_expr(
                     return self.can_ir.pushMalformed(CIR.Expr.Idx, .ident_not_in_scope, self.tokenizedRegionToRegion(e.region));
                 }
             } else {
-                self.can_ir.env.pushProblem(Problem.Compiler.can(.unable_to_resolve_identifier));
+                // self.can_ir.env.pushProblem(Problem.Compiler.can(.unable_to_resolve_identifier));
                 return null;
             }
         },
@@ -513,15 +504,15 @@ pub fn canonicalize_expr(
             }
         },
         .string_part => |_| {
-            self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+            // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             return null;
         },
         .tuple => |_| {
-            self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+            // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             return null;
         },
         .record => |_| {
-            self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+            // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             return null;
         },
         .lambda => |e| {
@@ -545,15 +536,15 @@ pub fn canonicalize_expr(
             return self.can_ir.pushMalformed(CIR.Expr.Idx, .can_lambda_not_implemented, self.tokenizedRegionToRegion(e.region));
         },
         .record_updater => |_| {
-            self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+            // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             return null;
         },
         .field_access => |_| {
-            self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+            // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             return null;
         },
         .local_dispatch => |_| {
-            self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+            // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             return null;
         },
         .bin_op => |e| {
@@ -578,7 +569,7 @@ pub fn canonicalize_expr(
                 .OpStar => .mul,
                 else => {
                     // Unknown operator
-                    self.can_ir.env.pushProblem(Problem.Compiler.can(.unexpected_token_binop));
+                    // self.can_ir.env.pushProblem(Problem.Compiler.can(.unexpected_token_binop));
                     return null;
                 },
             };
@@ -593,39 +584,39 @@ pub fn canonicalize_expr(
             });
         },
         .suffix_single_question => |_| {
-            self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+            // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             return null;
         },
         .unary_op => |_| {
-            self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+            // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             return null;
         },
         .if_then_else => |_| {
-            self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+            // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             return null;
         },
         .match => |_| {
-            self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+            // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             return null;
         },
         .dbg => |_| {
-            self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+            // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             return null;
         },
         .record_builder => |_| {
-            self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+            // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             return null;
         },
         .ellipsis => |_| {
-            self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+            // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             return null;
         },
         .block => |_| {
-            self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+            // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             return null;
         },
         .malformed => |_| {
-            self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+            // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             return null;
         },
     }
@@ -703,7 +694,7 @@ fn canonicalize_pattern(
 
                 return assign_idx;
             } else {
-                self.can_ir.env.pushProblem(Problem.Compiler.can(.unable_to_resolve_identifier));
+                // self.can_ir.env.pushProblem(Problem.Compiler.can(.unable_to_resolve_identifier));
                 return null;
             }
         },
@@ -803,27 +794,27 @@ fn canonicalize_pattern(
             return null;
         },
         .record => |_| {
-            self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+            // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             return null;
         },
         .tuple => |_| {
-            self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+            // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             return null;
         },
         .list => |_| {
-            self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+            // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             return null;
         },
         .list_rest => |_| {
-            self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+            // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             return null;
         },
         .alternatives => |_| {
-            self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+            // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             return null;
         },
         .malformed => |_| {
-            self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
+            // self.can_ir.env.pushProblem(Problem.Compiler.can(.not_implemented));
             return null;
         },
     }

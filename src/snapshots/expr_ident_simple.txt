@@ -4,7 +4,12 @@ type=expr
 ~~~SOURCE
 foo
 ~~~PROBLEMS
-NIL
+Identifier not found in scope
+
+   |     foo
+Identifier not found in scope
+
+   |     foo
 ~~~TOKENS
 LowerIdent(1:1-1:4),EndOfFile(1:4-1:4),
 ~~~PARSE

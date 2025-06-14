@@ -15,11 +15,34 @@ main! = |_| {
 	Stdout.line!("Hello, world!")
 }
 ~~~PROBLEMS
-COMPILER: problem.Problem.Compiler{ .canonicalize = problem.Problem.Compiler.Can.not_implemented }
-CANONICALIZE: lambda_body_not_canonicalized "{
-	world = "World..."
-CANONICALIZE: can_lambda_not_implemented "|_| {
-	world = "W..."
+Lambda body could not be canonicalized
+
+   |     {
+    	world = "World"
+    	# Hello
+    	Stdout.line!("Hello, world!")
+    }
+Lambda canonicalization not implemented
+
+   |     |_| {
+    	world = "World"
+    	# Hello
+    	Stdout.line!("Hello, world!")
+    }
+Lambda body could not be canonicalized
+
+   |     {
+    	world = "World"
+    	# Hello
+    	Stdout.line!("Hello, world!")
+    }
+Lambda canonicalization not implemented
+
+   |     |_| {
+    	world = "World"
+    	# Hello
+    	Stdout.line!("Hello, world!")
+    }
 ~~~TOKENS
 Newline(1:2-1:15),
 Newline(1:1-1:1),

@@ -8,8 +8,10 @@ const Scope = @import("check/canonicalize/Scope.zig");
 const parse = @import("check/parse.zig");
 const fmt = @import("fmt.zig");
 const types = @import("types.zig");
+const reporting = @import("reporting.zig");
 
 const AST = parse.AST;
+const Report = reporting.Report;
 
 var verbose_log: bool = false;
 var prng = std.Random.DefaultPrng.init(1234567890);
@@ -471,12 +473,6 @@ fn processSnapshotFile(gpa: Allocator, snapshot_path: []const u8, maybe_fuzz_cor
             // For expr snapshots, just canonicalize the root expression directly
             const expr_idx: AST.Expr.Idx = @enumFromInt(parse_ast.root_node_idx);
             maybe_expr_idx = can.canonicalize_expr(expr_idx);
-
-            // Manually copy errors across to ModuleEnv problems
-            // as `canonicalize_expr` doesn't do this for us.
-            for (can_ir.diagnostics.items) |msg| {
-                _ = module_env.problems.append(gpa, .{ .canonicalize = msg });
-            }
         },
         .statement => {
             // TODO: implement canonicalize_statement when available
@@ -509,14 +505,51 @@ fn processSnapshotFile(gpa: Allocator, snapshot_path: []const u8, maybe_fuzz_cor
     {
         try writer.writeAll(Section.PROBLEMS);
         try writer.writeAll("\n");
-        if (can_ir.env.problems.len() > 0) {
-            var iter = can_ir.env.problems.iterIndices();
-            while (iter.next()) |problem_idx| {
-                const problem = can_ir.env.problems.get(problem_idx);
-                try problem.toStr(gpa, content.source, writer);
-                try writer.writeAll("\n");
-            }
-        } else {
+
+        var nil_problems = true;
+
+        // Create PlainTextRenderer for this problem
+        var plain_renderer = reporting.PlainTextRenderer.init(gpa, writer.any());
+        defer plain_renderer.deinit();
+        var renderer = plain_renderer.renderer();
+
+        // Tokenize Diagnostics
+        for (can_ir.diagnostics.items) |diagnostic| {
+            nil_problems = false;
+
+            var report: Report = try diagnostic.toReport(gpa, content.source);
+            defer report.deinit();
+            report.render(&renderer) catch |err| {
+                try writer.print("Error rendering report: {}\n", .{err});
+                continue;
+            };
+        }
+
+        // Parser Dianostics
+        for (parse_ast.parse_diagnostics.items) |diagnostic| {
+            nil_problems = false;
+
+            var report: Report = try diagnostic.toReport(gpa, content.source);
+            defer report.deinit();
+            report.render(&renderer) catch |err| {
+                try writer.print("Error rendering report: {}\n", .{err});
+                continue;
+            };
+        }
+
+        // Canonicalization Diagnostics
+        for (can_ir.diagnostics.items) |diagnostic| {
+            nil_problems = false;
+
+            var report: Report = try diagnostic.toReport(gpa, content.source);
+            defer report.deinit();
+            report.render(&renderer) catch |err| {
+                try writer.print("Error rendering report: {}\n", .{err});
+                continue;
+            };
+        }
+
+        if (nil_problems) {
             try writer.writeAll("NIL\n");
         }
     }

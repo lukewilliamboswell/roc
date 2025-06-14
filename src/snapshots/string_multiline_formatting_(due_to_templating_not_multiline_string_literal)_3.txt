@@ -9,7 +9,24 @@ type=expr
 	)
 } lines of text due to the template parts"
 ~~~PROBLEMS
-NIL
+Identifier not found in scope
+
+   |     some_func
+Identifier not found in scope
+
+   |     a
+Identifier not found in scope
+
+   |     b
+Identifier not found in scope
+
+   |     some_func
+Identifier not found in scope
+
+   |     a
+Identifier not found in scope
+
+   |     b
 ~~~TOKENS
 StringStart(1:1-1:2),StringPart(1:2-1:24),OpenStringInterpolation(1:24-1:26),Newline(1:1-1:1),
 LowerIdent(2:2-2:11),NoSpaceOpenRound(2:11-2:12),Newline(1:1-1:1),

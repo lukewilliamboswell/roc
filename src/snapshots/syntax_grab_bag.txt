@@ -210,43 +210,548 @@ expect {
 	blah == foo
 }
 ~~~PROBLEMS
-COMPILER: problem.Problem.Compiler{ .canonicalize = problem.Problem.Compiler.Can.not_implemented }
-COMPILER: problem.Problem.Compiler{ .canonicalize = problem.Problem.Compiler.Can.not_implemented }
-COMPILER: problem.Problem.Compiler{ .canonicalize = problem.Problem.Compiler.Can.not_implemented }
-COMPILER: problem.Problem.Compiler{ .canonicalize = problem.Problem.Compiler.Can.not_implemented }
-COMPILER: problem.Problem.Compiler{ .canonicalize = problem.Problem.Compiler.Can.not_implemented }
-COMPILER: problem.Problem.Compiler{ .canonicalize = problem.Problem.Compiler.Can.not_implemented }
-COMPILER: problem.Problem.Compiler{ .canonicalize = problem.Problem.Compiler.Can.not_implemented }
-COMPILER: problem.Problem.Compiler{ .canonicalize = problem.Problem.Compiler.Can.not_implemented }
-COMPILER: problem.Problem.Compiler{ .canonicalize = problem.Problem.Compiler.Can.not_implemented }
-COMPILER: problem.Problem.Compiler{ .canonicalize = problem.Problem.Compiler.Can.not_implemented }
-COMPILER: problem.Problem.Compiler{ .canonicalize = problem.Problem.Compiler.Can.not_implemented }
-COMPILER: problem.Problem.Compiler{ .canonicalize = problem.Problem.Compiler.Can.not_implemented }
-COMPILER: problem.Problem.Compiler{ .canonicalize = problem.Problem.Compiler.Can.not_implemented }
-COMPILER: problem.Problem.Compiler{ .canonicalize = problem.Problem.Compiler.Can.not_implemented }
-COMPILER: problem.Problem.Compiler{ .canonicalize = problem.Problem.Compiler.Can.not_implemented }
-COMPILER: problem.Problem.Compiler{ .canonicalize = problem.Problem.Compiler.Can.not_implemented }
-COMPILER: problem.Problem.Compiler{ .canonicalize = problem.Problem.Compiler.Can.not_implemented }
-COMPILER: problem.Problem.Compiler{ .canonicalize = problem.Problem.Compiler.Can.not_implemented }
-COMPILER: problem.Problem.Compiler{ .canonicalize = problem.Problem.Compiler.Can.not_implemented }
-COMPILER: problem.Problem.Compiler{ .canonicalize = problem.Problem.Compiler.Can.not_implemented }
-COMPILER: problem.Problem.Compiler{ .canonicalize = problem.Problem.Compiler.Can.not_implemented }
-CANONICALIZE: lambda_body_not_canonicalized "if num 2 else 5
+Lambda body could not be canonicalized
 
-..."
-CANONICALIZE: can_lambda_not_implemented "|num| if num 2 el..."
-CANONICALIZE: lambda_body_not_canonicalized "{
-	other = 1
-	if ..."
-CANONICALIZE: can_lambda_not_implemented "|num| {
-	other = ..."
-CANONICALIZE: lambda_body_not_canonicalized "match a {
-		Blue ..."
-CANONICALIZE: can_lambda_not_implemented "|
-	a, # After arg..."
-CANONICALIZE: lambda_body_not_canonicalized "{ # Yeah I can le..."
-CANONICALIZE: can_lambda_not_implemented "|_| { # Yeah I ca..."
-CANONICALIZE: expr_not_canonicalized "empty = {}"
+   |     if num 2 else 5
+
+    add_one
+Lambda canonicalization not implemented
+
+   |     |num| if num 2 else 5
+
+    add_one
+Lambda body could not be canonicalized
+
+   |     {
+    	other = 1
+    	if num {
+    		dbg # After debug
+    			some_func() # After debug expr
+    		0
+    	} else {
+    		dbg 123
+    		other
+    	}
+    }
+Lambda canonicalization not implemented
+
+   |     |num| {
+    	other = 1
+    	if num {
+    		dbg # After debug
+    			some_func() # After debug expr
+    		0
+    	} else {
+    		dbg 123
+    		other
+    	}
+    }
+Lambda body could not be canonicalized
+
+   |     match a {
+    		Blue | Green | Red => {
+    			x = 12
+    			x
+    		}
+    		Blue # After pattern in alt
+    		| # Before pattern in alt
+    			Green
+    		| Red # After alt pattern
+    			=> {
+    				x = 12
+    				x
+    			}
+    		lower # After pattern comment
+    			=> 1
+    		"foo" => # After arrow comment
+    			100
+    		"foo" | "bar" => 200
+    		[1, 2, 3, .. as rest] # After pattern comment
+    			=> # After arrow comment
+    				123 # After branch comment
+
+    		# Just a random comment
+
+    		[1, 2 | 5, 3, .. as rest] => 123
+    		[
+    			1,
+    			2 | 5,
+    			3,
+    			.. # After DoubleDot
+    				as # Before alias
+    					rest, # After last pattern in list
+    		] => 123
+    		3.14 => 314
+    		3.14 | 6.28 => 314
+    		(1, 2, 3) => 123
+    		(1, 2 | 5, 3) => 123
+    		{ foo: 1, bar: 2, ..rest } => 12->add(34)
+    		{ # After pattern record open
+    			foo # After pattern record field name
+    				: # Before pattern record field value
+    					1, # After pattern record field
+    			bar: 2,
+    			.. # After spread operator
+    				rest, # After last field
+    		} => 12
+    		{ foo: 1, bar: 2 | 7 } => 12
+    		{
+    			foo: 1,
+    			bar: 2 | 7, # After last record field
+    		} => 12
+    		Ok(123) => 123
+    		Ok(Some(dude)) => dude
+    		TwoArgs("hello", Some("world")) => 1000
+    	}
+
+    expect
+Lambda canonicalization not implemented
+
+   |     |
+    	a, # After arg
+    	b,
+    | # After args
+    	match a {
+    		Blue | Green | Red => {
+    			x = 12
+    			x
+    		}
+    		Blue # After pattern in alt
+    		| # Before pattern in alt
+    			Green
+    		| Red # After alt pattern
+    			=> {
+    				x = 12
+    				x
+    			}
+    		lower # After pattern comment
+    			=> 1
+    		"foo" => # After arrow comment
+    			100
+    		"foo" | "bar" => 200
+    		[1, 2, 3, .. as rest] # After pattern comment
+    			=> # After arrow comment
+    				123 # After branch comment
+
+    		# Just a random comment
+
+    		[1, 2 | 5, 3, .. as rest] => 123
+    		[
+    			1,
+    			2 | 5,
+    			3,
+    			.. # After DoubleDot
+    				as # Before alias
+    					rest, # After last pattern in list
+    		] => 123
+    		3.14 => 314
+    		3.14 | 6.28 => 314
+    		(1, 2, 3) => 123
+    		(1, 2 | 5, 3) => 123
+    		{ foo: 1, bar: 2, ..rest } => 12->add(34)
+    		{ # After pattern record open
+    			foo # After pattern record field name
+    				: # Before pattern record field value
+    					1, # After pattern record field
+    			bar: 2,
+    			.. # After spread operator
+    				rest, # After last field
+    		} => 12
+    		{ foo: 1, bar: 2 | 7 } => 12
+    		{
+    			foo: 1,
+    			bar: 2 | 7, # After last record field
+    		} => 12
+    		Ok(123) => 123
+    		Ok(Some(dude)) => dude
+    		TwoArgs("hello", Some("world")) => 1000
+    	}
+
+    expect
+Lambda body could not be canonicalized
+
+   |     { # Yeah I can leave a comment here
+    	world = "World"
+    	var number = 123
+    	expect blah == 1
+    	tag = Blue
+    	return # Comment after return keyword
+    		tag # Comment after return statement
+
+    	# Just a random comment!
+
+    	...
+    	match_time(
+    		..., # Single args with comment
+    	)
+    	some_func(
+    		dbg # After debug
+    			42, # After debug expr
+    	)
+    	crash # Comment after crash keyword
+    		"Unreachable!" # Comment after crash statement
+    	tag_with_payload = Ok(number)
+    	interpolated = "Hello, ${world}"
+    	list = [
+    		add_one(
+    			dbg # After dbg in list
+    				number, # after dbg expr as arg
+    		), # Comment one
+    		456, # Comment two
+    		789, # Comment three
+    	]
+    	for n in list {
+    		Stdout.line!("Adding ${n} to ${number}")
+    		number = number + n
+    	}
+    	record = { foo: 123, bar: "Hello", baz: tag, qux: Ok(world), punned }
+    	tuple = (123, "World", tag, Ok(world), (nested, tuple), [1, 2, 3])
+    	multiline_tuple = (
+    		123,
+    		"World",
+    		tag1,
+    		Ok(world), # This one has a comment
+    		(nested, tuple),
+    		[1, 2, 3],
+    	)
+    	bin_op_result = Err(foo) ?? 12 > 5 * 5 or 13 + 2 < 5 and 10 - 1 >= 16 or 12 <= 3 / 5
+    	static_dispatch_style = some_fn(arg1)?.static_dispatch_method()?.next_static_dispatch_method()?.record_field?
+    	Stdout.line!(interpolated)?
+    	Stdout.line!(
+    		"How about ${ # Comment after string interpolation open
+    			Num.toStr(number) # Comment after string interpolation expr
+    		} as a string?",
+    	)
+    }
+Lambda canonicalization not implemented
+
+   |     |_| { # Yeah I can leave a comment here
+    	world = "World"
+    	var number = 123
+    	expect blah == 1
+    	tag = Blue
+    	return # Comment after return keyword
+    		tag # Comment after return statement
+
+    	# Just a random comment!
+
+    	...
+    	match_time(
+    		..., # Single args with comment
+    	)
+    	some_func(
+    		dbg # After debug
+    			42, # After debug expr
+    	)
+    	crash # Comment after crash keyword
+    		"Unreachable!" # Comment after crash statement
+    	tag_with_payload = Ok(number)
+    	interpolated = "Hello, ${world}"
+    	list = [
+    		add_one(
+    			dbg # After dbg in list
+    				number, # after dbg expr as arg
+    		), # Comment one
+    		456, # Comment two
+    		789, # Comment three
+    	]
+    	for n in list {
+    		Stdout.line!("Adding ${n} to ${number}")
+    		number = number + n
+    	}
+    	record = { foo: 123, bar: "Hello", baz: tag, qux: Ok(world), punned }
+    	tuple = (123, "World", tag, Ok(world), (nested, tuple), [1, 2, 3])
+    	multiline_tuple = (
+    		123,
+    		"World",
+    		tag1,
+    		Ok(world), # This one has a comment
+    		(nested, tuple),
+    		[1, 2, 3],
+    	)
+    	bin_op_result = Err(foo) ?? 12 > 5 * 5 or 13 + 2 < 5 and 10 - 1 >= 16 or 12 <= 3 / 5
+    	static_dispatch_style = some_fn(arg1)?.static_dispatch_method()?.next_static_dispatch_method()?.record_field?
+    	Stdout.line!(interpolated)?
+    	Stdout.line!(
+    		"How about ${ # Comment after string interpolation open
+    			Num.toStr(number) # Comment after string interpolation expr
+    		} as a string?",
+    	)
+    }
+Expression could not be canonicalized
+
+   |     empty = {}
+Lambda body could not be canonicalized
+
+   |     if num 2 else 5
+
+    add_one
+Lambda canonicalization not implemented
+
+   |     |num| if num 2 else 5
+
+    add_one
+Lambda body could not be canonicalized
+
+   |     {
+    	other = 1
+    	if num {
+    		dbg # After debug
+    			some_func() # After debug expr
+    		0
+    	} else {
+    		dbg 123
+    		other
+    	}
+    }
+Lambda canonicalization not implemented
+
+   |     |num| {
+    	other = 1
+    	if num {
+    		dbg # After debug
+    			some_func() # After debug expr
+    		0
+    	} else {
+    		dbg 123
+    		other
+    	}
+    }
+Lambda body could not be canonicalized
+
+   |     match a {
+    		Blue | Green | Red => {
+    			x = 12
+    			x
+    		}
+    		Blue # After pattern in alt
+    		| # Before pattern in alt
+    			Green
+    		| Red # After alt pattern
+    			=> {
+    				x = 12
+    				x
+    			}
+    		lower # After pattern comment
+    			=> 1
+    		"foo" => # After arrow comment
+    			100
+    		"foo" | "bar" => 200
+    		[1, 2, 3, .. as rest] # After pattern comment
+    			=> # After arrow comment
+    				123 # After branch comment
+
+    		# Just a random comment
+
+    		[1, 2 | 5, 3, .. as rest] => 123
+    		[
+    			1,
+    			2 | 5,
+    			3,
+    			.. # After DoubleDot
+    				as # Before alias
+    					rest, # After last pattern in list
+    		] => 123
+    		3.14 => 314
+    		3.14 | 6.28 => 314
+    		(1, 2, 3) => 123
+    		(1, 2 | 5, 3) => 123
+    		{ foo: 1, bar: 2, ..rest } => 12->add(34)
+    		{ # After pattern record open
+    			foo # After pattern record field name
+    				: # Before pattern record field value
+    					1, # After pattern record field
+    			bar: 2,
+    			.. # After spread operator
+    				rest, # After last field
+    		} => 12
+    		{ foo: 1, bar: 2 | 7 } => 12
+    		{
+    			foo: 1,
+    			bar: 2 | 7, # After last record field
+    		} => 12
+    		Ok(123) => 123
+    		Ok(Some(dude)) => dude
+    		TwoArgs("hello", Some("world")) => 1000
+    	}
+
+    expect
+Lambda canonicalization not implemented
+
+   |     |
+    	a, # After arg
+    	b,
+    | # After args
+    	match a {
+    		Blue | Green | Red => {
+    			x = 12
+    			x
+    		}
+    		Blue # After pattern in alt
+    		| # Before pattern in alt
+    			Green
+    		| Red # After alt pattern
+    			=> {
+    				x = 12
+    				x
+    			}
+    		lower # After pattern comment
+    			=> 1
+    		"foo" => # After arrow comment
+    			100
+    		"foo" | "bar" => 200
+    		[1, 2, 3, .. as rest] # After pattern comment
+    			=> # After arrow comment
+    				123 # After branch comment
+
+    		# Just a random comment
+
+    		[1, 2 | 5, 3, .. as rest] => 123
+    		[
+    			1,
+    			2 | 5,
+    			3,
+    			.. # After DoubleDot
+    				as # Before alias
+    					rest, # After last pattern in list
+    		] => 123
+    		3.14 => 314
+    		3.14 | 6.28 => 314
+    		(1, 2, 3) => 123
+    		(1, 2 | 5, 3) => 123
+    		{ foo: 1, bar: 2, ..rest } => 12->add(34)
+    		{ # After pattern record open
+    			foo # After pattern record field name
+    				: # Before pattern record field value
+    					1, # After pattern record field
+    			bar: 2,
+    			.. # After spread operator
+    				rest, # After last field
+    		} => 12
+    		{ foo: 1, bar: 2 | 7 } => 12
+    		{
+    			foo: 1,
+    			bar: 2 | 7, # After last record field
+    		} => 12
+    		Ok(123) => 123
+    		Ok(Some(dude)) => dude
+    		TwoArgs("hello", Some("world")) => 1000
+    	}
+
+    expect
+Lambda body could not be canonicalized
+
+   |     { # Yeah I can leave a comment here
+    	world = "World"
+    	var number = 123
+    	expect blah == 1
+    	tag = Blue
+    	return # Comment after return keyword
+    		tag # Comment after return statement
+
+    	# Just a random comment!
+
+    	...
+    	match_time(
+    		..., # Single args with comment
+    	)
+    	some_func(
+    		dbg # After debug
+    			42, # After debug expr
+    	)
+    	crash # Comment after crash keyword
+    		"Unreachable!" # Comment after crash statement
+    	tag_with_payload = Ok(number)
+    	interpolated = "Hello, ${world}"
+    	list = [
+    		add_one(
+    			dbg # After dbg in list
+    				number, # after dbg expr as arg
+    		), # Comment one
+    		456, # Comment two
+    		789, # Comment three
+    	]
+    	for n in list {
+    		Stdout.line!("Adding ${n} to ${number}")
+    		number = number + n
+    	}
+    	record = { foo: 123, bar: "Hello", baz: tag, qux: Ok(world), punned }
+    	tuple = (123, "World", tag, Ok(world), (nested, tuple), [1, 2, 3])
+    	multiline_tuple = (
+    		123,
+    		"World",
+    		tag1,
+    		Ok(world), # This one has a comment
+    		(nested, tuple),
+    		[1, 2, 3],
+    	)
+    	bin_op_result = Err(foo) ?? 12 > 5 * 5 or 13 + 2 < 5 and 10 - 1 >= 16 or 12 <= 3 / 5
+    	static_dispatch_style = some_fn(arg1)?.static_dispatch_method()?.next_static_dispatch_method()?.record_field?
+    	Stdout.line!(interpolated)?
+    	Stdout.line!(
+    		"How about ${ # Comment after string interpolation open
+    			Num.toStr(number) # Comment after string interpolation expr
+    		} as a string?",
+    	)
+    }
+Lambda canonicalization not implemented
+
+   |     |_| { # Yeah I can leave a comment here
+    	world = "World"
+    	var number = 123
+    	expect blah == 1
+    	tag = Blue
+    	return # Comment after return keyword
+    		tag # Comment after return statement
+
+    	# Just a random comment!
+
+    	...
+    	match_time(
+    		..., # Single args with comment
+    	)
+    	some_func(
+    		dbg # After debug
+    			42, # After debug expr
+    	)
+    	crash # Comment after crash keyword
+    		"Unreachable!" # Comment after crash statement
+    	tag_with_payload = Ok(number)
+    	interpolated = "Hello, ${world}"
+    	list = [
+    		add_one(
+    			dbg # After dbg in list
+    				number, # after dbg expr as arg
+    		), # Comment one
+    		456, # Comment two
+    		789, # Comment three
+    	]
+    	for n in list {
+    		Stdout.line!("Adding ${n} to ${number}")
+    		number = number + n
+    	}
+    	record = { foo: 123, bar: "Hello", baz: tag, qux: Ok(world), punned }
+    	tuple = (123, "World", tag, Ok(world), (nested, tuple), [1, 2, 3])
+    	multiline_tuple = (
+    		123,
+    		"World",
+    		tag1,
+    		Ok(world), # This one has a comment
+    		(nested, tuple),
+    		[1, 2, 3],
+    	)
+    	bin_op_result = Err(foo) ?? 12 > 5 * 5 or 13 + 2 < 5 and 10 - 1 >= 16 or 12 <= 3 / 5
+    	static_dispatch_style = some_fn(arg1)?.static_dispatch_method()?.next_static_dispatch_method()?.record_field?
+    	Stdout.line!(interpolated)?
+    	Stdout.line!(
+    		"How about ${ # Comment after string interpolation open
+    			Num.toStr(number) # Comment after string interpolation expr
+    		} as a string?",
+    	)
+    }
+Expression could not be canonicalized
+
+   |     empty = {}
 ~~~TOKENS
 Newline(1:2-1:28),
 KwApp(2:1-2:4),OpenSquare(2:5-2:6),LowerIdent(2:6-2:11),CloseSquare(2:11-2:12),OpenCurly(2:13-2:14),LowerIdent(2:15-2:17),OpColon(2:17-2:18),KwPlatform(2:19-2:27),StringStart(2:28-2:29),StringPart(2:29-2:54),StringEnd(2:54-2:55),CloseCurly(2:56-2:57),Newline(1:1-1:1),
