@@ -179,6 +179,40 @@ fn renderElementToTerminal(element: DocumentElement, writer: anytype, palette: C
             }
         },
         .raw => |content| try writer.writeAll(content),
+        .reflowing_text => |text| try writer.writeAll(text),
+        .vertical_stack => |elements| {
+            for (elements, 0..) |elem, i| {
+                if (i > 0) try writer.writeAll("\n");
+                try renderElementToTerminal(elem, writer, palette, annotation_stack);
+            }
+        },
+        .horizontal_concat => |elements| {
+            for (elements) |elem| {
+                try renderElementToTerminal(elem, writer, palette, annotation_stack);
+            }
+        },
+        .source_code_region => |region| {
+            if (region.filename) |filename| {
+                try writer.print("{s}:{}-{}:{}: ", .{ filename, region.start_line, region.start_column, region.end_line });
+            }
+            const color = getAnnotationColor(region.region_annotation, palette);
+            try writer.writeAll(color);
+            try writer.writeAll(region.source);
+            try writer.writeAll(palette.reset);
+        },
+        .source_code_multi_region => |multi| {
+            if (multi.filename) |filename| {
+                try writer.print("{s}: ", .{filename});
+            }
+            try writer.writeAll(multi.source);
+            try writer.writeAll("\n");
+            for (multi.regions) |region| {
+                const color = getAnnotationColor(region.annotation, palette);
+                try writer.writeAll(color);
+                try writer.print("  {}:{}-{}:{}\n", .{ region.start_line, region.start_column, region.end_line, region.end_column });
+                try writer.writeAll(palette.reset);
+            }
+        },
     }
 }
 
@@ -189,15 +223,22 @@ fn getAnnotationColor(annotation: Annotation, palette: ColorPalette) []const u8 
         .type_variable => palette.type_variable,
         .error_highlight => palette.error_color,
         .warning_highlight => palette.warning,
-        .suggestion => palette.suggestion,
-        .code_block => palette.primary,
-        .inline_code => palette.primary,
+        .suggestion => palette.success,
+        .code_block, .inline_code => palette.primary,
         .symbol => palette.symbol,
         .path => palette.path,
         .literal => palette.literal,
         .comment => palette.comment,
         .underline => palette.underline,
-        .dimmed => palette.muted,
+        .dimmed => palette.dim,
+        .symbol_qualified => palette.symbol,
+        .symbol_unqualified => palette.symbol,
+        .module_name => palette.primary,
+        .record_field => palette.type_variable,
+        .tag_name => palette.type_variable,
+        .binary_operator => palette.keyword,
+        .source_region => palette.primary,
+        .reflowing_text => palette.reset,
     };
 }
 
@@ -229,6 +270,34 @@ fn renderElementToPlainText(element: DocumentElement, writer: anytype) !void {
         },
         .annotation_start, .annotation_end => {}, // Ignore annotations in plain text
         .raw => |content| try writer.writeAll(content),
+        .reflowing_text => |text| try writer.writeAll(text),
+        .vertical_stack => |elements| {
+            for (elements, 0..) |elem, i| {
+                if (i > 0) try writer.writeAll("\n");
+                try renderElementToPlainText(elem, writer);
+            }
+        },
+        .horizontal_concat => |elements| {
+            for (elements) |elem| {
+                try renderElementToPlainText(elem, writer);
+            }
+        },
+        .source_code_region => |region| {
+            if (region.filename) |filename| {
+                try writer.print("{s}:{}-{}:{}: ", .{ filename, region.start_line, region.start_column, region.end_line });
+            }
+            try writer.writeAll(region.source);
+        },
+        .source_code_multi_region => |multi| {
+            if (multi.filename) |filename| {
+                try writer.print("{s}: ", .{filename});
+            }
+            try writer.writeAll(multi.source);
+            try writer.writeAll("\n");
+            for (multi.regions) |region| {
+                try writer.print("  {}:{}-{}:{}\n", .{ region.start_line, region.start_column, region.end_line, region.end_column });
+            }
+        },
     }
 }
 
@@ -276,6 +345,46 @@ fn renderElementToHtml(element: DocumentElement, writer: anytype, annotation_sta
             }
         },
         .raw => |content| try writer.writeAll(content),
+        .reflowing_text => |text| try writeEscapedHtml(writer, text),
+        .vertical_stack => |elements| {
+            try writer.writeAll("<div class=\"vertical-stack\">\n");
+            for (elements, 0..) |elem, i| {
+                if (i > 0) try writer.writeAll("\n");
+                try renderElementToHtml(elem, writer, annotation_stack);
+            }
+            try writer.writeAll("</div>\n");
+        },
+        .horizontal_concat => |elements| {
+            try writer.writeAll("<span class=\"horizontal-concat\">");
+            for (elements) |elem| {
+                try renderElementToHtml(elem, writer, annotation_stack);
+            }
+            try writer.writeAll("</span>");
+        },
+        .source_code_region => |region| {
+            try writer.writeAll("<div class=\"source-region\">");
+            if (region.filename) |filename| {
+                try writer.print("<span class=\"filename\">{s}:{d}-{d}:{d}:</span> ", .{ filename, region.start_line, region.start_column, region.end_line });
+            }
+            const class = getAnnotationHtmlClass(region.region_annotation);
+            try writer.print("<pre class=\"{s}\">", .{class});
+            try writeEscapedHtml(writer, region.source);
+            try writer.writeAll("</pre></div>");
+        },
+        .source_code_multi_region => |multi| {
+            try writer.writeAll("<div class=\"source-multi-region\">");
+            if (multi.filename) |filename| {
+                try writer.print("<span class=\"filename\">{s}:</span> ", .{filename});
+            }
+            try writer.writeAll("<pre>");
+            try writeEscapedHtml(writer, multi.source);
+            try writer.writeAll("</pre>\n<ul class=\"regions\">");
+            for (multi.regions) |region| {
+                const class = getAnnotationHtmlClass(region.annotation);
+                try writer.print("<li class=\"{s}\">{d}:{d}-{d}:{d}</li>", .{ class, region.start_line, region.start_column, region.end_line, region.end_column });
+            }
+            try writer.writeAll("</ul></div>");
+        },
     }
 }
 
@@ -333,6 +442,34 @@ fn renderElementToLsp(element: DocumentElement, writer: anytype) !void {
         },
         .annotation_start, .annotation_end => {}, // Ignore annotations for LSP
         .raw => |content| try writer.writeAll(content),
+        .reflowing_text => |text| try writer.writeAll(text),
+        .vertical_stack => |elements| {
+            for (elements, 0..) |elem, i| {
+                if (i > 0) try writer.writeAll("\n");
+                try renderElementToLsp(elem, writer);
+            }
+        },
+        .horizontal_concat => |elements| {
+            for (elements) |elem| {
+                try renderElementToLsp(elem, writer);
+            }
+        },
+        .source_code_region => |region| {
+            if (region.filename) |filename| {
+                try writer.print("{s}:{}-{}:{}: ", .{ filename, region.start_line, region.start_column, region.end_line });
+            }
+            try writer.writeAll(region.source);
+        },
+        .source_code_multi_region => |multi| {
+            if (multi.filename) |filename| {
+                try writer.print("{s}: ", .{filename});
+            }
+            try writer.writeAll(multi.source);
+            try writer.writeAll("\n");
+            for (multi.regions) |region| {
+                try writer.print("  {}:{}-{}:{}\n", .{ region.start_line, region.start_column, region.end_line, region.end_column });
+            }
+        },
     }
 }
 

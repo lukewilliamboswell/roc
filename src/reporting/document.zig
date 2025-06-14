@@ -13,6 +13,15 @@ const ReportingConfig = @import("config.zig").ReportingConfig;
 const collections = @import("../collections.zig");
 const exitOnOom = collections.utils.exitOnOom;
 
+/// A source code region with highlighting information.
+pub const SourceRegion = struct {
+    start_line: u32,
+    start_column: u32,
+    end_line: u32,
+    end_column: u32,
+    annotation: Annotation,
+};
+
 /// Annotations that can be applied to document content for styling and semantics.
 pub const Annotation = enum {
     /// Basic emphasis (usually bold or bright)
@@ -57,6 +66,30 @@ pub const Annotation = enum {
     /// Dimmed text for less important content
     dimmed,
 
+    /// Qualified symbols (Module.symbol)
+    symbol_qualified,
+
+    /// Unqualified symbols (symbol)
+    symbol_unqualified,
+
+    /// Module names
+    module_name,
+
+    /// Record field names
+    record_field,
+
+    /// Tag names in unions
+    tag_name,
+
+    /// Binary operators
+    binary_operator,
+
+    /// Source code region highlighting
+    source_region,
+
+    /// Reflowing text that can wrap and format automatically
+    reflowing_text,
+
     /// Returns true if this annotation typically uses color.
     pub fn usesColor(self: Annotation) bool {
         return switch (self) {
@@ -82,6 +115,14 @@ pub const Annotation = enum {
             .comment => "comment",
             .underline => "underline",
             .dimmed => "dim",
+            .symbol_qualified => "symbol-qualified",
+            .symbol_unqualified => "symbol-unqualified",
+            .module_name => "module",
+            .record_field => "record-field",
+            .tag_name => "tag",
+            .binary_operator => "operator",
+            .source_region => "source-region",
+            .reflowing_text => "reflow",
         };
     }
 };
@@ -118,12 +159,50 @@ pub const DocumentElement = union(enum) {
     /// Raw content that should not be processed
     raw: []const u8,
 
+    /// Text that should be reflowed/wrapped automatically
+    reflowing_text: []const u8,
+
+    /// Vertical stack of elements
+    vertical_stack: []DocumentElement,
+
+    /// Horizontal concatenation of elements
+    horizontal_concat: []DocumentElement,
+
+    /// Source code region display with highlighting
+    source_code_region: struct {
+        /// The source code to display
+        source: []const u8,
+        /// Line number where the region starts (1-based)
+        start_line: u32,
+        /// Column where the region starts (1-based)
+        start_column: u32,
+        /// Line number where the region ends (1-based)
+        end_line: u32,
+        /// Column where the region ends (1-based)
+        end_column: u32,
+        /// Annotation for the highlighted region
+        region_annotation: Annotation,
+        /// Optional filename for context
+        filename: ?[]const u8,
+    },
+
+    /// Multiple highlighted regions within the same source code
+    source_code_multi_region: struct {
+        /// The source code to display
+        source: []const u8,
+        /// Multiple regions to highlight
+        regions: []SourceRegion,
+        /// Optional filename for context
+        filename: ?[]const u8,
+    },
+
     /// Get the text content if this is a text element, null otherwise.
     pub fn getText(self: DocumentElement) ?[]const u8 {
         return switch (self) {
             .text => |t| t,
             .annotated => |a| a.content,
             .raw => |r| r,
+            .reflowing_text => |rt| rt,
             else => null,
         };
     }
@@ -131,7 +210,7 @@ pub const DocumentElement = union(enum) {
     /// Returns true if this element represents actual content.
     pub fn hasContent(self: DocumentElement) bool {
         return switch (self) {
-            .text, .annotated, .raw => true,
+            .text, .annotated, .raw, .reflowing_text, .vertical_stack, .horizontal_concat, .source_code_region, .source_code_multi_region => true,
             else => false,
         };
     }
@@ -150,6 +229,15 @@ pub const Document = struct {
     }
 
     pub fn deinit(self: *Document) void {
+        // Free any allocated element arrays
+        for (self.elements.items) |element| {
+            switch (element) {
+                .vertical_stack => |stack| self.allocator.free(stack),
+                .horizontal_concat => |concat| self.allocator.free(concat),
+                .source_code_multi_region => |multi| self.allocator.free(multi.regions),
+                else => {},
+            }
+        }
         self.elements.deinit();
     }
 
@@ -201,6 +289,26 @@ pub const Document = struct {
     pub fn addRaw(self: *Document, content: []const u8) !void {
         if (content.len == 0) return;
         try self.elements.append(.{ .raw = content });
+    }
+
+    /// Add reflowing text that can wrap automatically.
+    pub fn addReflowingText(self: *Document, text: []const u8) !void {
+        if (text.len == 0) return;
+        try self.elements.append(.{ .reflowing_text = text });
+    }
+
+    /// Add a vertical stack of elements.
+    pub fn addVerticalStack(self: *Document, elements: []const DocumentElement) !void {
+        if (elements.len == 0) return;
+        const owned_elements = try self.allocator.dupe(DocumentElement, elements);
+        try self.elements.append(.{ .vertical_stack = owned_elements });
+    }
+
+    /// Add a horizontal concatenation of elements.
+    pub fn addHorizontalConcat(self: *Document, elements: []const DocumentElement) !void {
+        if (elements.len == 0) return;
+        const owned_elements = try self.allocator.dupe(DocumentElement, elements);
+        try self.elements.append(.{ .horizontal_concat = owned_elements });
     }
 
     /// Convenience method to add annotated text with automatic annotation boundaries.
@@ -275,6 +383,78 @@ pub const Document = struct {
     /// Add a suggestion with proper styling.
     pub fn addSuggestion(self: *Document, suggestion: []const u8) !void {
         try self.addAnnotated(suggestion, .suggestion);
+    }
+
+    /// Add a qualified symbol with proper styling.
+    pub fn addQualifiedSymbol(self: *Document, symbol: []const u8) !void {
+        try self.addAnnotated(symbol, .symbol_qualified);
+    }
+
+    /// Add an unqualified symbol with proper styling.
+    pub fn addUnqualifiedSymbol(self: *Document, symbol: []const u8) !void {
+        try self.addAnnotated(symbol, .symbol_unqualified);
+    }
+
+    /// Add a module name with proper styling.
+    pub fn addModuleName(self: *Document, module_name: []const u8) !void {
+        try self.addAnnotated(module_name, .module_name);
+    }
+
+    /// Add a record field name with proper styling.
+    pub fn addRecordField(self: *Document, field_name: []const u8) !void {
+        try self.addAnnotated(field_name, .record_field);
+    }
+
+    /// Add a tag name with proper styling.
+    pub fn addTagName(self: *Document, tag_name: []const u8) !void {
+        try self.addAnnotated(tag_name, .tag_name);
+    }
+
+    /// Add a binary operator with proper styling.
+    pub fn addBinaryOperator(self: *Document, operator: []const u8) !void {
+        try self.addAnnotated(operator, .binary_operator);
+    }
+
+    /// Add a source code region with highlighting.
+    pub fn addSourceRegion(
+        self: *Document,
+        source: []const u8,
+        start_line: u32,
+        start_column: u32,
+        end_line: u32,
+        end_column: u32,
+        annotation: Annotation,
+        filename: ?[]const u8,
+    ) !void {
+        try self.elements.append(.{
+            .source_code_region = .{
+                .source = source,
+                .start_line = start_line,
+                .start_column = start_column,
+                .end_line = end_line,
+                .end_column = end_column,
+                .region_annotation = annotation,
+                .filename = filename,
+            },
+        });
+    }
+
+    /// Add a source code display with multiple highlighted regions.
+    pub fn addSourceMultiRegion(
+        self: *Document,
+        source: []const u8,
+        regions: []const SourceRegion,
+        filename: ?[]const u8,
+    ) !void {
+        if (regions.len == 0) return;
+        const owned_regions = try self.allocator.dupe(SourceRegion, regions);
+        try self.elements.append(.{
+            .source_code_multi_region = .{
+                .source = source,
+                .regions = owned_regions,
+                .filename = filename,
+            },
+        });
     }
 
     /// Get the total number of elements in the document.
@@ -373,6 +553,75 @@ pub const DocumentBuilder = struct {
         return self;
     }
 
+    pub fn reflow(self: *DocumentBuilder, content: []const u8) *DocumentBuilder {
+        self.document.addReflowingText(content) catch |err| exitOnOom(err);
+        return self;
+    }
+
+    pub fn qualifiedSymbol(self: *DocumentBuilder, symbol: []const u8) *DocumentBuilder {
+        self.document.addQualifiedSymbol(symbol) catch |err| exitOnOom(err);
+        return self;
+    }
+
+    pub fn unqualifiedSymbol(self: *DocumentBuilder, symbol: []const u8) *DocumentBuilder {
+        self.document.addUnqualifiedSymbol(symbol) catch |err| exitOnOom(err);
+        return self;
+    }
+
+    pub fn moduleName(self: *DocumentBuilder, module_name: []const u8) *DocumentBuilder {
+        self.document.addModuleName(module_name) catch |err| exitOnOom(err);
+        return self;
+    }
+
+    pub fn recordField(self: *DocumentBuilder, field_name: []const u8) *DocumentBuilder {
+        self.document.addRecordField(field_name) catch |err| exitOnOom(err);
+        return self;
+    }
+
+    pub fn tagName(self: *DocumentBuilder, tag_name: []const u8) *DocumentBuilder {
+        self.document.addTagName(tag_name) catch |err| exitOnOom(err);
+        return self;
+    }
+
+    pub fn binaryOperator(self: *DocumentBuilder, operator: []const u8) *DocumentBuilder {
+        self.document.addBinaryOperator(operator) catch |err| exitOnOom(err);
+        return self;
+    }
+
+    pub fn verticalStack(self: *DocumentBuilder, elements: []const DocumentElement) *DocumentBuilder {
+        self.document.addVerticalStack(elements) catch |err| exitOnOom(err);
+        return self;
+    }
+
+    pub fn horizontalConcat(self: *DocumentBuilder, elements: []const DocumentElement) *DocumentBuilder {
+        self.document.addHorizontalConcat(elements) catch |err| exitOnOom(err);
+        return self;
+    }
+
+    pub fn sourceRegion(
+        self: *DocumentBuilder,
+        source: []const u8,
+        start_line: u32,
+        start_column: u32,
+        end_line: u32,
+        end_column: u32,
+        annotation: Annotation,
+        filename: ?[]const u8,
+    ) *DocumentBuilder {
+        self.document.addSourceRegion(source, start_line, start_column, end_line, end_column, annotation, filename) catch |err| exitOnOom(err);
+        return self;
+    }
+
+    pub fn sourceMultiRegion(
+        self: *DocumentBuilder,
+        source: []const u8,
+        regions: []const SourceRegion,
+        filename: ?[]const u8,
+    ) *DocumentBuilder {
+        self.document.addSourceMultiRegion(source, regions, filename) catch |err| exitOnOom(err);
+        return self;
+    }
+
     pub fn build(self: *DocumentBuilder) Document {
         return self.document;
     }
@@ -425,6 +674,91 @@ test "Document code blocks" {
     defer doc.deinit();
 
     try doc.addCodeBlock("fn main() {\n    println!(\"Hello\");\n}");
+
+    try testing.expect(doc.elementCount() > 0);
+}
+
+test "Document semantic elements" {
+    var doc = Document.init(testing.allocator);
+    defer doc.deinit();
+
+    try doc.addQualifiedSymbol("Module.symbol");
+    try doc.addUnqualifiedSymbol("symbol");
+    try doc.addModuleName("Module");
+    try doc.addRecordField("field");
+    try doc.addTagName("Tag");
+    try doc.addBinaryOperator("+");
+
+    try testing.expectEqual(@as(usize, 6), doc.elementCount());
+}
+
+test "Document reflowing text" {
+    var doc = Document.init(testing.allocator);
+    defer doc.deinit();
+
+    try doc.addReflowingText("This is a long line of text that should be reflowed automatically when rendered.");
+
+    try testing.expectEqual(@as(usize, 1), doc.elementCount());
+}
+
+test "Document vertical stack and horizontal concat" {
+    var doc = Document.init(testing.allocator);
+    defer doc.deinit();
+
+    const stack_elements = [_]DocumentElement{
+        .{ .text = "Line 1" },
+        .{ .text = "Line 2" },
+    };
+
+    const concat_elements = [_]DocumentElement{
+        .{ .text = "Part 1" },
+        .{ .text = "Part 2" },
+    };
+
+    try doc.addVerticalStack(&stack_elements);
+    try doc.addHorizontalConcat(&concat_elements);
+
+    try testing.expectEqual(@as(usize, 2), doc.elementCount());
+}
+
+test "Document source code regions" {
+    var doc = Document.init(testing.allocator);
+    defer doc.deinit();
+
+    try doc.addSourceRegion("let x = 42;", 1, 1, 1, 11, .error_highlight, "test.roc");
+
+    const regions = [_]SourceRegion{
+        .{ .start_line = 1, .start_column = 1, .end_line = 1, .end_column = 5, .annotation = .keyword },
+        .{ .start_line = 1, .start_column = 9, .end_line = 1, .end_column = 11, .annotation = .literal },
+    };
+
+    try doc.addSourceMultiRegion("let x = 42;", &regions, "test.roc");
+
+    try testing.expectEqual(@as(usize, 2), doc.elementCount());
+}
+
+test "New annotation semantic names" {
+    try testing.expectEqualStrings("symbol-qualified", Annotation.symbol_qualified.semanticName());
+    try testing.expectEqualStrings("symbol-unqualified", Annotation.symbol_unqualified.semanticName());
+    try testing.expectEqualStrings("module", Annotation.module_name.semanticName());
+    try testing.expectEqualStrings("record-field", Annotation.record_field.semanticName());
+    try testing.expectEqualStrings("tag", Annotation.tag_name.semanticName());
+    try testing.expectEqualStrings("operator", Annotation.binary_operator.semanticName());
+    try testing.expectEqualStrings("reflow", Annotation.reflowing_text.semanticName());
+}
+
+test "DocumentBuilder with new features" {
+    var builder = DocumentBuilder.init(testing.allocator);
+    defer builder.deinit();
+
+    var doc = builder
+        .text("Error in ")
+        .qualifiedSymbol("Module.function")
+        .text(" at ")
+        .recordField("field")
+        .lineBreak()
+        .reflow("This is a long error message that should be reflowed when displayed to the user.")
+        .build();
 
     try testing.expect(doc.elementCount() > 0);
 }

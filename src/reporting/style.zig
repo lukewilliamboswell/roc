@@ -232,6 +232,14 @@ pub const ColorPalette = struct {
             .comment => self.comment,
             .underline => self.underline,
             .dimmed => self.dim,
+            .symbol_qualified => self.symbol,
+            .symbol_unqualified => self.symbol,
+            .module_name => self.primary,
+            .record_field => self.type_variable,
+            .tag_name => self.type_variable,
+            .binary_operator => self.keyword,
+            .source_region => self.primary,
+            .reflowing_text => self.reset,
         };
     }
 };
