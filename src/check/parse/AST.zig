@@ -39,9 +39,11 @@ root_node_idx: u32 = 0,
 tokenize_diagnostics: std.ArrayListUnmanaged(tokenize.Diagnostic),
 parse_diagnostics: std.ArrayListUnmanaged(Diagnostic),
 
-pub fn deinit(self: *AST) void {
+pub fn deinit(self: *AST, allocator: Allocator) void {
     defer self.tokens.deinit();
     defer self.store.deinit();
+    defer self.tokenize_diagnostics.deinit(allocator);
+    defer self.parse_diagnostics.deinit(allocator);
 }
 
 /// The first and last token consumed by a Node
@@ -69,9 +71,205 @@ pub const TokenizedRegion = struct {
 };
 
 /// Resolve a token index to a string slice from the source code.
-pub fn resolve(self: *AST, token: Token.Idx) []const u8 {
+pub fn resolve(self: *const AST, token: Token.Idx) []const u8 {
     const range = self.tokens.resolve(token);
     return self.source[@intCast(range.start.offset)..@intCast(range.end.offset)];
+}
+
+/// Convert a parser diagnostic to a Report for rendering
+pub fn diagnosticToReport(self: *const AST, diagnostic: Diagnostic, allocator: std.mem.Allocator) !reporting.Report {
+    // Get title and main message based on diagnostic type
+    const title, const main_message = switch (diagnostic.tag) {
+        .bad_indent => .{ "INDENTATION PROBLEM", "The indentation here is not consistent with the rest of the code." },
+        .multiple_platforms => .{ "MULTIPLE PLATFORMS", "Multiple platform declarations were found, but only one is allowed." },
+        .no_platform => .{ "MISSING PLATFORM", "No platform declaration was found." },
+        .missing_header => .{ "MISSING HEADER", "The module header is missing." },
+        .list_not_closed => .{ "UNCLOSED LIST", "This list is not properly closed." },
+        .missing_arrow => .{ "MISSING ARROW", "Expected an arrow '->' here." },
+        .expected_exposes => .{ "SYNTAX PROBLEM", "Expected 'exposes' keyword here." },
+        .expected_exposes_close_square => .{ "SYNTAX PROBLEM", "Expected ']' to close the exposes list." },
+        .expected_exposes_open_square => .{ "SYNTAX PROBLEM", "Expected '[' to start the exposes list." },
+        .expected_imports => .{ "SYNTAX PROBLEM", "Expected 'imports' keyword here." },
+        .expected_imports_close_curly => .{ "SYNTAX PROBLEM", "Expected '}' to close the imports block." },
+        .expected_imports_open_curly => .{ "SYNTAX PROBLEM", "Expected '{' to start the imports block." },
+        .expected_package_or_platform_name => .{ "SYNTAX PROBLEM", "Expected a package or platform name here." },
+        .expected_package_or_platform_colon => .{ "SYNTAX PROBLEM", "Expected ':' after the package or platform name." },
+        .expected_package_or_platform_string => .{ "SYNTAX PROBLEM", "Expected a string after the package or platform declaration." },
+        .expected_package_platform_close_curly => .{ "SYNTAX PROBLEM", "Expected '}' to close the package platform declaration." },
+        .expected_package_platform_open_curly => .{ "SYNTAX PROBLEM", "Expected '{' to start the package platform declaration." },
+        .expected_packages => .{ "SYNTAX PROBLEM", "Expected 'packages' keyword here." },
+        .expected_packages_close_curly => .{ "SYNTAX PROBLEM", "Expected '}' to close the packages block." },
+        .expected_packages_open_curly => .{ "SYNTAX PROBLEM", "Expected '{' to start the packages block." },
+        .expected_platform_name_end => .{ "SYNTAX PROBLEM", "Expected the platform name to end here." },
+        .expected_platform_name_start => .{ "SYNTAX PROBLEM", "Expected the platform name to start here." },
+        .expected_platform_name_string => .{ "SYNTAX PROBLEM", "Expected the platform name as a string." },
+        .expected_platform_string => .{ "SYNTAX PROBLEM", "Expected the platform as a string." },
+        .expected_provides => .{ "SYNTAX PROBLEM", "Expected 'provides' keyword here." },
+        .expected_provides_close_square => .{ "SYNTAX PROBLEM", "Expected ']' to close the provides list." },
+        .expected_provides_open_square => .{ "SYNTAX PROBLEM", "Expected '[' to start the provides list." },
+        .expected_requires => .{ "SYNTAX PROBLEM", "Expected 'requires' keyword here." },
+        .expected_requires_rigids_close_curly => .{ "SYNTAX PROBLEM", "Expected '}' to close the requires rigids block." },
+        .expected_requires_rigids_open_curly => .{ "SYNTAX PROBLEM", "Expected '{' to start the requires rigids block." },
+        .expected_requires_signatures_close_curly => .{ "SYNTAX PROBLEM", "Expected '}' to close the requires signatures block." },
+        .expected_requires_signatures_open_curly => .{ "SYNTAX PROBLEM", "Expected '{' to start the requires signatures block." },
+        .expect_closing_paren => .{ "SYNTAX PROBLEM", "Expected a closing parenthesis ')' here." },
+        .header_expected_open_square => .{ "SYNTAX PROBLEM", "Expected '[' in the module header." },
+        .header_expected_close_square => .{ "SYNTAX PROBLEM", "Expected ']' in the module header." },
+        .header_unexpected_token => .{ "SYNTAX PROBLEM", "I didn't expect to see this in the module header." },
+        .pattern_unexpected_token => .{ "SYNTAX PROBLEM", "I didn't expect to see this in the pattern." },
+        .pattern_unexpected_eof => .{ "SYNTAX PROBLEM", "The pattern is incomplete - I reached the end of the file unexpectedly." },
+        .ty_anno_unexpected_token => .{ "SYNTAX PROBLEM", "I didn't expect to see this in the type annotation." },
+        .statement_unexpected_eof => .{ "SYNTAX PROBLEM", "The statement is incomplete - I reached the end of the file unexpectedly." },
+        .statement_unexpected_token => .{ "SYNTAX PROBLEM", "I didn't expect to see this in the statement." },
+        .string_unexpected_token => .{ "SYNTAX PROBLEM", "I didn't expect to see this in the string." },
+        .string_expected_close_interpolation => .{ "SYNTAX PROBLEM", "Expected the string interpolation to be closed." },
+        .expr_if_missing_else => .{ "INCOMPLETE IF", "This if expression is missing an else clause." },
+        .expr_no_space_dot_int => .{ "SYNTAX PROBLEM", "There should be no space between the dot and the integer." },
+        .import_exposing_no_open => .{ "SYNTAX PROBLEM", "Expected '(' after 'exposing'." },
+        .import_exposing_no_close => .{ "SYNTAX PROBLEM", "Expected ')' to close the exposing list." },
+        .no_else => .{ "MISSING ELSE", "This if expression is missing an else clause." },
+        .expected_type_field_name => .{ "SYNTAX PROBLEM", "Expected a field name in this type." },
+        .expected_colon_after_type_field_name => .{ "SYNTAX PROBLEM", "Expected ':' after the type field name." },
+        .expected_arrow => .{ "SYNTAX PROBLEM", "Expected an arrow '->' here." },
+        .expected_ty_close_curly_or_comma => .{ "SYNTAX PROBLEM", "Expected '}' or ',' in this type." },
+        .expected_ty_close_square_or_comma => .{ "SYNTAX PROBLEM", "Expected ']' or ',' in this type." },
+        .expected_lower_name_after_exposed_item_as => .{ "SYNTAX PROBLEM", "Expected a lowercase name after 'as'." },
+        .expected_upper_name_after_exposed_item_as => .{ "SYNTAX PROBLEM", "Expected an uppercase name after 'as'." },
+        .exposed_item_unexpected_token => .{ "SYNTAX PROBLEM", "I didn't expect to see this in the exposed item." },
+        .expected_upper_name_after_import_as => .{ "SYNTAX PROBLEM", "Expected an uppercase name after import 'as'." },
+        .expected_colon_after_type_annotation => .{ "SYNTAX PROBLEM", "Expected ':' after the type annotation." },
+        .expected_lower_ident_pat_field_name => .{ "SYNTAX PROBLEM", "Expected a lowercase identifier for the pattern field name." },
+        .expected_colon_after_pat_field_name => .{ "SYNTAX PROBLEM", "Expected ':' after the pattern field name." },
+        .expected_expr_bar => .{ "SYNTAX PROBLEM", "Expected '|' in this expression." },
+        .expected_expr_close_curly_or_comma => .{ "SYNTAX PROBLEM", "Expected '}' or ',' in this expression." },
+        .expected_expr_close_round_or_comma => .{ "SYNTAX PROBLEM", "Expected ')' or ',' in this expression." },
+        .expected_expr_close_square_or_comma => .{ "SYNTAX PROBLEM", "Expected ']' or ',' in this expression." },
+        .expected_close_curly_at_end_of_match => .{ "SYNTAX PROBLEM", "Expected '}' at the end of this match expression." },
+        .expected_open_curly_after_match => .{ "SYNTAX PROBLEM", "Expected '{' after 'match'." },
+        .expr_unexpected_token => .{ "UNKNOWN OPERATOR", "This looks like an operator, but it's not one I recognize!" },
+        .expected_expr_record_field_name => .{ "SYNTAX PROBLEM", "Expected a record field name in this expression." },
+        .expected_ty_apply_close_round => .{ "SYNTAX PROBLEM", "Expected ')' in this type application." },
+        .expected_ty_anno_end_of_function => .{ "SYNTAX PROBLEM", "Expected the function type annotation to end here." },
+        .expected_ty_anno_end => .{ "SYNTAX PROBLEM", "Expected the type annotation to end here." },
+        .expected_expr_apply_close_round => .{ "SYNTAX PROBLEM", "Expected ')' in this expression application." },
+        .where_expected_where => .{ "SYNTAX PROBLEM", "Expected 'where' keyword here." },
+        .where_expected_mod_open => .{ "SYNTAX PROBLEM", "Expected module opening in the where clause." },
+        .where_expected_var => .{ "SYNTAX PROBLEM", "Expected a variable in the where clause." },
+        .where_expected_mod_close => .{ "SYNTAX PROBLEM", "Expected module closing in the where clause." },
+        .where_expected_arg_open => .{ "SYNTAX PROBLEM", "Expected argument opening in the where clause." },
+        .where_expected_arg_close => .{ "SYNTAX PROBLEM", "Expected argument closing in the where clause." },
+        .where_expected_method_arrow => .{ "SYNTAX PROBLEM", "Expected '->' in the where clause method." },
+        .where_expected_method_or_alias_name => .{ "SYNTAX PROBLEM", "Expected a method or alias name in the where clause." },
+        .where_expected_var_or_module => .{ "SYNTAX PROBLEM", "Expected a variable or module in the where clause." },
+        .import_must_be_top_level => .{ "MISPLACED IMPORT", "Import statements must be at the top level of the module." },
+        .invalid_type_arg => .{ "INVALID TYPE", "This type argument is not valid." },
+        .expr_arrow_expects_ident => .{ "SYNTAX PROBLEM", "Expected an identifier after the arrow in this expression." },
+        .var_only_allowed_in_a_body => .{ "MISPLACED VARIABLE", "Variable declarations are only allowed inside function bodies." },
+        .var_must_have_ident => .{ "SYNTAX PROBLEM", "Variable declarations must have an identifier." },
+        .var_expected_equals => .{ "SYNTAX PROBLEM", "Expected '=' after the variable name." },
+        .for_expected_in => .{ "SYNTAX PROBLEM", "Expected 'in' in this for expression." },
+    };
+
+    var report = reporting.Report.init(allocator, title, .runtime_error);
+
+    // Add the main error message
+    try report.document.addText(main_message);
+    try report.document.addLineBreak();
+    try report.document.addLineBreak();
+
+    // Add source context with line numbers using the tokenized region
+    const start_region = self.tokens.resolve(diagnostic.region.start);
+    const end_region = self.tokens.resolve(diagnostic.region.end);
+
+    if (start_region.start.offset < self.source.len and end_region.end.offset <= self.source.len) {
+        const start_offset = start_region.start.offset;
+        const end_offset = end_region.end.offset;
+
+        // Find the line and column information
+        var line_number: u32 = 1;
+        var line_start: usize = 0;
+        var i: usize = 0;
+
+        // Find which line our error starts on
+        while (i < start_offset and i < self.source.len) : (i += 1) {
+            if (self.source[i] == '\n') {
+                line_number += 1;
+                line_start = i + 1;
+            }
+        }
+
+        // Find the end of the current line
+        var line_end = line_start;
+        while (line_end < self.source.len and self.source[line_end] != '\n') {
+            line_end += 1;
+        }
+
+        const line_content = self.source[line_start..line_end];
+        const column_start = start_offset - line_start;
+        const column_end = @min(end_offset - line_start, line_content.len);
+
+        // Add the source line with line number
+        try report.document.addFormattedText("{d}│  ", .{line_number});
+        try report.document.addText(line_content);
+        try report.document.addLineBreak();
+
+        // Add underline pointing to the problem
+        const line_number_width: u32 = if (line_number < 10) 1 else if (line_number < 100) 2 else if (line_number < 1000) 3 else 4;
+
+        // Add padding for line number and separator
+        var padding: u32 = 0;
+        while (padding < line_number_width + 3) : (padding += 1) {
+            try report.document.addText(" ");
+        }
+
+        // Add spaces up to error location
+        var col: u32 = 0;
+        while (col < column_start) : (col += 1) {
+            try report.document.addText(" ");
+        }
+
+        // Add underline
+        try report.document.startAnnotation(.error_highlight);
+        const underline_length = if (column_end > column_start) column_end - column_start else 1;
+        var ul: u32 = 0;
+        while (ul < underline_length) : (ul += 1) {
+            try report.document.addText("^");
+        }
+        try report.document.endAnnotation();
+        try report.document.addLineBreak();
+        try report.document.addLineBreak();
+    }
+
+    try report.addNote("This is a parse error. Check your syntax.");
+
+    // Add specific suggestions based on diagnostic type
+    switch (diagnostic.tag) {
+        .expr_unexpected_token => {
+            // Check if this might be a ++ concatenation attempt
+            if (start_region.start.offset < self.source.len and end_region.end.offset <= self.source.len) {
+                const problem_text = self.source[start_region.start.offset..end_region.end.offset];
+                if (std.mem.indexOf(u8, problem_text, "++") != null) {
+                    try report.document.addLineBreak();
+                    try report.addSuggestion("To concatenate two lists or strings, try using List.concat or Str.concat instead.");
+                }
+            }
+        },
+        .expr_if_missing_else, .no_else => {
+            try report.document.addLineBreak();
+            try report.addNote("In Roc, every if expression must have an else clause to ensure all code paths return a value.");
+        },
+        .import_must_be_top_level => {
+            try report.document.addLineBreak();
+            try report.addNote("Move this import statement to the top of your module, after the module header.");
+        },
+        .var_only_allowed_in_a_body => {
+            try report.document.addLineBreak();
+            try report.addNote("Variables can only be declared inside function bodies, not at the module level.");
+        },
+        else => {},
+    }
+
+    return report;
 }
 
 /// Contains properties of the thing to the right of the `import` keyword.

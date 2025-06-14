@@ -447,7 +447,7 @@ fn processSnapshotFile(gpa: Allocator, snapshot_path: []const u8, maybe_fuzz_cor
         .expr => parse.parseExpr(&module_env, content.source),
         .statement => parse.parseStatement(&module_env, content.source),
     };
-    defer parse_ast.deinit();
+    defer parse_ast.deinit(gpa);
 
     // shouldn't be required in future
     parse_ast.store.emptyScratch();
@@ -514,7 +514,7 @@ fn processSnapshotFile(gpa: Allocator, snapshot_path: []const u8, maybe_fuzz_cor
         var renderer = plain_renderer.renderer();
 
         // Tokenize Diagnostics
-        for (can_ir.diagnostics.items) |diagnostic| {
+        for (parse_ast.tokenize_diagnostics.items) |diagnostic| {
             nil_problems = false;
 
             var report: Report = try diagnostic.toReport(gpa, content.source);
@@ -529,7 +529,7 @@ fn processSnapshotFile(gpa: Allocator, snapshot_path: []const u8, maybe_fuzz_cor
         for (parse_ast.parse_diagnostics.items) |diagnostic| {
             nil_problems = false;
 
-            var report: Report = try diagnostic.toReport(gpa, content.source);
+            var report: Report = try parse_ast.diagnosticToReport(diagnostic, gpa);
             defer report.deinit();
             report.render(&renderer) catch |err| {
                 try writer.print("Error rendering report: {}\n", .{err});
@@ -541,7 +541,7 @@ fn processSnapshotFile(gpa: Allocator, snapshot_path: []const u8, maybe_fuzz_cor
         for (can_ir.diagnostics.items) |diagnostic| {
             nil_problems = false;
 
-            var report: Report = try diagnostic.toReport(gpa, content.source);
+            var report: Report = try CIR.diagnosticToReport(diagnostic, gpa, parse_ast.source);
             defer report.deinit();
             report.render(&renderer) catch |err| {
                 try writer.print("Error rendering report: {}\n", .{err});

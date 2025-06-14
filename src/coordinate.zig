@@ -484,7 +484,7 @@ fn parseDependenciesFromPackageRoot(
     defer env.deinit();
 
     var parse_ast = parse.parse(&env, contents);
-    defer parse_ast.deinit();
+    defer parse_ast.deinit(gpa);
 
     parse_ast.store.emptyScratch();
     const file = parse_ast.store.getFile();

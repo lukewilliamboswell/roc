@@ -150,7 +150,7 @@ pub fn formatFilePath(gpa: std.mem.Allocator, base_dir: std.fs.Dir, path: []cons
     defer module_env.deinit();
 
     var parse_ast = parse.parse(&module_env, contents);
-    defer parse_ast.deinit();
+    defer parse_ast.deinit(gpa);
     // if (parse_ast.errors.len > 0) {
     //     parse_ast.toSExprStr(&module_env, std.io.getStdErr().writer().any()) catch @panic("Failed to print SExpr");
     //     try printParseErrors(gpa, contents, parse_ast);
@@ -1843,7 +1843,7 @@ fn moduleFmtsSame(source: []const u8) !void {
     defer env.deinit();
 
     var parse_ast = parse(&env, source);
-    defer parse_ast.deinit();
+    defer parse_ast.deinit(gpa);
 
     // @Anthony / @Josh shouldn't these be added to the ModuleEnv (env) so they are in the arena
     // and then they are cleaned up when the arena is deinitialized at the end of program compilation
@@ -1893,7 +1893,7 @@ fn exprFmtsTo(source: []const u8, expected: []const u8, flags: FormatFlags) !voi
         .store = parser.store,
         .errors = errors,
     };
-    defer parse_ast.deinit();
+    defer parse_ast.deinit(std.testing.allocator);
     defer std.testing.allocator.free(parse_ast.errors);
 
     std.testing.expectEqualSlices(AST.Diagnostic, &[_]AST.Diagnostic{}, parse_ast.errors) catch {
@@ -1944,7 +1944,7 @@ fn parseAndFmt(gpa: std.mem.Allocator, input: []const u8, debug: bool) ![]const 
     defer module_env.deinit();
 
     var parse_ast = parse.parse(&module_env, input);
-    defer parse_ast.deinit();
+    defer parse_ast.deinit(gpa);
 
     // Currently disabled cause SExpr are missing a lot of IR coverage resulting in panics.
     if (debug and false) {

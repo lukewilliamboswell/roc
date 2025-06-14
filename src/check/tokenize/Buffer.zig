@@ -25,7 +25,7 @@ pub fn deinit(self: *TokenizedBuffer) void {
     self.tokens.deinit(self.env.gpa);
 }
 
-pub fn resolve(self: *TokenizedBuffer, token: Token.Idx) base.Region {
+pub fn resolve(self: *const TokenizedBuffer, token: Token.Idx) base.Region {
     const tag = self.tokens.items(.tag)[@intCast(token)];
     const start = self.tokens.items(.offset)[@intCast(token)];
     const extra = self.tokens.items(.extra)[@intCast(token)];

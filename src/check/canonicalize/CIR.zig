@@ -88,6 +88,119 @@ pub fn pushMalformed(self: *CIR, comptime t: type, tag: CIR.Diagnostic.Tag, regi
     return self.store.addMalformed(t, tag, region);
 }
 
+/// Convert a canonicalization diagnostic to a Report for rendering
+pub fn diagnosticToReport(diagnostic: Diagnostic, allocator: std.mem.Allocator, source: []const u8) !reporting.Report {
+    // Get title and main message based on diagnostic type
+    const title, const main_message = switch (diagnostic.tag) {
+        .not_implemented => .{ "NOT IMPLEMENTED", "This feature is not yet implemented in the Roc compiler." },
+        .invalid_num_literal => .{ "INVALID NUMBER", "This number literal is not valid." },
+        .ident_already_in_scope => .{ "DUPLICATE DEFINITION", "This identifier is already defined in this scope." },
+        .ident_not_in_scope => .{ "UNDEFINED VARIABLE", "I cannot find this variable in scope." },
+        .invalid_top_level_statement => .{ "INVALID STATEMENT", "This statement is not allowed at the top level." },
+        .expr_not_canonicalized => .{ "UNKNOWN OPERATOR", "This looks like an operator, but it's not one I recognize!" },
+        .invalid_string_interpolation => .{ "INVALID INTERPOLATION", "This string interpolation is not valid." },
+        .pattern_arg_invalid => .{ "INVALID PATTERN", "This pattern argument is not valid." },
+        .pattern_not_canonicalized => .{ "INVALID PATTERN", "This pattern could not be processed." },
+        .can_lambda_not_implemented => .{ "NOT IMPLEMENTED", "Lambda expressions are not yet fully implemented." },
+        .lambda_body_not_canonicalized => .{ "INVALID LAMBDA", "The body of this lambda expression is not valid." },
+    };
+
+    var report = reporting.Report.init(allocator, title, .runtime_error);
+
+    // Add the main error message
+    try report.document.addText(main_message);
+    try report.document.addLineBreak();
+    try report.document.addLineBreak();
+
+    // Add source context with line numbers if we have a valid region
+    if (diagnostic.region.start.offset < source.len and diagnostic.region.end.offset <= source.len) {
+        const start_offset = diagnostic.region.start.offset;
+        const end_offset = diagnostic.region.end.offset;
+
+        // Find the line and column information
+        var line_number: u32 = 1;
+        var line_start: usize = 0;
+        var i: usize = 0;
+
+        // Find which line our error starts on
+        while (i < start_offset and i < source.len) : (i += 1) {
+            if (source[i] == '\n') {
+                line_number += 1;
+                line_start = i + 1;
+            }
+        }
+
+        // Find the end of the current line
+        var line_end = line_start;
+        while (line_end < source.len and source[line_end] != '\n') {
+            line_end += 1;
+        }
+
+        const line_content = source[line_start..line_end];
+        const column_start = start_offset - line_start;
+        const column_end = @min(end_offset - line_start, line_content.len);
+
+        // Add the source line with line number
+        try report.document.addFormattedText("{d}|  ", .{line_number});
+        try report.document.addText(line_content);
+        try report.document.addLineBreak();
+
+        // Add underline pointing to the problem
+        const line_number_width: u32 = if (line_number < 10) 1 else if (line_number < 100) 2 else if (line_number < 1000) 3 else 4;
+
+        // Add padding for line number and separator
+        var padding: u32 = 0;
+        while (padding < line_number_width + 3) : (padding += 1) {
+            try report.document.addText(" ");
+        }
+
+        // Add spaces up to error location
+        var col: u32 = 0;
+        while (col < column_start) : (col += 1) {
+            try report.document.addText(" ");
+        }
+
+        // Add underline
+        try report.document.startAnnotation(.error_highlight);
+        const underline_length = if (column_end > column_start) column_end - column_start else 1;
+        var ul: u32 = 0;
+        while (ul < underline_length) : (ul += 1) {
+            try report.document.addText("^");
+        }
+        try report.document.endAnnotation();
+        try report.document.addLineBreak();
+    }
+
+    // Add specific suggestions based on diagnostic type
+    switch (diagnostic.tag) {
+        .expr_not_canonicalized => {
+            // Check if this might be a ++ concatenation attempt
+            if (diagnostic.region.start.offset < source.len and diagnostic.region.end.offset <= source.len) {
+                const problem_text = source[diagnostic.region.start.offset..diagnostic.region.end.offset];
+                if (std.mem.indexOf(u8, problem_text, "++") != null) {
+                    try report.document.addLineBreak();
+                    try report.addSuggestion("To concatenate two lists or strings, try using List.concat or Str.concat instead.");
+                }
+            }
+        },
+        .ident_not_in_scope => {
+            try report.document.addLineBreak();
+            try report.addNote("Check the spelling and make sure this variable is defined before using it.");
+        },
+        .ident_already_in_scope => {
+            try report.document.addLineBreak();
+            try report.addNote("Choose a different name for this identifier, or remove the duplicate definition.");
+        },
+        .invalid_num_literal => {
+            try report.document.addLineBreak();
+            try report.addNote("Check that the number format is correct. Roc supports integers, floats, and scientific notation.");
+        },
+        else => {},
+    }
+
+    return report;
+}
+
 // Helper to add type index info
 fn appendTypeVar(node: *sexpr.Expr, gpa: std.mem.Allocator, name: []const u8, type_idx: TypeVar) void {
     var type_node = sexpr.Expr.init(gpa, name);
