@@ -22,7 +22,7 @@ const TypeVar = types.Var;
 const Node = @import("Node.zig");
 const NodeStore = @import("NodeStore.zig");
 
-pub const Diagnostic = @import("Diagnostic.zig");
+pub const Diagnostic = @import("Diagnostic.zig").Diagnostic;
 
 const CIR = @This();
 
@@ -31,7 +31,6 @@ store: NodeStore,
 ingested_files: IngestedFile.List,
 imports: ModuleImport.Store,
 top_level_defs: Def.Span,
-diagnostics: std.ArrayListUnmanaged(Diagnostic),
 
 /// Initialize the IR for a module's canonicalization info.
 ///
@@ -56,7 +55,6 @@ pub fn init(env: ModuleEnv) CIR {
         .ingested_files = .{},
         .imports = ModuleImport.Store.init(&.{}, &ident_store, env.gpa),
         .top_level_defs = .{ .span = .{ .start = 0, .len = 0 } },
-        .diagnostics = .{},
     };
 }
 
@@ -65,88 +63,124 @@ pub fn deinit(self: *CIR) void {
     self.store.deinit();
     self.ingested_files.deinit(self.env.gpa);
     self.imports.deinit(self.env.gpa);
-    self.diagnostics.deinit(self.env.gpa);
 }
 
 /// Push a diagnostic error during canonicalization
-///
-/// Do not use for compiler errors, but invalid input where you cannot insert a malformed node
-pub fn pushDiagnostic(self: *CIR, tag: CIR.Diagnostic.Tag, region: base.Region) void {
-    self.diagnostics.append(self.env.gpa, .{
-        .tag = tag,
-        .region = region,
-    }) catch |err| exitOnOom(err);
+pub fn pushDiagnostic(self: *CIR, reason: CIR.Diagnostic) void {
+    _ = self.store.addDiagnostic(Node.Idx, reason);
 }
 
-/// Returns a malformed token of the requested type, and pushes a diagnostic error
-pub fn pushMalformed(self: *CIR, comptime t: type, tag: CIR.Diagnostic.Tag, region: base.Region) t {
-    self.diagnostics.append(self.env.gpa, .{
-        .tag = tag,
-        .region = region,
-    }) catch |err| exitOnOom(err);
+/// Push a diagnostic error during canonicalization, and return an index of the requested type
+pub fn pushMalformed(self: *CIR, comptime t: type, reason: CIR.Diagnostic) t {
+    return self.store.addDiagnostic(t, reason);
+}
 
-    return self.store.addMalformed(t, tag, region);
+pub fn getDiagnostics(self: *CIR) []CIR.Diagnostic {
+    const all = self.store.diagnosticSpanFrom(0);
+
+    var list = std.ArrayList(CIR.Diagnostic).init(self.env.gpa);
+
+    for (self.store.sliceDiagnostics(all)) |idx| {
+        list.append(self.store.getDiagnostic(idx)) catch |err| exitOnOom(err);
+    }
+
+    return list.toOwnedSlice() catch |err| exitOnOom(err);
 }
 
 /// Convert a canonicalization diagnostic to a Report for rendering
 pub fn diagnosticToReport(self: *CIR, diagnostic: Diagnostic, allocator: std.mem.Allocator) !reporting.Report {
-
-    // Get title and main message based on diagnostic type
-    const title, const main_message = switch (diagnostic.tag) {
-        .not_implemented => .{ "NOT IMPLEMENTED", "This feature is not yet implemented in the Roc compiler." },
-        .invalid_num_literal => .{ "INVALID NUMBER", "This number literal is not valid." },
-        .ident_already_in_scope => .{ "DUPLICATE DEFINITION", "This identifier is already defined in this scope." },
-        .ident_not_in_scope => .{ "UNDEFINED VARIABLE", "I cannot find this variable in scope." },
-        .invalid_top_level_statement => .{ "INVALID STATEMENT", "This statement is not allowed at the top level." },
-        .expr_not_canonicalized => .{ "UNKNOWN OPERATOR", "This looks like an operator, but it's not one I recognize!" },
-        .invalid_string_interpolation => .{ "INVALID INTERPOLATION", "This string interpolation is not valid." },
-        .pattern_arg_invalid => .{ "INVALID PATTERN", "This pattern argument is not valid." },
-        .pattern_not_canonicalized => .{ "INVALID PATTERN", "This pattern could not be processed." },
-        .can_lambda_not_implemented => .{ "NOT IMPLEMENTED", "Lambda expressions are not yet fully implemented." },
-        .lambda_body_not_canonicalized => .{ "INVALID LAMBDA", "The body of this lambda expression is not valid." },
+    const title = switch (diagnostic) {
+        .not_implemented => "NOT IMPLEMENTED",
+        .invalid_num_literal => "INVALID NUMBER",
+        .ident_already_in_scope => "DUPLICATE DEFINITION",
+        .ident_not_in_scope => "UNDEFINED VARIABLE",
+        .invalid_top_level_statement => "INVALID STATEMENT",
+        .expr_not_canonicalized => "UNKNOWN OPERATOR",
+        .invalid_string_interpolation => "INVALID INTERPOLATION",
+        .pattern_arg_invalid => "INVALID PATTERN",
+        .pattern_not_canonicalized => "INVALID PATTERN",
+        .can_lambda_not_implemented => "NOT IMPLEMENTED",
+        .lambda_body_not_canonicalized => "INVALID LAMBDA",
     };
 
     var report = reporting.Report.init(allocator, title, .runtime_error, reporting.ReportingConfig.initPlainText());
 
-    // Add the main error message
-    try report.document.addText(main_message);
-    try report.document.addLineBreak();
-    try report.document.addLineBreak();
-
-    // Add source context using Document API
-    const region_info = self.calcRegionInfo(diagnostic.region);
-    if (region_info.line_text.len > 0) {
-        try report.document.addSourceRegion(
+    // Build the document using the appropriate diagnostic build function
+    const document = switch (diagnostic) {
+        .not_implemented => |data| blk: {
+            const feature_text = self.env.strings.get(data.feature);
+            break :blk Diagnostic.buildNotImplementedReport(
+                allocator,
+                feature_text,
+                self.env.source.items,
+                data.region,
+            );
+        },
+        .invalid_num_literal => |data| blk: {
+            const literal_text = self.env.strings.get(data.literal);
+            break :blk Diagnostic.buildInvalidNumLiteralReport(
+                allocator,
+                literal_text,
+                self.env.source.items,
+                data.region,
+            );
+        },
+        .ident_already_in_scope => |data| blk: {
+            const ident_name = self.env.idents.getText(data.ident);
+            break :blk Diagnostic.buildIdentAlreadyInScopeReport(
+                allocator,
+                ident_name,
+                self.env.source.items,
+                data.region,
+            );
+        },
+        .ident_not_in_scope => |data| blk: {
+            const ident_name = self.env.idents.getText(data.ident);
+            break :blk Diagnostic.buildIdentNotInScopeReport(
+                allocator,
+                ident_name,
+                self.env.source.items,
+                data.region,
+            );
+        },
+        .invalid_top_level_statement => |data| Diagnostic.buildInvalidTopLevelStatementReport(
+            allocator,
             self.env.source.items,
-            region_info.start_line_idx + 1, // Convert from 0-based to 1-based
-            region_info.start_col_idx + 1, // Convert from 0-based to 1-based
-            region_info.end_line_idx + 1, // Convert from 0-based to 1-based
-            region_info.end_col_idx + 1, // Convert from 0-based to 1-based
-            .error_highlight,
-            null, // filename
-        );
-    }
+            data.region,
+        ),
+        .expr_not_canonicalized => |data| Diagnostic.buildExprNotCanonicalizedReport(
+            allocator,
+            self.env.source.items,
+            data.region,
+        ),
+        .invalid_string_interpolation => |data| Diagnostic.buildInvalidStringInterpolationReport(
+            allocator,
+            self.env.source.items,
+            data.region,
+        ),
+        .pattern_arg_invalid => |data| Diagnostic.buildPatternArgInvalidReport(
+            allocator,
+            self.env.source.items,
+            data.region,
+        ),
+        .pattern_not_canonicalized => |data| Diagnostic.buildPatternNotCanonicalizedReport(
+            allocator,
+            self.env.source.items,
+            data.region,
+        ),
+        .can_lambda_not_implemented => |data| Diagnostic.buildCanLambdaNotImplementedReport(
+            allocator,
+            self.env.source.items,
+            data.region,
+        ),
+        .lambda_body_not_canonicalized => |data| Diagnostic.buildLambdaBodyNotCanonicalizedReport(
+            allocator,
+            self.env.source.items,
+            data.region,
+        ),
+    };
 
-    // Add specific suggestions based on diagnostic type
-    switch (diagnostic.tag) {
-        .expr_not_canonicalized => {
-            // TODO
-        },
-        .ident_not_in_scope => {
-            try report.document.addLineBreak();
-            try report.addNote("Check the spelling and make sure this variable is defined before using it.");
-        },
-        .ident_already_in_scope => {
-            try report.document.addLineBreak();
-            try report.addNote("Choose a different name for this identifier, or remove the duplicate definition.");
-        },
-        .invalid_num_literal => {
-            try report.document.addLineBreak();
-            try report.addNote("Check that the number format is correct. Roc supports integers, floats, and scientific notation.");
-        },
-        else => {},
-    }
-
+    report.document = try document;
     return report;
 }
 
@@ -441,7 +475,7 @@ pub const Expr = union(enum) {
     binop: Binop,
     /// Compiles, but will crash if reached
     runtime_error: struct {
-        tag: Diagnostic.Tag,
+        diagnostic: Diagnostic.Idx,
         region: Region,
     },
 
@@ -910,7 +944,9 @@ pub const Expr = union(enum) {
                 var buf = std.ArrayList(u8).init(gpa);
                 defer buf.deinit();
 
-                buf.writer().writeAll(@tagName(e.tag)) catch |err| exitOnOom(err);
+                const diagnostic = ir.store.getDiagnostic(e.diagnostic);
+
+                buf.writer().writeAll(@tagName(diagnostic)) catch |err| exitOnOom(err);
 
                 runtime_err_node.appendString(gpa, buf.items);
 

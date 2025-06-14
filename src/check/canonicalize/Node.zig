@@ -93,4 +93,17 @@ pub const Tag = enum {
 
     // Runtime Error
     malformed,
+
+    // Diagnostics
+    diag_not_implemented,
+    diag_invalid_num_literal,
+    diag_ident_already_in_scope,
+    diag_ident_not_in_scope,
+    diag_invalid_top_level_statement,
+    diag_expr_not_canonicalized,
+    diag_invalid_string_interpolation,
+    diag_pattern_arg_invalid,
+    diag_pattern_not_canonicalized,
+    diag_can_lambda_not_implemented,
+    diag_lambda_body_not_canonicalized,
 };
