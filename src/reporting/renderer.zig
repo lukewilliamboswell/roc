@@ -1,581 +1,412 @@
-//! Rendering system for multiple output targets.
+//! Simple report and document rendering to different output formats.
 //!
-//! This module provides a flexible rendering system that can output formatted
-//! content to different targets including terminals, plain text, HTML, and
-//! language server protocol formats.
+//! This module provides functions to render Reports and Documents to various
+//! output formats without the complexity of vtables or interfaces.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Report = @import("report.zig").Report;
+const Document = @import("document.zig").Document;
+const DocumentElement = @import("document.zig").DocumentElement;
 const Annotation = @import("document.zig").Annotation;
 const ColorPalette = @import("style.zig").ColorPalette;
 const ColorUtils = @import("style.zig").ColorUtils;
 
 /// Supported rendering targets.
 pub const RenderTarget = enum {
-    /// Color terminal with ANSI escape codes
     color_terminal,
-    /// Plain text without any formatting
     plain_text,
-    /// HTML with CSS styling
     html,
-    /// Language Server Protocol format
     language_server,
 };
 
-/// Base renderer interface using Zig's function pointer approach.
-pub const Renderer = struct {
-    const VTable = struct {
-        writeText: *const fn (ctx: *anyopaque, text: []const u8) anyerror!void,
-        writeLineBreak: *const fn (ctx: *anyopaque) anyerror!void,
-        writeIndent: *const fn (ctx: *anyopaque, levels: u32) anyerror!void,
-        writeSpace: *const fn (ctx: *anyopaque, count: u32) anyerror!void,
-        writeHorizontalRule: *const fn (ctx: *anyopaque, width: ?u32) anyerror!void,
-        pushAnnotation: *const fn (ctx: *anyopaque, annotation: Annotation) anyerror!void,
-        popAnnotation: *const fn (ctx: *anyopaque) anyerror!void,
-        writeRaw: *const fn (ctx: *anyopaque, content: []const u8) anyerror!void,
+/// Render a report to the specified target format.
+pub fn renderReport(report: *const Report, writer: anytype, target: RenderTarget) !void {
+    switch (target) {
+        .color_terminal => try renderReportToTerminal(report, writer, ColorPalette.ANSI),
+        .plain_text => try renderReportToPlainText(report, writer),
+        .html => try renderReportToHtml(report, writer),
+        .language_server => try renderReportToLsp(report, writer),
+    }
+}
+
+/// Render a report to terminal with color support.
+pub fn renderReportToTerminal(report: *const Report, writer: anytype, palette: ColorPalette) !void {
+    // Render title with appropriate severity styling
+    const title_color = switch (report.severity) {
+        .fatal => palette.error_color,
+        .runtime_error => palette.error_color,
+        .warning => palette.warning,
     };
 
-    ptr: *anyopaque,
-    vtable: *const VTable,
+    try writer.writeAll(palette.bold);
+    try writer.writeAll(title_color);
+    try writer.writeAll(report.title);
+    try writer.writeAll(palette.reset);
+    try writer.writeAll("\n\n");
 
-    pub fn writeText(self: *Renderer, text: []const u8) !void {
-        return self.vtable.writeText(self.ptr, text);
+    // Render document content
+    try renderDocumentToTerminal(&report.document, writer, palette);
+}
+
+/// Render a report to plain text.
+pub fn renderReportToPlainText(report: *const Report, writer: anytype) !void {
+    try writer.writeAll(report.title);
+    try writer.writeAll("\n\n");
+    try renderDocumentToPlainText(&report.document, writer);
+}
+
+/// Render a report to HTML.
+pub fn renderReportToHtml(report: *const Report, writer: anytype) !void {
+    const title_class = switch (report.severity) {
+        .fatal => "error",
+        .runtime_error => "error",
+        .warning => "warning",
+    };
+
+    try writer.print("<div class=\"report {s}\">\n", .{title_class});
+    try writer.writeAll("<h1 class=\"report-title\">");
+    try writeEscapedHtml(writer, report.title);
+    try writer.writeAll("</h1>\n");
+    try writer.writeAll("<div class=\"report-content\">\n");
+    try renderDocumentToHtml(&report.document, writer);
+    try writer.writeAll("</div>\n</div>\n");
+}
+
+/// Render a report for language server protocol.
+pub fn renderReportToLsp(report: *const Report, writer: anytype) !void {
+    // LSP typically wants plain text without formatting
+    try writer.writeAll(report.title);
+    try writer.writeAll("\n\n");
+    try renderDocumentToLsp(&report.document, writer);
+}
+
+/// Render a document to the specified target format.
+pub fn renderDocument(document: *const Document, writer: anytype, target: RenderTarget) !void {
+    switch (target) {
+        .color_terminal => try renderDocumentToTerminal(document, writer, ColorPalette.ANSI),
+        .plain_text => try renderDocumentToPlainText(document, writer),
+        .html => try renderDocumentToHtml(document, writer),
+        .language_server => try renderDocumentToLsp(document, writer),
     }
+}
 
-    pub fn writeLineBreak(self: *Renderer) !void {
-        return self.vtable.writeLineBreak(self.ptr);
+/// Render a document to terminal with color support.
+pub fn renderDocumentToTerminal(document: *const Document, writer: anytype, palette: ColorPalette) !void {
+    var annotation_stack = std.ArrayList(Annotation).init(std.heap.page_allocator);
+    defer annotation_stack.deinit();
+
+    for (document.elements.items) |element| {
+        try renderElementToTerminal(element, writer, palette, &annotation_stack);
     }
+}
 
-    pub fn writeIndent(self: *Renderer, levels: u32) !void {
-        return self.vtable.writeIndent(self.ptr, levels);
+/// Render a document to plain text.
+pub fn renderDocumentToPlainText(document: *const Document, writer: anytype) !void {
+    for (document.elements.items) |element| {
+        try renderElementToPlainText(element, writer);
     }
+}
 
-    pub fn writeSpace(self: *Renderer, count: u32) !void {
-        return self.vtable.writeSpace(self.ptr, count);
+/// Render a document to HTML.
+pub fn renderDocumentToHtml(document: *const Document, writer: anytype) !void {
+    var annotation_stack = std.ArrayList(Annotation).init(std.heap.page_allocator);
+    defer annotation_stack.deinit();
+
+    for (document.elements.items) |element| {
+        try renderElementToHtml(element, writer, &annotation_stack);
     }
+}
 
-    pub fn writeHorizontalRule(self: *Renderer, width: ?u32) !void {
-        return self.vtable.writeHorizontalRule(self.ptr, width);
+/// Render a document for language server protocol.
+pub fn renderDocumentToLsp(document: *const Document, writer: anytype) !void {
+    for (document.elements.items) |element| {
+        try renderElementToLsp(element, writer);
     }
+}
 
-    pub fn pushAnnotation(self: *Renderer, annotation: Annotation) !void {
-        return self.vtable.pushAnnotation(self.ptr, annotation);
-    }
+// Terminal rendering functions
 
-    pub fn popAnnotation(self: *Renderer) !void {
-        return self.vtable.popAnnotation(self.ptr);
-    }
-
-    pub fn writeRaw(self: *Renderer, content: []const u8) !void {
-        return self.vtable.writeRaw(self.ptr, content);
-    }
-};
-
-/// Terminal renderer with ANSI color support.
-pub const TerminalRenderer = struct {
-    writer: std.io.AnyWriter,
-    palette: ColorPalette,
-    annotation_stack: std.ArrayList(Annotation),
-    indent_string: []const u8,
-
-    const DEFAULT_INDENT = "    "; // 4 spaces
-    const HORIZONTAL_RULE_CHAR = "─";
-    const DEFAULT_RULE_WIDTH = 80;
-
-    pub fn init(allocator: Allocator, writer: std.io.AnyWriter, palette: ColorPalette) TerminalRenderer {
-        return TerminalRenderer{
-            .writer = writer,
-            .palette = palette,
-            .annotation_stack = std.ArrayList(Annotation).init(allocator),
-            .indent_string = DEFAULT_INDENT,
-        };
-    }
-
-    pub fn deinit(self: *TerminalRenderer) void {
-        self.annotation_stack.deinit();
-    }
-
-    pub fn renderer(self: *TerminalRenderer) Renderer {
-        return Renderer{
-            .ptr = self,
-            .vtable = &.{
-                .writeText = writeText,
-                .writeLineBreak = writeLineBreak,
-                .writeIndent = writeIndent,
-                .writeSpace = writeSpace,
-                .writeHorizontalRule = writeHorizontalRule,
-                .pushAnnotation = pushAnnotation,
-                .popAnnotation = popAnnotation,
-                .writeRaw = writeRaw,
-            },
-        };
-    }
-
-    fn writeText(ctx: *anyopaque, text: []const u8) !void {
-        const self: *TerminalRenderer = @ptrCast(@alignCast(ctx));
-        try self.writer.writeAll(text);
-    }
-
-    fn writeLineBreak(ctx: *anyopaque) !void {
-        const self: *TerminalRenderer = @ptrCast(@alignCast(ctx));
-        try self.writer.writeAll("\n");
-    }
-
-    fn writeIndent(ctx: *anyopaque, levels: u32) !void {
-        const self: *TerminalRenderer = @ptrCast(@alignCast(ctx));
-        var i: u32 = 0;
-        while (i < levels) : (i += 1) {
-            try self.writer.writeAll(self.indent_string);
-        }
-    }
-
-    fn writeSpace(ctx: *anyopaque, count: u32) !void {
-        const self: *TerminalRenderer = @ptrCast(@alignCast(ctx));
-        var i: u32 = 0;
-        while (i < count) : (i += 1) {
-            try self.writer.writeAll(" ");
-        }
-    }
-
-    fn writeHorizontalRule(ctx: *anyopaque, width: ?u32) !void {
-        const self: *TerminalRenderer = @ptrCast(@alignCast(ctx));
-        const rule_width = width orelse DEFAULT_RULE_WIDTH;
-
-        var i: u32 = 0;
-        while (i < rule_width) : (i += 1) {
-            try self.writer.writeAll(HORIZONTAL_RULE_CHAR);
-        }
-    }
-
-    fn pushAnnotation(ctx: *anyopaque, annotation: Annotation) !void {
-        const self: *TerminalRenderer = @ptrCast(@alignCast(ctx));
-        try self.annotation_stack.append(annotation);
-
-        const color = self.palette.colorForAnnotation(annotation);
-        try self.writer.writeAll(color);
-    }
-
-    fn popAnnotation(ctx: *anyopaque) !void {
-        const self: *TerminalRenderer = @ptrCast(@alignCast(ctx));
-        if (self.annotation_stack.items.len > 0) {
-            _ = self.annotation_stack.pop();
-        }
-        try self.writer.writeAll(self.palette.reset);
-
-        // Restore previous annotation if there is one
-        if (self.annotation_stack.items.len > 0) {
-            const current = self.annotation_stack.items[self.annotation_stack.items.len - 1];
-            const color = self.palette.colorForAnnotation(current);
-            try self.writer.writeAll(color);
-        }
-    }
-
-    fn writeRaw(ctx: *anyopaque, content: []const u8) !void {
-        const self: *TerminalRenderer = @ptrCast(@alignCast(ctx));
-        try self.writer.writeAll(content);
-    }
-};
-
-/// Plain text renderer without any formatting.
-pub const PlainTextRenderer = struct {
-    writer: std.io.AnyWriter,
-    annotation_stack: std.ArrayList(Annotation),
-    indent_string: []const u8,
-
-    const DEFAULT_INDENT = "    ";
-    const HORIZONTAL_RULE_CHAR = "-";
-    const DEFAULT_RULE_WIDTH = 80;
-
-    pub fn init(allocator: Allocator, writer: std.io.AnyWriter) PlainTextRenderer {
-        return PlainTextRenderer{
-            .writer = writer,
-            .annotation_stack = std.ArrayList(Annotation).init(allocator),
-            .indent_string = DEFAULT_INDENT,
-        };
-    }
-
-    pub fn deinit(self: *PlainTextRenderer) void {
-        self.annotation_stack.deinit();
-    }
-
-    pub fn renderer(self: *PlainTextRenderer) Renderer {
-        return Renderer{
-            .ptr = self,
-            .vtable = &.{
-                .writeText = writeText,
-                .writeLineBreak = writeLineBreak,
-                .writeIndent = writeIndent,
-                .writeSpace = writeSpace,
-                .writeHorizontalRule = writeHorizontalRule,
-                .pushAnnotation = pushAnnotation,
-                .popAnnotation = popAnnotation,
-                .writeRaw = writeRaw,
-            },
-        };
-    }
-
-    fn writeText(ctx: *anyopaque, text: []const u8) !void {
-        const self: *PlainTextRenderer = @ptrCast(@alignCast(ctx));
-        try self.writer.writeAll(text);
-    }
-
-    fn writeLineBreak(ctx: *anyopaque) !void {
-        const self: *PlainTextRenderer = @ptrCast(@alignCast(ctx));
-        try self.writer.writeAll("\n");
-    }
-
-    fn writeIndent(ctx: *anyopaque, levels: u32) !void {
-        const self: *PlainTextRenderer = @ptrCast(@alignCast(ctx));
-        var i: u32 = 0;
-        while (i < levels) : (i += 1) {
-            try self.writer.writeAll(self.indent_string);
-        }
-    }
-
-    fn writeSpace(ctx: *anyopaque, count: u32) !void {
-        const self: *PlainTextRenderer = @ptrCast(@alignCast(ctx));
-        var i: u32 = 0;
-        while (i < count) : (i += 1) {
-            try self.writer.writeAll(" ");
-        }
-    }
-
-    fn writeHorizontalRule(ctx: *anyopaque, width: ?u32) !void {
-        const self: *PlainTextRenderer = @ptrCast(@alignCast(ctx));
-        const rule_width = width orelse DEFAULT_RULE_WIDTH;
-
-        var i: u32 = 0;
-        while (i < rule_width) : (i += 1) {
-            try self.writer.writeAll(HORIZONTAL_RULE_CHAR);
-        }
-    }
-
-    fn pushAnnotation(ctx: *anyopaque, annotation: Annotation) !void {
-        const self: *PlainTextRenderer = @ptrCast(@alignCast(ctx));
-        try self.annotation_stack.append(annotation);
-        // Plain text renderer ignores annotations
-    }
-
-    fn popAnnotation(ctx: *anyopaque) !void {
-        const self: *PlainTextRenderer = @ptrCast(@alignCast(ctx));
-        if (self.annotation_stack.items.len > 0) {
-            _ = self.annotation_stack.pop();
-        }
-        // Plain text renderer ignores annotations
-    }
-
-    fn writeRaw(ctx: *anyopaque, content: []const u8) !void {
-        const self: *PlainTextRenderer = @ptrCast(@alignCast(ctx));
-        try self.writer.writeAll(content);
-    }
-};
-
-/// HTML renderer with CSS styling.
-pub const HtmlRenderer = struct {
-    writer: std.io.AnyWriter,
-    annotation_stack: std.ArrayList(Annotation),
-    indent_string: []const u8,
-    in_pre_block: bool,
-
-    const DEFAULT_INDENT = "    ";
-    const DEFAULT_RULE_WIDTH = 80;
-
-    pub fn init(allocator: Allocator, writer: std.io.AnyWriter) HtmlRenderer {
-        return HtmlRenderer{
-            .writer = writer,
-            .annotation_stack = std.ArrayList(Annotation).init(allocator),
-            .indent_string = DEFAULT_INDENT,
-            .in_pre_block = false,
-        };
-    }
-
-    pub fn deinit(self: *HtmlRenderer) void {
-        self.annotation_stack.deinit();
-    }
-
-    pub fn renderer(self: *HtmlRenderer) Renderer {
-        return Renderer{
-            .ptr = self,
-            .vtable = &.{
-                .writeText = writeText,
-                .writeLineBreak = writeLineBreak,
-                .writeIndent = writeIndent,
-                .writeSpace = writeSpace,
-                .writeHorizontalRule = writeHorizontalRule,
-                .pushAnnotation = pushAnnotation,
-                .popAnnotation = popAnnotation,
-                .writeRaw = writeRaw,
-            },
-        };
-    }
-
-    fn writeText(ctx: *anyopaque, text: []const u8) !void {
-        const self: *HtmlRenderer = @ptrCast(@alignCast(ctx));
-        try self.writeEscapedHtml(text);
-    }
-
-    fn writeLineBreak(ctx: *anyopaque) !void {
-        const self: *HtmlRenderer = @ptrCast(@alignCast(ctx));
-        if (self.in_pre_block) {
-            try self.writer.writeAll("\n");
-        } else {
-            try self.writer.writeAll("<br>\n");
-        }
-    }
-
-    fn writeIndent(ctx: *anyopaque, levels: u32) !void {
-        const self: *HtmlRenderer = @ptrCast(@alignCast(ctx));
-        var i: u32 = 0;
-        while (i < levels) : (i += 1) {
-            try self.writer.writeAll(self.indent_string);
-        }
-    }
-
-    fn writeSpace(ctx: *anyopaque, count: u32) !void {
-        const self: *HtmlRenderer = @ptrCast(@alignCast(ctx));
-        var i: u32 = 0;
-        while (i < count) : (i += 1) {
-            try self.writer.writeAll(" ");
-        }
-    }
-
-    fn writeHorizontalRule(ctx: *anyopaque, width: ?u32) !void {
-        const self: *HtmlRenderer = @ptrCast(@alignCast(ctx));
-        _ = width; // HTML hr doesn't need explicit width
-        try self.writer.writeAll("<hr>");
-    }
-
-    fn pushAnnotation(ctx: *anyopaque, annotation: Annotation) !void {
-        const self: *HtmlRenderer = @ptrCast(@alignCast(ctx));
-        try self.annotation_stack.append(annotation);
-
-        const class_name = annotation.semanticName();
-        try self.writer.print("<span class=\"roc-{s}\">", .{class_name});
-
-        // Special case for code blocks
-        if (annotation == .code_block) {
-            try self.writer.writeAll("<pre>");
-            self.in_pre_block = true;
-        }
-    }
-
-    fn popAnnotation(ctx: *anyopaque) !void {
-        const self: *HtmlRenderer = @ptrCast(@alignCast(ctx));
-        if (self.annotation_stack.items.len > 0) {
-            const annotation = self.annotation_stack.pop();
-
-            // Special case for code blocks
-            if (annotation == .code_block) {
-                try self.writer.writeAll("</pre>");
-                self.in_pre_block = false;
+fn renderElementToTerminal(element: DocumentElement, writer: anytype, palette: ColorPalette, annotation_stack: *std.ArrayList(Annotation)) !void {
+    switch (element) {
+        .text => |text| try writer.writeAll(text),
+        .annotated => |annotated| {
+            const color = getAnnotationColor(annotated.annotation, palette);
+            try writer.writeAll(color);
+            try writer.writeAll(annotated.content);
+            try writer.writeAll(palette.reset);
+        },
+        .line_break => try writer.writeAll("\n"),
+        .indent => |levels| {
+            var i: u32 = 0;
+            while (i < levels) : (i += 1) {
+                try writer.writeAll("    ");
             }
-
-            try self.writer.writeAll("</span>");
-        }
-    }
-
-    fn writeRaw(ctx: *anyopaque, content: []const u8) !void {
-        const self: *HtmlRenderer = @ptrCast(@alignCast(ctx));
-        try self.writer.writeAll(content);
-    }
-
-    fn writeEscapedHtml(self: *HtmlRenderer, text: []const u8) !void {
-        for (text) |char| {
-            switch (char) {
-                '<' => try self.writer.writeAll("&lt;"),
-                '>' => try self.writer.writeAll("&gt;"),
-                '&' => try self.writer.writeAll("&amp;"),
-                '"' => try self.writer.writeAll("&quot;"),
-                '\'' => try self.writer.writeAll("&#39;"),
-                else => try self.writer.writeByte(char),
+        },
+        .space => |count| {
+            var i: u32 = 0;
+            while (i < count) : (i += 1) {
+                try writer.writeAll(" ");
             }
-        }
-    }
-};
-
-/// Language Server Protocol renderer.
-pub const LspRenderer = struct {
-    writer: std.io.AnyWriter,
-    annotation_stack: std.ArrayList(Annotation),
-    current_line: u32,
-    current_column: u32,
-
-    pub fn init(allocator: Allocator, writer: std.io.AnyWriter) LspRenderer {
-        return LspRenderer{
-            .writer = writer,
-            .annotation_stack = std.ArrayList(Annotation).init(allocator),
-            .current_line = 0,
-            .current_column = 0,
-        };
-    }
-
-    pub fn deinit(self: *LspRenderer) void {
-        self.annotation_stack.deinit();
-    }
-
-    pub fn renderer(self: *LspRenderer) Renderer {
-        return Renderer{
-            .ptr = self,
-            .vtable = &.{
-                .writeText = writeText,
-                .writeLineBreak = writeLineBreak,
-                .writeIndent = writeIndent,
-                .writeSpace = writeSpace,
-                .writeHorizontalRule = writeHorizontalRule,
-                .pushAnnotation = pushAnnotation,
-                .popAnnotation = popAnnotation,
-                .writeRaw = writeRaw,
-            },
-        };
-    }
-
-    fn writeText(ctx: *anyopaque, text: []const u8) !void {
-        const self: *LspRenderer = @ptrCast(@alignCast(ctx));
-        try self.writer.writeAll(text);
-        self.current_column += @intCast(text.len);
-    }
-
-    fn writeLineBreak(ctx: *anyopaque) !void {
-        const self: *LspRenderer = @ptrCast(@alignCast(ctx));
-        try self.writer.writeAll("\n");
-        self.current_line += 1;
-        self.current_column = 0;
-    }
-
-    fn writeIndent(ctx: *anyopaque, levels: u32) !void {
-        const self: *LspRenderer = @ptrCast(@alignCast(ctx));
-        const indent_size = levels * 4; // 4 spaces per level
-        var i: u32 = 0;
-        while (i < indent_size) : (i += 1) {
-            try self.writer.writeAll(" ");
-        }
-        self.current_column += indent_size;
-    }
-
-    fn writeSpace(ctx: *anyopaque, count: u32) !void {
-        const self: *LspRenderer = @ptrCast(@alignCast(ctx));
-        var i: u32 = 0;
-        while (i < count) : (i += 1) {
-            try self.writer.writeAll(" ");
-        }
-        self.current_column += count;
-    }
-
-    fn writeHorizontalRule(ctx: *anyopaque, width: ?u32) !void {
-        const self: *LspRenderer = @ptrCast(@alignCast(ctx));
-        const rule_width = width orelse 80;
-        var i: u32 = 0;
-        while (i < rule_width) : (i += 1) {
-            try self.writer.writeAll("-");
-        }
-        self.current_column += rule_width;
-    }
-
-    fn pushAnnotation(ctx: *anyopaque, annotation: Annotation) !void {
-        const self: *LspRenderer = @ptrCast(@alignCast(ctx));
-        try self.annotation_stack.append(annotation);
-        // LSP renderer could emit diagnostic ranges here
-    }
-
-    fn popAnnotation(ctx: *anyopaque) !void {
-        const self: *LspRenderer = @ptrCast(@alignCast(ctx));
-        if (self.annotation_stack.items.len > 0) {
-            _ = self.annotation_stack.pop();
-        }
-    }
-
-    fn writeRaw(ctx: *anyopaque, content: []const u8) !void {
-        const self: *LspRenderer = @ptrCast(@alignCast(ctx));
-        try self.writer.writeAll(content);
-        // Update position tracking
-        for (content) |char| {
-            if (char == '\n') {
-                self.current_line += 1;
-                self.current_column = 0;
-            } else {
-                self.current_column += 1;
+        },
+        .horizontal_rule => |width| {
+            const rule_width = width orelse 80;
+            var i: u32 = 0;
+            while (i < rule_width) : (i += 1) {
+                try writer.writeAll("─");
             }
+        },
+        .annotation_start => |annotation| {
+            try annotation_stack.append(annotation);
+            const color = getAnnotationColor(annotation, palette);
+            try writer.writeAll(color);
+        },
+        .annotation_end => {
+            if (annotation_stack.items.len > 0) {
+                _ = annotation_stack.pop();
+                try writer.writeAll(palette.reset);
+                // Re-apply previous annotation if any
+                if (annotation_stack.items.len > 0) {
+                    const prev_annotation = annotation_stack.items[annotation_stack.items.len - 1];
+                    const color = getAnnotationColor(prev_annotation, palette);
+                    try writer.writeAll(color);
+                }
+            }
+        },
+        .raw => |content| try writer.writeAll(content),
+    }
+}
+
+fn getAnnotationColor(annotation: Annotation, palette: ColorPalette) []const u8 {
+    return switch (annotation) {
+        .emphasized => palette.bold,
+        .keyword => palette.keyword,
+        .type_variable => palette.type_variable,
+        .error_highlight => palette.error_color,
+        .warning_highlight => palette.warning,
+        .suggestion => palette.suggestion,
+        .code_block => palette.primary,
+        .inline_code => palette.primary,
+        .symbol => palette.symbol,
+        .path => palette.path,
+        .literal => palette.literal,
+        .comment => palette.comment,
+        .underline => palette.underline,
+        .dimmed => palette.muted,
+    };
+}
+
+// Plain text rendering functions
+
+fn renderElementToPlainText(element: DocumentElement, writer: anytype) !void {
+    switch (element) {
+        .text => |text| try writer.writeAll(text),
+        .annotated => |annotated| try writer.writeAll(annotated.content),
+        .line_break => try writer.writeAll("\n"),
+        .indent => |levels| {
+            var i: u32 = 0;
+            while (i < levels) : (i += 1) {
+                try writer.writeAll("    ");
+            }
+        },
+        .space => |count| {
+            var i: u32 = 0;
+            while (i < count) : (i += 1) {
+                try writer.writeAll(" ");
+            }
+        },
+        .horizontal_rule => |width| {
+            const rule_width = width orelse 80;
+            var i: u32 = 0;
+            while (i < rule_width) : (i += 1) {
+                try writer.writeAll("-");
+            }
+        },
+        .annotation_start, .annotation_end => {}, // Ignore annotations in plain text
+        .raw => |content| try writer.writeAll(content),
+    }
+}
+
+// HTML rendering functions
+
+fn renderElementToHtml(element: DocumentElement, writer: anytype, annotation_stack: *std.ArrayList(Annotation)) !void {
+    switch (element) {
+        .text => |text| try writeEscapedHtml(writer, text),
+        .annotated => |annotated| {
+            const tag = getAnnotationHtmlTag(annotated.annotation);
+            const class = getAnnotationHtmlClass(annotated.annotation);
+            try writer.print("<{s} class=\"{s}\">", .{ tag, class });
+            try writeEscapedHtml(writer, annotated.content);
+            try writer.print("</{s}>", .{tag});
+        },
+        .line_break => try writer.writeAll("<br>\n"),
+        .indent => |levels| {
+            var i: u32 = 0;
+            while (i < levels) : (i += 1) {
+                try writer.writeAll("&nbsp;&nbsp;&nbsp;&nbsp;");
+            }
+        },
+        .space => |count| {
+            var i: u32 = 0;
+            while (i < count) : (i += 1) {
+                try writer.writeAll("&nbsp;");
+            }
+        },
+        .horizontal_rule => |width| {
+            const rule_width = width orelse 80;
+            try writer.print("<hr style=\"width: {d}ch;\">\n", .{rule_width});
+        },
+        .annotation_start => |annotation| {
+            try annotation_stack.append(annotation);
+            const tag = getAnnotationHtmlTag(annotation);
+            const class = getAnnotationHtmlClass(annotation);
+            try writer.print("<{s} class=\"{s}\">", .{ tag, class });
+        },
+        .annotation_end => {
+            if (annotation_stack.items.len > 0) {
+                const annotation = annotation_stack.items[annotation_stack.items.len - 1];
+                const tag = getAnnotationHtmlTag(annotation);
+                _ = annotation_stack.pop();
+                try writer.print("</{s}>", .{tag});
+            }
+        },
+        .raw => |content| try writer.writeAll(content),
+    }
+}
+
+fn getAnnotationHtmlTag(annotation: Annotation) []const u8 {
+    return switch (annotation) {
+        .emphasized => "strong",
+        .code_block => "pre",
+        .inline_code => "code",
+        else => "span",
+    };
+}
+
+fn getAnnotationHtmlClass(annotation: Annotation) []const u8 {
+    return annotation.semanticName();
+}
+
+fn writeEscapedHtml(writer: anytype, text: []const u8) !void {
+    for (text) |char| {
+        switch (char) {
+            '<' => try writer.writeAll("&lt;"),
+            '>' => try writer.writeAll("&gt;"),
+            '&' => try writer.writeAll("&amp;"),
+            '"' => try writer.writeAll("&quot;"),
+            '\'' => try writer.writeAll("&#39;"),
+            else => try writer.writeByte(char),
         }
     }
-};
+}
+
+// LSP rendering functions
+
+fn renderElementToLsp(element: DocumentElement, writer: anytype) !void {
+    switch (element) {
+        .text => |text| try writer.writeAll(text),
+        .annotated => |annotated| try writer.writeAll(annotated.content),
+        .line_break => try writer.writeAll("\n"),
+        .indent => |levels| {
+            var i: u32 = 0;
+            while (i < levels) : (i += 1) {
+                try writer.writeAll("  "); // Use 2 spaces for LSP
+            }
+        },
+        .space => |count| {
+            var i: u32 = 0;
+            while (i < count) : (i += 1) {
+                try writer.writeAll(" ");
+            }
+        },
+        .horizontal_rule => |width| {
+            const rule_width = width orelse 40; // Shorter for LSP
+            var i: u32 = 0;
+            while (i < rule_width) : (i += 1) {
+                try writer.writeAll("-");
+            }
+        },
+        .annotation_start, .annotation_end => {}, // Ignore annotations for LSP
+        .raw => |content| try writer.writeAll(content),
+    }
+}
 
 // Tests
 const testing = std.testing;
 
-test "TerminalRenderer basic functionality" {
+test "render report to plain text" {
+    var report = Report.init(testing.allocator, "TEST ERROR", .runtime_error);
+    defer report.deinit();
+
+    try report.document.addText("This is a test error message.");
+
     var buffer = std.ArrayList(u8).init(testing.allocator);
     defer buffer.deinit();
 
-    var terminal_renderer = TerminalRenderer.init(testing.allocator, buffer.writer().any(), ColorPalette.NO_COLOR);
-    defer terminal_renderer.deinit();
+    try renderReportToPlainText(&report, buffer.writer());
 
-    var renderer = terminal_renderer.renderer();
-
-    try renderer.writeText("Hello");
-    try renderer.writeSpace(1);
-    try renderer.writeText("world");
-    try renderer.writeLineBreak();
-
-    try testing.expectEqualStrings("Hello world\n", buffer.items);
+    try testing.expect(std.mem.indexOf(u8, buffer.items, "TEST ERROR") != null);
+    try testing.expect(std.mem.indexOf(u8, buffer.items, "This is a test error message.") != null);
 }
 
-test "PlainTextRenderer with annotations" {
+test "render document with annotations to plain text" {
+    var doc = Document.init(testing.allocator);
+    defer doc.deinit();
+
+    try doc.addText("Hello ");
+    try doc.addAnnotated("world", .emphasized);
+    try doc.addText("!");
+
     var buffer = std.ArrayList(u8).init(testing.allocator);
     defer buffer.deinit();
 
-    var plain_renderer = PlainTextRenderer.init(testing.allocator, buffer.writer().any());
-    defer plain_renderer.deinit();
+    try renderDocumentToPlainText(&doc, buffer.writer());
 
-    var renderer = plain_renderer.renderer();
-
-    try renderer.pushAnnotation(.error_highlight);
-    try renderer.writeText("Error");
-    try renderer.popAnnotation();
-    try renderer.writeText(": something went wrong");
-
-    try testing.expectEqualStrings("Error: something went wrong", buffer.items);
+    try testing.expectEqualStrings("Hello world!", buffer.items);
 }
 
-test "HtmlRenderer with escaping" {
+test "render HTML escaping" {
+    var doc = Document.init(testing.allocator);
+    defer doc.deinit();
+
+    try doc.addText("<script>alert('test')</script>");
+
     var buffer = std.ArrayList(u8).init(testing.allocator);
     defer buffer.deinit();
 
-    var html_renderer = HtmlRenderer.init(testing.allocator, buffer.writer().any());
-    defer html_renderer.deinit();
-
-    var renderer = html_renderer.renderer();
-
-    try renderer.writeText("<script>alert('test')</script>");
+    try renderDocumentToHtml(&doc, buffer.writer());
 
     try testing.expect(std.mem.indexOf(u8, buffer.items, "&lt;script&gt;") != null);
-    try testing.expect(std.mem.indexOf(u8, buffer.items, "&lt;/script&gt;") != null);
+    try testing.expect(std.mem.indexOf(u8, buffer.items, "<script>") == null);
 }
 
-test "Renderer indentation" {
+test "render indentation and spacing" {
+    var doc = Document.init(testing.allocator);
+    defer doc.deinit();
+
+    try doc.addIndent(2);
+    try doc.addText("indented");
+    try doc.addSpace(3);
+    try doc.addText("spaced");
+
     var buffer = std.ArrayList(u8).init(testing.allocator);
     defer buffer.deinit();
 
-    var plain_renderer = PlainTextRenderer.init(testing.allocator, buffer.writer().any());
-    defer plain_renderer.deinit();
+    try renderDocumentToPlainText(&doc, buffer.writer());
 
-    var renderer = plain_renderer.renderer();
-
-    try renderer.writeIndent(2);
-    try renderer.writeText("indented");
-
-    try testing.expectEqualStrings("        indented", buffer.items);
+    try testing.expectEqualStrings("        indented   spaced", buffer.items);
 }
 
-test "Renderer horizontal rule" {
+test "render horizontal rule" {
+    var doc = Document.init(testing.allocator);
+    defer doc.deinit();
+
+    try doc.addHorizontalRule(5);
+
     var buffer = std.ArrayList(u8).init(testing.allocator);
     defer buffer.deinit();
 
-    var plain_renderer = PlainTextRenderer.init(testing.allocator, buffer.writer().any());
-    defer plain_renderer.deinit();
-
-    var renderer = plain_renderer.renderer();
-
-    try renderer.writeHorizontalRule(5);
+    try renderDocumentToPlainText(&doc, buffer.writer());
 
     try testing.expectEqualStrings("-----", buffer.items);
 }

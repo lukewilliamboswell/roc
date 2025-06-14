@@ -6,12 +6,15 @@ module [add2]
 
 add2 = x +      2
 ~~~PROBLEMS
-Identifier not found in scope
+UNDEFINED VARIABLE
 
-   |     x
-Identifier not found in scope
+I cannot find this variable in scope.
 
-   |     x
+Ø£madd2 = x +      2
+           ^
+
+
+Note: Check the spelling and make sure this variable is defined before using it.
 ~~~TOKENS
 KwModule(1:1-1:7),OpenSquare(1:8-1:9),LowerIdent(1:9-1:13),CloseSquare(1:13-1:14),Newline(1:1-1:1),
 Newline(1:1-1:1),

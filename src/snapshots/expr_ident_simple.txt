@@ -4,12 +4,15 @@ type=expr
 ~~~SOURCE
 foo
 ~~~PROBLEMS
-Identifier not found in scope
+UNDEFINED VARIABLE
 
-   |     foo
-Identifier not found in scope
+I cannot find this variable in scope.
 
-   |     foo
+p£mfoo
+    ^^^
+
+
+Note: Check the spelling and make sure this variable is defined before using it.
 ~~~TOKENS
 LowerIdent(1:1-1:4),EndOfFile(1:4-1:4),
 ~~~PARSE

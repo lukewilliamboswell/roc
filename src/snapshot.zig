@@ -437,7 +437,7 @@ fn processSnapshotFile(gpa: Allocator, snapshot_path: []const u8, maybe_fuzz_cor
         }
     };
 
-    var module_env = base.ModuleEnv.init(gpa, file_content);
+    var module_env = base.ModuleEnv.init(gpa, content.source);
     defer module_env.deinit();
 
     // Parse the source code
@@ -506,20 +506,19 @@ fn processSnapshotFile(gpa: Allocator, snapshot_path: []const u8, maybe_fuzz_cor
         try writer.writeAll(Section.PROBLEMS);
         try writer.writeAll("\n");
 
-        var nil_problems = true;
+        var tokenize_problems: usize = 0;
+        var parser_problems: usize = 0;
+        var canonicalize_problems: usize = 0;
 
-        // Create PlainTextRenderer for this problem
-        var plain_renderer = reporting.PlainTextRenderer.init(gpa, writer.any());
-        defer plain_renderer.deinit();
-        var renderer = plain_renderer.renderer();
+        // Use plain text rendering target
 
         // Tokenize Diagnostics
         for (parse_ast.tokenize_diagnostics.items) |diagnostic| {
-            nil_problems = false;
+            tokenize_problems += 1;
 
             var report: Report = try diagnostic.toReport(gpa, content.source);
             defer report.deinit();
-            report.render(&renderer) catch |err| {
+            report.render(writer.any(), .plain_text) catch |err| {
                 try writer.print("Error rendering report: {}\n", .{err});
                 continue;
             };
@@ -527,11 +526,11 @@ fn processSnapshotFile(gpa: Allocator, snapshot_path: []const u8, maybe_fuzz_cor
 
         // Parser Dianostics
         for (parse_ast.parse_diagnostics.items) |diagnostic| {
-            nil_problems = false;
+            parser_problems += 1;
 
             var report: Report = try parse_ast.diagnosticToReport(diagnostic, gpa);
             defer report.deinit();
-            report.render(&renderer) catch |err| {
+            report.render(writer.any(), .plain_text) catch |err| {
                 try writer.print("Error rendering report: {}\n", .{err});
                 continue;
             };
@@ -539,18 +538,25 @@ fn processSnapshotFile(gpa: Allocator, snapshot_path: []const u8, maybe_fuzz_cor
 
         // Canonicalization Diagnostics
         for (can_ir.diagnostics.items) |diagnostic| {
-            nil_problems = false;
+            canonicalize_problems += 1;
 
-            var report: Report = try CIR.diagnosticToReport(diagnostic, gpa, parse_ast.source);
+            var report: Report = try can_ir.diagnosticToReport(diagnostic, gpa);
             defer report.deinit();
-            report.render(&renderer) catch |err| {
+            report.render(writer.any(), .plain_text) catch |err| {
                 try writer.print("Error rendering report: {}\n", .{err});
                 continue;
             };
         }
 
+        const nil_problems = tokenize_problems == 0 and parser_problems == 0 and canonicalize_problems == 0;
+
         if (nil_problems) {
             try writer.writeAll("NIL\n");
+            log("reported NIL problems", .{});
+        } else {
+            log("reported {} token problems", .{tokenize_problems});
+            log("reported {} parser problems", .{parser_problems});
+            log("reported {} canonicalization problems", .{canonicalize_problems});
         }
     }
 

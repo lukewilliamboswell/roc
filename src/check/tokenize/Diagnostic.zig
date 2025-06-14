@@ -96,7 +96,7 @@ pub fn toReport(self: @This(), allocator: std.mem.Allocator, source: []const u8)
     var report = reporting.Report.init(allocator, message, .runtime_error);
 
     // Add source context if we have a valid region
-    if (self.begin < source.len and self.end <= source.len) {
+    if (self.begin < source.len and self.end <= source.len and self.begin <= self.end) {
         const problem_text = source[self.begin..self.end];
         try report.addCodeSnippet(problem_text, null);
     }

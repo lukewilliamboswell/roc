@@ -4,7 +4,9 @@ type=file
 ~~~SOURCE
 module
 ~~~PROBLEMS
-Expected '[' in header
+SYNTAX PROBLEM
+
+Expected '[' in the module header.
 
 
 Note: This is a parse error. Check your syntax.

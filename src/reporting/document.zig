@@ -7,6 +7,8 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const renderer = @import("renderer.zig");
+const RenderTarget = renderer.RenderTarget;
 
 /// Annotations that can be applied to document content for styling and semantics.
 pub const Annotation = enum {
@@ -293,30 +295,9 @@ pub const Document = struct {
         self.elements.clearRetainingCapacity();
     }
 
-    /// Render the document using a renderer.
-    pub fn render(self: *const Document, renderer: anytype) !void {
-        for (self.elements.items) |element| {
-            try renderElement(element, renderer);
-        }
-    }
-
-    /// Helper function to render a single element.
-    fn renderElement(element: DocumentElement, renderer: anytype) !void {
-        switch (element) {
-            .text => |text| try renderer.writeText(text),
-            .annotated => |annotated| {
-                try renderer.pushAnnotation(annotated.annotation);
-                try renderer.writeText(annotated.content);
-                try renderer.popAnnotation();
-            },
-            .line_break => try renderer.writeLineBreak(),
-            .indent => |levels| try renderer.writeIndent(levels),
-            .space => |count| try renderer.writeSpace(count),
-            .horizontal_rule => |width| try renderer.writeHorizontalRule(width),
-            .annotation_start => |annotation| try renderer.pushAnnotation(annotation),
-            .annotation_end => try renderer.popAnnotation(),
-            .raw => |content| try renderer.writeRaw(content),
-        }
+    /// Render the document to the specified writer and target format.
+    pub fn render(self: *const Document, writer: anytype, target: RenderTarget) !void {
+        try renderer.renderDocument(self, writer, target);
     }
 };
 

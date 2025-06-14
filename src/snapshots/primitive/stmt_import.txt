@@ -6,12 +6,12 @@ module []
 
 import json.Json [foo, BAR]
 ~~~PROBLEMS
-Invalid statement at top level
+INVALID STATEMENT
 
-   |     [foo, BAR]
-Invalid statement at top level
+This statement is not allowed at the top level.
 
-   |     [foo, BAR]
+ð£mimport json.Json [foo, BAR]
+                     ^^^^^^^^^^
 ~~~TOKENS
 KwModule(1:1-1:7),OpenSquare(1:8-1:9),CloseSquare(1:9-1:10),Newline(1:1-1:1),
 Newline(1:1-1:1),

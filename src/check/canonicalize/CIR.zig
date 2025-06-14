@@ -89,7 +89,8 @@ pub fn pushMalformed(self: *CIR, comptime t: type, tag: CIR.Diagnostic.Tag, regi
 }
 
 /// Convert a canonicalization diagnostic to a Report for rendering
-pub fn diagnosticToReport(diagnostic: Diagnostic, allocator: std.mem.Allocator, source: []const u8) !reporting.Report {
+pub fn diagnosticToReport(self: *CIR, diagnostic: Diagnostic, allocator: std.mem.Allocator) !reporting.Report {
+
     // Get title and main message based on diagnostic type
     const title, const main_message = switch (diagnostic.tag) {
         .not_implemented => .{ "NOT IMPLEMENTED", "This feature is not yet implemented in the Roc compiler." },
@@ -112,37 +113,16 @@ pub fn diagnosticToReport(diagnostic: Diagnostic, allocator: std.mem.Allocator, 
     try report.document.addLineBreak();
     try report.document.addLineBreak();
 
-    // Add source context with line numbers if we have a valid region
-    if (diagnostic.region.start.offset < source.len and diagnostic.region.end.offset <= source.len) {
-        const start_offset = diagnostic.region.start.offset;
-        const end_offset = diagnostic.region.end.offset;
-
-        // Find the line and column information
-        var line_number: u32 = 1;
-        var line_start: usize = 0;
-        var i: usize = 0;
-
-        // Find which line our error starts on
-        while (i < start_offset and i < source.len) : (i += 1) {
-            if (source[i] == '\n') {
-                line_number += 1;
-                line_start = i + 1;
-            }
-        }
-
-        // Find the end of the current line
-        var line_end = line_start;
-        while (line_end < source.len and source[line_end] != '\n') {
-            line_end += 1;
-        }
-
-        const line_content = source[line_start..line_end];
-        const column_start = start_offset - line_start;
-        const column_end = @min(end_offset - line_start, line_content.len);
+    // Add source context with line numbers using proper region calculation
+    const region_info = self.calcRegionInfo(diagnostic.region);
+    if (region_info.line_text.len > 0) {
+        const line_number = region_info.start_line_idx + 1; // Convert from 0-based to 1-based
+        const column_start = region_info.start_col_idx;
+        const column_end = region_info.end_col_idx;
 
         // Add the source line with line number
         try report.document.addFormattedText("{d}|  ", .{line_number});
-        try report.document.addText(line_content);
+        try report.document.addText(region_info.line_text);
         try report.document.addLineBreak();
 
         // Add underline pointing to the problem
@@ -175,11 +155,15 @@ pub fn diagnosticToReport(diagnostic: Diagnostic, allocator: std.mem.Allocator, 
     switch (diagnostic.tag) {
         .expr_not_canonicalized => {
             // Check if this might be a ++ concatenation attempt
-            if (diagnostic.region.start.offset < source.len and diagnostic.region.end.offset <= source.len) {
-                const problem_text = source[diagnostic.region.start.offset..diagnostic.region.end.offset];
-                if (std.mem.indexOf(u8, problem_text, "++") != null) {
-                    try report.document.addLineBreak();
-                    try report.addSuggestion("To concatenate two lists or strings, try using List.concat or Str.concat instead.");
+            if (region_info.line_text.len > 0) {
+                const start_col = region_info.start_col_idx;
+                const end_col = region_info.end_col_idx;
+                if (end_col <= region_info.line_text.len) {
+                    const problem_text = region_info.line_text[start_col..end_col];
+                    if (std.mem.indexOf(u8, problem_text, "++") != null) {
+                        try report.document.addLineBreak();
+                        try report.addSuggestion("To concatenate two lists or strings, try using List.concat or Str.concat instead.");
+                    }
                 }
             }
         },

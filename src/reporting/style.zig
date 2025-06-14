@@ -87,6 +87,7 @@ pub const ColorPalette = struct {
     warning: []const u8,
     info: []const u8,
     success: []const u8,
+    suggestion: []const u8,
     muted: []const u8,
 
     // Syntax highlighting colors
@@ -113,6 +114,7 @@ pub const ColorPalette = struct {
         .warning = AnsiCodes.YELLOW,
         .info = AnsiCodes.BLUE,
         .success = AnsiCodes.GREEN,
+        .suggestion = AnsiCodes.GREEN,
         .muted = AnsiCodes.BRIGHT_BLACK,
 
         // Syntax colors
@@ -140,6 +142,7 @@ pub const ColorPalette = struct {
         .warning = AnsiCodes.BRIGHT_YELLOW,
         .info = AnsiCodes.BRIGHT_BLUE,
         .success = AnsiCodes.BRIGHT_GREEN,
+        .suggestion = AnsiCodes.BRIGHT_GREEN,
         .muted = AnsiCodes.BRIGHT_BLACK,
 
         // Syntax colors
@@ -167,6 +170,7 @@ pub const ColorPalette = struct {
         .warning = "",
         .info = "",
         .success = "",
+        .suggestion = "",
         .muted = "",
         .keyword = "",
         .type_variable = "",
@@ -192,6 +196,7 @@ pub const ColorPalette = struct {
         .warning = "color: " ++ HtmlColors.WARNING ++ ";",
         .info = "color: " ++ HtmlColors.INFO ++ ";",
         .success = "color: " ++ HtmlColors.SUCCESS ++ ";",
+        .suggestion = "color: " ++ HtmlColors.SUCCESS ++ ";",
         .muted = "color: " ++ HtmlColors.MUTED ++ ";",
 
         // Syntax colors

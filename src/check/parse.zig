@@ -28,7 +28,8 @@ fn runParse(env: *base.ModuleEnv, source: []const u8, parserCall: *const fn (*Pa
 
     const idx = parserCall(&parser);
 
-    const tokenize_diagnostics = std.ArrayListUnmanaged(tokenize.Diagnostic).fromOwnedSlice(result.messages);
+    const tokenize_diagnostics_slice = env.gpa.dupe(tokenize.Diagnostic, result.messages) catch |err| exitOnOom(err);
+    const tokenize_diagnostics = std.ArrayListUnmanaged(tokenize.Diagnostic).fromOwnedSlice(tokenize_diagnostics_slice);
     const parse_diagnostics = parser.diagnostics;
 
     return .{

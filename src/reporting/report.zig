@@ -9,6 +9,8 @@ const Allocator = std.mem.Allocator;
 const Severity = @import("severity.zig").Severity;
 const Document = @import("document.zig").Document;
 const Annotation = @import("document.zig").Annotation;
+const renderer = @import("renderer.zig");
+const RenderTarget = renderer.RenderTarget;
 
 /// A structured report containing error information and formatted content.
 pub const Report = struct {
@@ -30,25 +32,9 @@ pub const Report = struct {
         self.document.deinit();
     }
 
-    /// Render the report using the provided renderer.
-    pub fn render(self: *const Report, renderer: anytype) !void {
-        // Render title with appropriate severity styling
-        const title_annotation = switch (self.severity) {
-            .fatal => Annotation.error_highlight,
-            .runtime_error => Annotation.error_highlight,
-            .warning => Annotation.warning_highlight,
-        };
-
-        try renderer.pushAnnotation(.emphasized);
-        try renderer.pushAnnotation(title_annotation);
-        try renderer.writeText(self.title);
-        try renderer.popAnnotation();
-        try renderer.popAnnotation();
-        try renderer.writeLineBreak();
-        try renderer.writeLineBreak();
-
-        // Render document content
-        try self.document.render(renderer);
+    /// Render the report to the specified writer and target format.
+    pub fn render(self: *const Report, writer: anytype, target: RenderTarget) !void {
+        try renderer.renderReport(self, writer, target);
     }
 
     /// Add a section header to the report.
