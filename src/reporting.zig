@@ -49,6 +49,8 @@ pub const ReportingSystem = struct {
         lines: [][]const u8,
 
         pub fn deinit(self: *SourceFile, allocator: Allocator) void {
+            allocator.free(self.path);
+            allocator.free(self.content);
             allocator.free(self.lines);
         }
     };

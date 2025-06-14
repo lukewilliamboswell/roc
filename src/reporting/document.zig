@@ -225,7 +225,7 @@ pub const Document = struct {
         try self.startAnnotation(.code_block);
 
         // Split code into lines and add each with proper indentation
-        var lines = std.mem.split(u8, code, "\n");
+        var lines = std.mem.splitScalar(u8, code, '\n');
         var first = true;
         while (lines.next()) |line| {
             if (!first) {

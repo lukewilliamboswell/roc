@@ -94,7 +94,16 @@ pub const Report = struct {
             const is_highlight = if (highlight_line) |hl| current_line == hl else false;
 
             // Line number with proper padding
-            try self.document.addFormattedText("{d:>*} | ", .{ line_number_width, current_line });
+            const line_str = try std.fmt.allocPrint(self.document.allocator, "{d}", .{current_line});
+            defer self.document.allocator.free(line_str);
+            const padding = if (line_str.len < line_number_width) line_number_width - line_str.len else 0;
+
+            // Add padding spaces
+            var j: usize = 0;
+            while (j < padding) : (j += 1) {
+                try self.document.addText(" ");
+            }
+            try self.document.addFormattedText("{d} | ", .{current_line});
 
             // Line content
             if (is_highlight) {
@@ -109,8 +118,8 @@ pub const Report = struct {
             // Add underline for highlighted sections
             if (is_highlight and highlight_column_start != null and highlight_column_end != null) {
                 // Add padding for line number
-                var padding: u32 = 0;
-                while (padding < line_number_width + 3) : (padding += 1) {
+                var underline_padding: u32 = 0;
+                while (underline_padding < line_number_width + 3) : (underline_padding += 1) {
                     try self.document.addSpace(1);
                 }
 
@@ -125,8 +134,8 @@ pub const Report = struct {
                     highlight_column_end.? - highlight_column_start.?
                 else
                     1;
-                var j: u32 = 0;
-                while (j < underline_length) : (j += 1) {
+                var k: u32 = 0;
+                while (k < underline_length) : (k += 1) {
                     try self.document.addText("^");
                 }
                 try self.document.endAnnotation();

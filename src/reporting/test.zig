@@ -474,6 +474,7 @@ test "Document rendering with different targets" {
         var renderer = plain_renderer.renderer();
 
         try doc.render(&renderer);
+        // Plain text should contain "Hello world" as continuous text
         try testing.expect(std.mem.indexOf(u8, buffer.items, "Hello world") != null);
     }
 
@@ -487,6 +488,7 @@ test "Document rendering with different targets" {
         var renderer = terminal_renderer.renderer();
 
         try doc.render(&renderer);
+        // Terminal should contain "Hello world" as continuous text (no color codes with NO_COLOR palette)
         try testing.expect(std.mem.indexOf(u8, buffer.items, "Hello world") != null);
     }
 
@@ -500,7 +502,11 @@ test "Document rendering with different targets" {
         var renderer = html_renderer.renderer();
 
         try doc.render(&renderer);
-        try testing.expect(std.mem.indexOf(u8, buffer.items, "Hello world") != null);
+        // HTML should contain both words and proper HTML tags
+        try testing.expect(std.mem.indexOf(u8, buffer.items, "Hello") != null);
+        try testing.expect(std.mem.indexOf(u8, buffer.items, "world") != null);
+        try testing.expect(std.mem.indexOf(u8, buffer.items, "<span class=\"roc-emphasis\">") != null);
+        try testing.expect(std.mem.indexOf(u8, buffer.items, "<br>") != null);
     }
 }
 
@@ -529,7 +535,12 @@ test "Large document performance" {
     var renderer = plain_renderer.renderer();
 
     try doc.render(&renderer);
-    try testing.expect(buffer.items.len > 10000);
+    // Expected size calculation:
+    // Lines 0-9: 7 chars each = 70
+    // Lines 10-99: 8 chars each = 720
+    // Lines 100-999: 9 chars each = 8100
+    // Total ≈ 8890 chars
+    try testing.expect(buffer.items.len > 8000);
 }
 
 test "Multiple reports rendering" {
