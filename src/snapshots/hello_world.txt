@@ -10,16 +10,14 @@ main! = |_| Stdout.line!("Hello, world!")
 ~~~PROBLEMS
 UNDEFINED VARIABLE
 
-I cannot find this variable in scope.
+Nothing is named `line!` in this scope.
 
 app [main!] { pf: platform "../basic-cli/platform.roc" }
 
 import pf.Stdout
 
 main! = |_| Stdout.line!("Hello, world!")
-
-Note: Check the spelling and make sure this variable is defined before using it.
-NOT IMPLEMENTED
+Is there an import or exposing missing up-top?NOT IMPLEMENTED
 
 Lambda expressions are not yet fully implemented.
 
@@ -27,7 +25,8 @@ app [main!] { pf: platform "../basic-cli/platform.roc" }
 
 import pf.Stdout
 
-main! = |_| Stdout.line!("Hello, world!")~~~TOKENS
+main! = |_| Stdout.line!("Hello, world!")
+Lambda expressions will be supported in a future version of Roc.~~~TOKENS
 KwApp(1:1-1:4),OpenSquare(1:5-1:6),LowerIdent(1:6-1:11),CloseSquare(1:11-1:12),OpenCurly(1:13-1:14),LowerIdent(1:15-1:17),OpColon(1:17-1:18),KwPlatform(1:19-1:27),StringStart(1:28-1:29),StringPart(1:29-1:54),StringEnd(1:54-1:55),CloseCurly(1:56-1:57),Newline(1:1-1:1),
 Newline(1:1-1:1),
 KwImport(3:1-3:7),LowerIdent(3:8-3:10),NoSpaceDotUpperIdent(3:10-3:17),Newline(1:1-1:1),

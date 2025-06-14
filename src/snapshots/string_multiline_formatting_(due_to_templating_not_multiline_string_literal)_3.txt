@@ -11,7 +11,7 @@ type=expr
 ~~~PROBLEMS
 UNDEFINED VARIABLE
 
-I cannot find this variable in scope.
+Nothing is named `some_func` in this scope.
 
 "This is a string with ${
 	some_func(
@@ -19,11 +19,9 @@ I cannot find this variable in scope.
 		b,
 	)
 } lines of text due to the template parts"
+Is there an import or exposing missing up-top?UNDEFINED VARIABLE
 
-Note: Check the spelling and make sure this variable is defined before using it.
-UNDEFINED VARIABLE
-
-I cannot find this variable in scope.
+Nothing is named `a` in this scope.
 
 "This is a string with ${
 	some_func(
@@ -31,11 +29,9 @@ I cannot find this variable in scope.
 		b,
 	)
 } lines of text due to the template parts"
+Is there an import or exposing missing up-top?UNDEFINED VARIABLE
 
-Note: Check the spelling and make sure this variable is defined before using it.
-UNDEFINED VARIABLE
-
-I cannot find this variable in scope.
+Nothing is named `b` in this scope.
 
 "This is a string with ${
 	some_func(
@@ -43,9 +39,7 @@ I cannot find this variable in scope.
 		b,
 	)
 } lines of text due to the template parts"
-
-Note: Check the spelling and make sure this variable is defined before using it.
-~~~TOKENS
+Is there an import or exposing missing up-top?~~~TOKENS
 StringStart(1:1-1:2),StringPart(1:2-1:24),OpenStringInterpolation(1:24-1:26),Newline(1:1-1:1),
 LowerIdent(2:2-2:11),NoSpaceOpenRound(2:11-2:12),Newline(1:1-1:1),
 LowerIdent(3:3-3:4),Comma(3:4-3:5),Newline(3:7-3:25),

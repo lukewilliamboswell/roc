@@ -30,7 +30,8 @@ main! = |_| {
 	world = "World"
 	# Hello
 	Stdout.line!("Hello, world!")
-}NOT IMPLEMENTED
+}
+The lambda body must be a valid expression.NOT IMPLEMENTED
 
 Lambda expressions are not yet fully implemented.
 
@@ -45,7 +46,8 @@ main! = |_| {
 	world = "World"
 	# Hello
 	Stdout.line!("Hello, world!")
-}~~~TOKENS
+}
+Lambda expressions will be supported in a future version of Roc.~~~TOKENS
 Newline(1:2-1:15),
 Newline(1:1-1:1),
 Newline(3:2-3:22),

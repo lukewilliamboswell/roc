@@ -537,7 +537,9 @@ fn processSnapshotFile(gpa: Allocator, snapshot_path: []const u8, maybe_fuzz_cor
         }
 
         // Canonicalization Diagnostics
-        for (can_ir.getDiagnostics()) |diagnostic| {
+        const diagnostics = can_ir.getDiagnostics();
+        defer gpa.free(diagnostics);
+        for (diagnostics) |diagnostic| {
             canonicalize_problems += 1;
 
             var report: Report = try can_ir.diagnosticToReport(diagnostic, gpa);

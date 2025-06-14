@@ -6,12 +6,10 @@ foo
 ~~~PROBLEMS
 UNDEFINED VARIABLE
 
-I cannot find this variable in scope.
+Nothing is named `foo` in this scope.
 
 foo
-
-Note: Check the spelling and make sure this variable is defined before using it.
-~~~TOKENS
+Is there an import or exposing missing up-top?~~~TOKENS
 LowerIdent(1:1-1:4),EndOfFile(1:4-1:4),
 ~~~PARSE
 (ident (1:1-1:4) "" "foo")

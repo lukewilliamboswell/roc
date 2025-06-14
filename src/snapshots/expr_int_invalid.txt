@@ -6,12 +6,10 @@ type=expr
 ~~~PROBLEMS
 INVALID NUMBER
 
-This number literal is not valid.
+This number literal is not valid: 99999999999999999999999999999999999999999
 
 99999999999999999999999999999999999999999
-
-Note: Check that the number format is correct. Roc supports integers, floats, and scientific notation.
-~~~TOKENS
+Roc supports integers, floats, and scientific notation. Check that the number format is correct.~~~TOKENS
 Int(1:1-1:42),EndOfFile(1:42-1:42),
 ~~~PARSE
 (int (1:1-1:42) "99999999999999999999999999999999999999999")
