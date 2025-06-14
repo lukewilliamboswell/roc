@@ -6,6 +6,10 @@
 const std = @import("std");
 const testing = std.testing;
 const document = @import("document.zig");
+const report = @import("report.zig");
+const renderer = @import("renderer.zig");
+const severity = @import("severity.zig");
+const config = @import("config.zig");
 
 const Allocator = std.mem.Allocator;
 const Document = document.Document;
@@ -13,6 +17,9 @@ const DocumentBuilder = document.DocumentBuilder;
 const Annotation = document.Annotation;
 const DocumentElement = document.DocumentElement;
 const SourceRegion = document.SourceRegion;
+const Report = report.Report;
+const Severity = severity.Severity;
+const ReportingConfig = config.ReportingConfig;
 
 test {
     // Reference all declarations in reporting modules
@@ -25,8 +32,37 @@ test {
     testing.refAllDeclsRecursive(@import("utf8_tests.zig"));
 }
 
-// Tests -- these are temporary I think, at some point we will implement these in the actual Canonicalization
-// and have snapshot tests that cover these.
+// Test Helpers
+
+/// Should only print out the debug copy-paste ready string if the string comparison fails.
+fn expectMultilineEqual(expected: []const u8, actual: []const u8) !void {
+    testing.expectEqualStrings(expected, actual) catch {
+        std.debug.print("\n--- DEBUG STRING COMPARISON (copy-paste ready) ---\n", .{});
+        std.debug.print("const expected = \n", .{});
+        printAsMultilineString(actual);
+        std.debug.print(";\n", .{});
+    };
+}
+
+fn printAsMultilineString(s: []const u8) void {
+    if (s.len == 0) {
+        std.debug.print("        \\\\\n", .{});
+        return;
+    }
+
+    var lines = std.mem.splitScalar(u8, s, '\n');
+    var first = true;
+    while (lines.next()) |line| {
+        if (first) {
+            first = false;
+            std.debug.print("        \\\\{s}\n", .{line});
+        } else {
+            std.debug.print("        \\\\{s}\n", .{line});
+        }
+    }
+}
+
+// Tests
 
 test "Document basic operations" {
     var doc = Document.init(testing.allocator);
@@ -161,7 +197,164 @@ test "DocumentBuilder with new features" {
     try testing.expect(doc.elementCount() > 0);
 }
 
-// Helper functions for building canonicalize error reports
+// Test cases for canonicalize error reports
+
+test "SYNTAX_PROBLEM report" {
+    const gpa = testing.allocator;
+
+    const reporting_config = ReportingConfig.initForTesting();
+
+    var r = Report.init(gpa, "SYNTAX PROBLEM", .runtime_error, reporting_config);
+    defer r.deinit();
+
+    r.document = try buildSyntaxProblemReport(gpa);
+
+    try testing.expect(r.document.elementCount() > 0);
+    try testing.expect(!r.document.isEmpty());
+
+    // Test rendering to plain text
+    var buffer = std.ArrayList(u8).init(gpa);
+    defer buffer.deinit();
+
+    try renderer.renderReportToPlainText(&r, buffer.writer());
+
+    // Compare the complete rendered output
+    const expected =
+        \\SYNTAX PROBLEM
+        \\
+        \\Using more than one + like this requires parentheses, to clarify how things should be grouped.
+        \\example.roc:1-10:1: example.roc
+    ;
+
+    try expectMultilineEqual(expected, buffer.items);
+
+    // clear buffer
+    buffer.clearRetainingCapacity();
+
+    try renderer.renderReportToHtml(&r, buffer.writer());
+
+    // Compare the complete rendered output
+    const expected_html =
+        \\<div class="report error">
+        \\<h1 class="report-title">SYNTAX PROBLEM</h1>
+        \\<div class="report-content">
+        \\Using more than one <span class="operator">+</span> like this requires parentheses, to clarify how things should be grouped.<br>
+        \\<div class="source-region"><span class="filename">example.roc:1-10:1:</span> <pre class="error">example.roc</pre></div></div>
+        \\</div>
+        \\
+    ;
+
+    if (!std.mem.eql(u8, expected_html, buffer.items)) {
+        try expectMultilineEqual(expected_html, buffer.items);
+    }
+}
+
+test "NAMING_PROBLEM report" {
+    var doc = try buildNamingProblemReport(testing.allocator);
+    defer doc.deinit();
+
+    try testing.expect(doc.elementCount() > 0);
+    try testing.expect(!doc.isEmpty());
+}
+
+test "UNRECOGNIZED_NAME report" {
+    var doc = try buildUnrecognizedNameReport(testing.allocator, "foo");
+    defer doc.deinit();
+
+    try testing.expect(doc.elementCount() > 0);
+    try testing.expect(!doc.isEmpty());
+}
+
+test "UNUSED_DEF report" {
+    var doc = try buildUnusedDefReport(testing.allocator, "unusedFunction");
+    defer doc.deinit();
+
+    try testing.expect(doc.elementCount() > 0);
+    try testing.expect(!doc.isEmpty());
+}
+
+test "UNUSED_IMPORT report" {
+    var doc = try buildUnusedImportReport(testing.allocator, "List.map");
+    defer doc.deinit();
+
+    try testing.expect(doc.elementCount() > 0);
+    try testing.expect(!doc.isEmpty());
+}
+
+test "IMPORT_NAME_CONFLICT report" {
+    var doc = try buildImportNameConflictReport(testing.allocator, "Json");
+    defer doc.deinit();
+
+    try testing.expect(doc.elementCount() > 0);
+    try testing.expect(!doc.isEmpty());
+}
+
+test "UNUSED_ARG report" {
+    var doc = try buildUnusedArgReport(testing.allocator, "myFunction", "unusedArg");
+    defer doc.deinit();
+
+    try testing.expect(doc.elementCount() > 0);
+    try testing.expect(!doc.isEmpty());
+}
+
+test "MISSING_DEFINITION report" {
+    var doc = try buildMissingDefinitionReport(testing.allocator, "missingFunction");
+    defer doc.deinit();
+
+    try testing.expect(doc.elementCount() > 0);
+    try testing.expect(!doc.isEmpty());
+}
+
+test "DUPLICATE_FIELD_NAME report" {
+    var doc = try buildDuplicateFieldNameReport(testing.allocator, "name");
+    defer doc.deinit();
+
+    try testing.expect(doc.elementCount() > 0);
+    try testing.expect(!doc.isEmpty());
+}
+
+test "DUPLICATE_TAG_NAME report" {
+    var doc = try buildDuplicateTagNameReport(testing.allocator, "Ok");
+    defer doc.deinit();
+
+    try testing.expect(doc.elementCount() > 0);
+    try testing.expect(!doc.isEmpty());
+}
+
+test "MISSING_EXCLAMATION report" {
+    var doc = try buildMissingExclamationReport(testing.allocator);
+    defer doc.deinit();
+
+    try testing.expect(doc.elementCount() > 0);
+    try testing.expect(!doc.isEmpty());
+}
+
+test "UNNECESSARY_EXCLAMATION report" {
+    var doc = try buildUnnecessaryExclamationReport(testing.allocator);
+    defer doc.deinit();
+
+    try testing.expect(doc.elementCount() > 0);
+    try testing.expect(!doc.isEmpty());
+}
+
+test "EMPTY_TUPLE_TYPE report" {
+    var doc = try buildEmptyTupleTypeReport(testing.allocator);
+    defer doc.deinit();
+
+    try testing.expect(doc.elementCount() > 0);
+    try testing.expect(!doc.isEmpty());
+}
+
+test "UNBOUND_TYPE_VARS_IN_AS report" {
+    var doc = try buildUnboundTypeVarsInAsReport(testing.allocator);
+    defer doc.deinit();
+
+    try testing.expect(doc.elementCount() > 0);
+    try testing.expect(!doc.isEmpty());
+}
+
+// Helper functions for building canonicalize error reports -- these are temporary I think
+// at some point we will implement these in the actual Canonicalization and have snapshot tests that cover these.
 
 fn buildSyntaxProblemReport(allocator: Allocator) !Document {
     var doc = Document.init(allocator);
@@ -350,118 +543,4 @@ fn buildUnboundTypeVarsInAsReport(allocator: Allocator) !Document {
     try doc.addSourceRegion("example.roc", 1, 10, 1, 20, .error_highlight, "example.roc");
     try doc.addReflowingText("Type variables must be bound in the same scope as the type annotation.");
     return doc;
-}
-
-// Test cases for canonicalize error reports
-
-test "SYNTAX_PROBLEM report" {
-    var doc = try buildSyntaxProblemReport(testing.allocator);
-    defer doc.deinit();
-
-    try testing.expect(doc.elementCount() > 0);
-    try testing.expect(!doc.isEmpty());
-}
-
-test "NAMING_PROBLEM report" {
-    var doc = try buildNamingProblemReport(testing.allocator);
-    defer doc.deinit();
-
-    try testing.expect(doc.elementCount() > 0);
-    try testing.expect(!doc.isEmpty());
-}
-
-test "UNRECOGNIZED_NAME report" {
-    var doc = try buildUnrecognizedNameReport(testing.allocator, "foo");
-    defer doc.deinit();
-
-    try testing.expect(doc.elementCount() > 0);
-    try testing.expect(!doc.isEmpty());
-}
-
-test "UNUSED_DEF report" {
-    var doc = try buildUnusedDefReport(testing.allocator, "unusedFunction");
-    defer doc.deinit();
-
-    try testing.expect(doc.elementCount() > 0);
-    try testing.expect(!doc.isEmpty());
-}
-
-test "UNUSED_IMPORT report" {
-    var doc = try buildUnusedImportReport(testing.allocator, "List.map");
-    defer doc.deinit();
-
-    try testing.expect(doc.elementCount() > 0);
-    try testing.expect(!doc.isEmpty());
-}
-
-test "IMPORT_NAME_CONFLICT report" {
-    var doc = try buildImportNameConflictReport(testing.allocator, "Json");
-    defer doc.deinit();
-
-    try testing.expect(doc.elementCount() > 0);
-    try testing.expect(!doc.isEmpty());
-}
-
-test "UNUSED_ARG report" {
-    var doc = try buildUnusedArgReport(testing.allocator, "myFunction", "unusedArg");
-    defer doc.deinit();
-
-    try testing.expect(doc.elementCount() > 0);
-    try testing.expect(!doc.isEmpty());
-}
-
-test "MISSING_DEFINITION report" {
-    var doc = try buildMissingDefinitionReport(testing.allocator, "missingFunction");
-    defer doc.deinit();
-
-    try testing.expect(doc.elementCount() > 0);
-    try testing.expect(!doc.isEmpty());
-}
-
-test "DUPLICATE_FIELD_NAME report" {
-    var doc = try buildDuplicateFieldNameReport(testing.allocator, "name");
-    defer doc.deinit();
-
-    try testing.expect(doc.elementCount() > 0);
-    try testing.expect(!doc.isEmpty());
-}
-
-test "DUPLICATE_TAG_NAME report" {
-    var doc = try buildDuplicateTagNameReport(testing.allocator, "Ok");
-    defer doc.deinit();
-
-    try testing.expect(doc.elementCount() > 0);
-    try testing.expect(!doc.isEmpty());
-}
-
-test "MISSING_EXCLAMATION report" {
-    var doc = try buildMissingExclamationReport(testing.allocator);
-    defer doc.deinit();
-
-    try testing.expect(doc.elementCount() > 0);
-    try testing.expect(!doc.isEmpty());
-}
-
-test "UNNECESSARY_EXCLAMATION report" {
-    var doc = try buildUnnecessaryExclamationReport(testing.allocator);
-    defer doc.deinit();
-
-    try testing.expect(doc.elementCount() > 0);
-    try testing.expect(!doc.isEmpty());
-}
-
-test "EMPTY_TUPLE_TYPE report" {
-    var doc = try buildEmptyTupleTypeReport(testing.allocator);
-    defer doc.deinit();
-
-    try testing.expect(doc.elementCount() > 0);
-    try testing.expect(!doc.isEmpty());
-}
-
-test "UNBOUND_TYPE_VARS_IN_AS report" {
-    var doc = try buildUnboundTypeVarsInAsReport(testing.allocator);
-    defer doc.deinit();
-
-    try testing.expect(doc.elementCount() > 0);
-    try testing.expect(!doc.isEmpty());
 }
