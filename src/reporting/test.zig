@@ -13,4 +13,6 @@ test {
     testing.refAllDeclsRecursive(@import("document.zig"));
     testing.refAllDeclsRecursive(@import("style.zig"));
     testing.refAllDeclsRecursive(@import("severity.zig"));
+    testing.refAllDeclsRecursive(@import("config.zig"));
+    testing.refAllDeclsRecursive(@import("utf8_tests.zig"));
 }

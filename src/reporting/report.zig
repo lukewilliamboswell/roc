@@ -11,6 +11,11 @@ const Document = @import("document.zig").Document;
 const Annotation = @import("document.zig").Annotation;
 const renderer = @import("renderer.zig");
 const RenderTarget = renderer.RenderTarget;
+const ReportingConfig = @import("config.zig").ReportingConfig;
+const base = @import("../base.zig");
+const RegionInfo = base.RegionInfo;
+const collections = @import("../collections.zig");
+const exitOnOom = collections.utils.exitOnOom;
 
 /// A structured report containing error information and formatted content.
 pub const Report = struct {
@@ -18,17 +23,25 @@ pub const Report = struct {
     severity: Severity,
     document: Document,
     allocator: Allocator,
+    config: ReportingConfig,
+    owned_strings: std.ArrayList([]const u8),
 
-    pub fn init(allocator: Allocator, title: []const u8, severity: Severity) Report {
+    pub fn init(allocator: Allocator, title: []const u8, severity: Severity, config: ReportingConfig) Report {
         return Report{
             .title = title,
             .severity = severity,
             .document = Document.init(allocator),
             .allocator = allocator,
+            .config = config,
+            .owned_strings = std.ArrayList([]const u8).init(allocator),
         };
     }
 
     pub fn deinit(self: *Report) void {
+        for (self.owned_strings.items) |owned_string| {
+            self.allocator.free(@constCast(owned_string));
+        }
+        self.owned_strings.deinit();
         self.document.deinit();
     }
 
@@ -44,97 +57,129 @@ pub const Report = struct {
         try self.document.addLineBreak();
     }
 
-    /// Add a code snippet with proper formatting.
+    /// Add a code snippet with proper formatting and UTF-8 validation.
     pub fn addCodeSnippet(self: *Report, code: []const u8, line_number: ?u32) !void {
-        if (line_number) |line_num| {
-            try self.document.addFormattedText("{d} | ", .{line_num});
-        } else {
-            try self.document.addText("   | ");
+        if (self.config.shouldValidateUtf8()) {
+            @import("config.zig").validateUtf8(code) catch |err| switch (err) {
+                error.InvalidUtf8 => {
+                    try self.document.addError("[Invalid UTF-8 in code snippet]");
+                    try self.document.addLineBreak();
+                    return;
+                },
+            };
+        }
+
+        if (self.config.shouldShowLineNumbers()) {
+            if (line_number) |line_num| {
+                try self.document.addFormattedText("{d} | ", .{line_num});
+            } else {
+                try self.document.addText("   | ");
+            }
         }
         try self.document.addCodeBlock(code);
         try self.document.addLineBreak();
     }
 
-    /// Add source context with line numbers and highlighting.
-    pub fn addSourceContext(
-        self: *Report,
-        lines: []const []const u8,
-        start_line: u32,
-        highlight_line: ?u32,
-        highlight_column_start: ?u32,
-        highlight_column_end: ?u32,
-    ) !void {
-        const line_number_width = blk: {
-            const max_line = start_line + @as(u32, @intCast(lines.len));
-            var width: u32 = 1;
-            var num = max_line;
-            while (num >= 10) {
-                width += 1;
-                num /= 10;
+    /// Add source context using RegionInfo for better accuracy and simplicity.
+    pub fn addSourceContext(self: *Report, region: RegionInfo) !void {
+        if (self.config.shouldValidateUtf8()) {
+            @import("config.zig").validateUtf8(region.line_text) catch |err| switch (err) {
+                error.InvalidUtf8 => {
+                    try self.document.addError("[Invalid UTF-8 in source context]");
+                    try self.document.addLineBreak();
+                    return;
+                },
+            };
+        }
+
+        // Show line number if enabled
+        if (self.config.shouldShowLineNumbers()) {
+            const line_num = region.start_line_idx + 1; // Convert to 1-based
+            try self.document.addFormattedText("{d} | ", .{line_num});
+        } else {
+            try self.document.addText("   | ");
+        }
+
+        // Add the line content with highlighting
+        const line_without_newline = std.mem.trimRight(u8, region.line_text, "\n\r");
+
+        if (region.start_col_idx == region.end_col_idx) {
+            // Single character or empty range
+            try self.document.addText(line_without_newline);
+        } else {
+            // Multi-character range - split into parts
+            const start_col = @min(region.start_col_idx, line_without_newline.len);
+            const end_col = @min(region.end_col_idx, line_without_newline.len);
+
+            // Before highlighted section
+            if (start_col > 0) {
+                try self.document.addText(line_without_newline[0..start_col]);
             }
-            break :blk width;
-        };
 
-        for (lines, 0..) |line, i| {
-            const current_line = start_line + @as(u32, @intCast(i));
-            const is_highlight = if (highlight_line) |hl| current_line == hl else false;
-
-            // Line number with proper padding
-            const line_str = try std.fmt.allocPrint(self.document.allocator, "{d}", .{current_line});
-            defer self.document.allocator.free(line_str);
-            const padding = if (line_str.len < line_number_width) line_number_width - line_str.len else 0;
-
-            // Add padding spaces
-            var j: usize = 0;
-            while (j < padding) : (j += 1) {
-                try self.document.addText(" ");
-            }
-            try self.document.addFormattedText("{d} | ", .{current_line});
-
-            // Line content
-            if (is_highlight) {
+            // Highlighted section
+            if (end_col > start_col) {
                 try self.document.startAnnotation(.error_highlight);
-            }
-            try self.document.addText(line);
-            if (is_highlight) {
+                try self.document.addText(line_without_newline[start_col..end_col]);
                 try self.document.endAnnotation();
             }
+
+            // After highlighted section
+            if (end_col < line_without_newline.len) {
+                try self.document.addText(line_without_newline[end_col..]);
+            }
+        }
+
+        try self.document.addLineBreak();
+
+        // Add underline for highlighted section
+        if (region.start_col_idx < region.end_col_idx) {
+            // Add padding for line number prefix
+            if (self.config.shouldShowLineNumbers()) {
+                const line_num = region.start_line_idx + 1;
+                const line_num_width: u32 = if (line_num < 10) 1 else if (line_num < 100) 2 else if (line_num < 1000) 3 else 4;
+                try self.document.addSpace(line_num_width + 3); // number + " | "
+            } else {
+                try self.document.addSpace(5); // "   | "
+            }
+
+            // Add spaces up to the start of the error
+            try self.document.addSpace(region.start_col_idx);
+
+            // Add underline
+            try self.document.startAnnotation(.error_highlight);
+            const underline_length = @min(region.end_col_idx - region.start_col_idx, @as(u32, @intCast(line_without_newline.len)) - region.start_col_idx);
+            var i: u32 = 0;
+            while (i < underline_length) : (i += 1) {
+                try self.document.addText("^");
+            }
+            try self.document.endAnnotation();
             try self.document.addLineBreak();
-
-            // Add underline for highlighted sections
-            if (is_highlight and highlight_column_start != null and highlight_column_end != null) {
-                // Add padding for line number
-                var underline_padding: u32 = 0;
-                while (underline_padding < line_number_width + 3) : (underline_padding += 1) {
-                    try self.document.addSpace(1);
-                }
-
-                // Add spaces up to highlight start
-                if (highlight_column_start.? > 0) {
-                    try self.document.addSpace(highlight_column_start.?);
-                }
-
-                // Add underline
-                try self.document.startAnnotation(.error_highlight);
-                const underline_length = if (highlight_column_end.? > highlight_column_start.?)
-                    highlight_column_end.? - highlight_column_start.?
-                else
-                    1;
-                var k: u32 = 0;
-                while (k < underline_length) : (k += 1) {
-                    try self.document.addText("^");
-                }
-                try self.document.endAnnotation();
-                try self.document.addLineBreak();
-            }
         }
     }
 
-    /// Add a suggestion with proper formatting.
+    /// Add a suggestion with proper formatting and UTF-8 validation.
     pub fn addSuggestion(self: *Report, suggestion: []const u8) !void {
+        if (self.config.shouldValidateUtf8()) {
+            @import("config.zig").validateUtf8(suggestion) catch |err| switch (err) {
+                error.InvalidUtf8 => {
+                    try self.document.addError("[Invalid UTF-8 in suggestion]");
+                    try self.document.addLineBreak();
+                    return;
+                },
+            };
+        }
+
+        const truncated_suggestion = if (suggestion.len > self.config.getMaxMessageBytes()) blk: {
+            const truncated = @import("config.zig").truncateUtf8(self.allocator, suggestion, self.config.getMaxMessageBytes()) catch suggestion;
+            if (truncated.ptr != suggestion.ptr) {
+                self.owned_strings.append(truncated) catch |err| exitOnOom(err);
+            }
+            break :blk truncated;
+        } else suggestion;
+
         try self.document.addLineBreak();
         try self.document.addAnnotated("Hint: ", .suggestion);
-        try self.document.addText(suggestion);
+        try self.document.addText(truncated_suggestion);
         try self.document.addLineBreak();
     }
 
@@ -224,9 +269,9 @@ pub const Report = struct {
 pub const ReportBuilder = struct {
     report: Report,
 
-    pub fn init(allocator: Allocator, title: []const u8, severity: Severity) ReportBuilder {
+    pub fn init(allocator: Allocator, title: []const u8, severity: Severity, config: ReportingConfig) ReportBuilder {
         return ReportBuilder{
-            .report = Report.init(allocator, title, severity),
+            .report = Report.init(allocator, title, severity, config),
         };
     }
 
@@ -235,33 +280,38 @@ pub const ReportBuilder = struct {
     }
 
     pub fn header(self: *ReportBuilder, text: []const u8) *ReportBuilder {
-        self.report.addHeader(text) catch @panic("OOM");
+        self.report.addHeader(text) catch |err| exitOnOom(err);
         return self;
     }
 
     pub fn message(self: *ReportBuilder, text: []const u8) *ReportBuilder {
-        self.report.document.addText(text) catch @panic("OOM");
-        self.report.document.addLineBreak() catch @panic("OOM");
+        self.report.document.addText(text) catch |err| exitOnOom(err);
+        self.report.document.addLineBreak() catch |err| exitOnOom(err);
         return self;
     }
 
     pub fn code(self: *ReportBuilder, code_text: []const u8) *ReportBuilder {
-        self.report.addCodeSnippet(code_text, null) catch @panic("OOM");
+        self.report.addCodeSnippet(code_text, null) catch |err| switch (err) {
+            error.OutOfMemory => exitOnOom(error.OutOfMemory),
+            else => {
+                @panic("unexpected error building code snippet");
+            },
+        };
         return self;
     }
 
     pub fn suggestion(self: *ReportBuilder, text: []const u8) *ReportBuilder {
-        self.report.addSuggestion(text) catch @panic("OOM");
+        self.report.addSuggestion(text) catch |err| exitOnOom(err);
         return self;
     }
 
     pub fn note(self: *ReportBuilder, text: []const u8) *ReportBuilder {
-        self.report.addNote(text) catch @panic("OOM");
+        self.report.addNote(text) catch |err| exitOnOom(err);
         return self;
     }
 
     pub fn typeComparison(self: *ReportBuilder, expected: []const u8, actual: []const u8) *ReportBuilder {
-        self.report.addTypeComparison(expected, actual) catch @panic("OOM");
+        self.report.addTypeComparison(expected, actual) catch |err| exitOnOom(err);
         return self;
     }
 
@@ -278,8 +328,9 @@ pub const Templates = struct {
         expected: []const u8,
         actual: []const u8,
         location: []const u8,
+        config: ReportingConfig,
     ) !Report {
-        var report = Report.init(allocator, "TYPE MISMATCH", .runtime_error);
+        var report = Report.init(allocator, "TYPE MISMATCH", .runtime_error, config);
 
         try report.document.addText("I expected this expression to have type:");
         try report.document.addLineBreak();
@@ -307,8 +358,9 @@ pub const Templates = struct {
         allocator: Allocator,
         name: []const u8,
         suggestions: []const []const u8,
+        config: ReportingConfig,
     ) !Report {
-        var report = Report.init(allocator, "NAMING ERROR", .runtime_error);
+        var report = Report.init(allocator, "NAMING ERROR", .runtime_error, config);
 
         try report.document.addText("I cannot find a ");
         try report.document.addError(name);
@@ -326,8 +378,9 @@ pub const Templates = struct {
     pub fn circularDefinition(
         allocator: Allocator,
         names: []const []const u8,
+        config: ReportingConfig,
     ) !Report {
-        var report = Report.init(allocator, "CIRCULAR DEFINITION", .runtime_error);
+        var report = Report.init(allocator, "CIRCULAR DEFINITION", .runtime_error, config);
 
         try report.document.addText("These definitions depend on each other in a cycle:");
         try report.document.addLineBreak();
@@ -355,8 +408,9 @@ pub const Templates = struct {
         allocator: Allocator,
         message: []const u8,
         location: []const u8,
+        config: ReportingConfig,
     ) !Report {
-        var report = Report.init(allocator, "INTERNAL COMPILER ERROR", .fatal);
+        var report = Report.init(allocator, "INTERNAL COMPILER ERROR", .fatal, config);
 
         try report.document.addText("The compiler encountered an unexpected error:");
         try report.document.addLineBreak();
@@ -385,7 +439,8 @@ pub const Templates = struct {
 const testing = std.testing;
 
 test "Report basic functionality" {
-    var report = Report.init(testing.allocator, "TEST ERROR", .runtime_error);
+    const config = ReportingConfig.initForTesting();
+    var report = Report.init(testing.allocator, "TEST ERROR", .runtime_error, config);
     defer report.deinit();
 
     try report.document.addText("This is a test error message.");
@@ -396,7 +451,8 @@ test "Report basic functionality" {
 }
 
 test "ReportBuilder fluent interface" {
-    var builder = ReportBuilder.init(testing.allocator, "BUILD ERROR", .runtime_error);
+    const config = ReportingConfig.initForTesting();
+    var builder = ReportBuilder.init(testing.allocator, "BUILD ERROR", .runtime_error, config);
     defer builder.deinit();
 
     var report = builder
@@ -409,11 +465,13 @@ test "ReportBuilder fluent interface" {
 }
 
 test "Type mismatch template" {
+    const config = ReportingConfig.initForTesting();
     var report = try Templates.typeMismatch(
         testing.allocator,
         "String",
         "Number",
         "main.roc:10:5",
+        config,
     );
     defer report.deinit();
 
@@ -422,28 +480,32 @@ test "Type mismatch template" {
 }
 
 test "Unrecognized name template" {
+    const config = ReportingConfig.initForTesting();
     const suggestions = [_][]const u8{ "length", "len", "size" };
     var report = try Templates.unrecognizedName(
         testing.allocator,
         "lenght",
         &suggestions,
+        config,
     );
     defer report.deinit();
 
     try testing.expectEqualStrings("NAMING ERROR", report.title);
 }
 
-test "Source context rendering" {
-    var report = Report.init(testing.allocator, "TEST", .runtime_error);
+test "Source context rendering with RegionInfo" {
+    const config = ReportingConfig.initForTesting();
+    var report = Report.init(testing.allocator, "TEST", .runtime_error, config);
     defer report.deinit();
 
-    const lines = [_][]const u8{
-        "fn main() {",
-        "    let x = undefinedVariable",
-        "    x + 1",
-        "}",
+    const region = RegionInfo{
+        .start_line_idx = 1,
+        .start_col_idx = 12,
+        .end_line_idx = 1,
+        .end_col_idx = 27,
+        .line_text = "    let x = undefinedVariable",
     };
 
-    try report.addSourceContext(&lines, 1, 2, 12, 27);
+    try report.addSourceContext(region);
     try testing.expect(!report.isEmpty());
 }

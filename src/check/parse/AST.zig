@@ -170,7 +170,7 @@ pub fn diagnosticToReport(self: *const AST, diagnostic: Diagnostic, allocator: s
         .for_expected_in => .{ "SYNTAX PROBLEM", "Expected 'in' in this for expression." },
     };
 
-    var report = reporting.Report.init(allocator, title, .runtime_error);
+    var report = reporting.Report.init(allocator, title, .runtime_error, reporting.ReportingConfig.initPlainText());
 
     // Add the main error message
     try report.document.addText(main_message);

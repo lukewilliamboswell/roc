@@ -106,7 +106,7 @@ pub fn diagnosticToReport(self: *CIR, diagnostic: Diagnostic, allocator: std.mem
         .lambda_body_not_canonicalized => .{ "INVALID LAMBDA", "The body of this lambda expression is not valid." },
     };
 
-    var report = reporting.Report.init(allocator, title, .runtime_error);
+    var report = reporting.Report.init(allocator, title, .runtime_error, reporting.ReportingConfig.initPlainText());
 
     // Add the main error message
     try report.document.addText(main_message);

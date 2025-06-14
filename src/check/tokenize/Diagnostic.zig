@@ -93,7 +93,7 @@ pub fn toReport(self: @This(), allocator: std.mem.Allocator, source: []const u8)
         .NonPrintableUnicodeInStrLiteral => "Non-printable Unicode character in string literal",
     };
 
-    var report = reporting.Report.init(allocator, message, .runtime_error);
+    var report = reporting.Report.init(allocator, message, .runtime_error, reporting.ReportingConfig.initPlainText());
 
     // Add source context if we have a valid region
     if (self.begin < source.len and self.end <= source.len and self.begin <= self.end) {

@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const Annotation = @import("document.zig").Annotation;
+const ReportingConfig = @import("config.zig").ReportingConfig;
 
 /// ANSI escape codes for terminal styling.
 pub const AnsiCodes = struct {
@@ -288,90 +289,19 @@ pub const Style = struct {
     }
 };
 
-/// Utilities for color detection and handling.
+/// Utilities for color handling.
 pub const ColorUtils = struct {
-    /// Check if the current terminal supports colors.
-    pub fn terminalSupportsColor() bool {
-        // Check environment variables
-        if (std.process.getEnvVarOwned(std.heap.page_allocator, "NO_COLOR")) |no_color| {
-            defer std.heap.page_allocator.free(no_color);
-            if (no_color.len > 0) return false;
-        } else |_| {}
-
-        if (std.process.getEnvVarOwned(std.heap.page_allocator, "FORCE_COLOR")) |force_color| {
-            defer std.heap.page_allocator.free(force_color);
-            if (force_color.len > 0) return true;
-        } else |_| {}
-
-        // Check if output is a TTY
-        return std.io.getStdOut().isTty();
-    }
-
-    /// Get the appropriate color palette based on the environment.
-    pub fn getDefaultPalette() ColorPalette {
-        if (!terminalSupportsColor()) {
+    /// Get the appropriate color palette based on configuration.
+    pub fn getPaletteForConfig(config: ReportingConfig) ColorPalette {
+        if (!config.shouldUseColors()) {
             return ColorPalette.NO_COLOR;
         }
 
-        // Check for high-contrast preference
-        if (std.process.getEnvVarOwned(std.heap.page_allocator, "ROC_HIGH_CONTRAST")) |high_contrast| {
-            defer std.heap.page_allocator.free(high_contrast);
-            if (std.mem.eql(u8, high_contrast, "1")) {
-                return ColorPalette.ANSI_BRIGHT;
-            }
-        } else |_| {}
+        if (config.isHighContrast()) {
+            return ColorPalette.ANSI_BRIGHT;
+        }
 
         return ColorPalette.ANSI;
-    }
-
-    /// Strip ANSI escape codes from a string.
-    pub fn stripAnsiCodes(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
-        var result = std.ArrayList(u8).init(allocator);
-        defer result.deinit();
-
-        var i: usize = 0;
-        while (i < input.len) {
-            if (input[i] == '\x1b' and i + 1 < input.len and input[i + 1] == '[') {
-                // Find the end of the escape sequence
-                i += 2;
-                while (i < input.len and (input[i] < 'A' or input[i] > 'Z') and
-                    (input[i] < 'a' or input[i] > 'z'))
-                {
-                    i += 1;
-                }
-                if (i < input.len) i += 1; // Skip the final character
-            } else {
-                try result.append(input[i]);
-                i += 1;
-            }
-        }
-
-        return result.toOwnedSlice();
-    }
-
-    /// Calculate the display width of a string, accounting for ANSI codes.
-    pub fn displayWidth(input: []const u8) usize {
-        var width: usize = 0;
-        var i: usize = 0;
-
-        while (i < input.len) {
-            if (input[i] == '\x1b' and i + 1 < input.len and input[i + 1] == '[') {
-                // Skip ANSI escape sequence
-                i += 2;
-                while (i < input.len and (input[i] < 'A' or input[i] > 'Z') and
-                    (input[i] < 'a' or input[i] > 'z'))
-                {
-                    i += 1;
-                }
-                if (i < input.len) i += 1;
-            } else {
-                // Regular character
-                width += 1;
-                i += 1;
-            }
-        }
-
-        return width;
     }
 };
 
@@ -426,21 +356,23 @@ test "Style composition" {
     try testing.expect(!style.italic);
 }
 
-test "ColorUtils display width calculation" {
-    // Plain text
-    try testing.expectEqual(@as(usize, 5), ColorUtils.displayWidth("hello"));
+test "ColorUtils palette selection" {
+    const plain_config = ReportingConfig.initPlainText();
+    const color_config = ReportingConfig.initColorTerminal();
+    const contrast_config = ReportingConfig.initHighContrast();
 
-    // Text with ANSI codes
-    const colored = AnsiCodes.RED ++ "hello" ++ AnsiCodes.RESET;
-    try testing.expectEqual(@as(usize, 5), ColorUtils.displayWidth(colored));
-}
+    const plain_palette = ColorUtils.getPaletteForConfig(plain_config);
+    const color_palette = ColorUtils.getPaletteForConfig(color_config);
+    const contrast_palette = ColorUtils.getPaletteForConfig(contrast_config);
 
-test "ANSI code stripping" {
-    const input = AnsiCodes.RED ++ "hello" ++ AnsiCodes.RESET ++ " world";
-    const stripped = try ColorUtils.stripAnsiCodes(testing.allocator, input);
-    defer testing.allocator.free(stripped);
+    // Plain text should have no colors
+    try testing.expectEqualStrings("", plain_palette.error_color);
 
-    try testing.expectEqualStrings("hello world", stripped);
+    // Color terminal should have colors
+    try testing.expectEqualStrings(AnsiCodes.RED, color_palette.error_color);
+
+    // High contrast should have bright colors
+    try testing.expectEqualStrings(AnsiCodes.BRIGHT_RED, contrast_palette.error_color);
 }
 
 test "Theme configurations" {

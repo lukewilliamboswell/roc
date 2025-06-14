@@ -9,6 +9,9 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const renderer = @import("renderer.zig");
 const RenderTarget = renderer.RenderTarget;
+const ReportingConfig = @import("config.zig").ReportingConfig;
+const collections = @import("../collections.zig");
+const exitOnOom = collections.utils.exitOnOom;
 
 /// Annotations that can be applied to document content for styling and semantics.
 pub const Annotation = enum {
@@ -296,8 +299,8 @@ pub const Document = struct {
     }
 
     /// Render the document to the specified writer and target format.
-    pub fn render(self: *const Document, writer: anytype, target: RenderTarget) !void {
-        try renderer.renderDocument(self, writer, target);
+    pub fn render(self: *const Document, writer: anytype, target: RenderTarget, config: ReportingConfig) !void {
+        try renderer.renderDocument(self, writer, target, config);
     }
 };
 
@@ -316,57 +319,57 @@ pub const DocumentBuilder = struct {
     }
 
     pub fn text(self: *DocumentBuilder, content: []const u8) *DocumentBuilder {
-        self.document.addText(content) catch @panic("OOM");
+        self.document.addText(content) catch |err| exitOnOom(err);
         return self;
     }
 
     pub fn annotated(self: *DocumentBuilder, content: []const u8, annotation: Annotation) *DocumentBuilder {
-        self.document.addAnnotated(content, annotation) catch @panic("OOM");
+        self.document.addAnnotated(content, annotation) catch |err| exitOnOom(err);
         return self;
     }
 
     pub fn lineBreak(self: *DocumentBuilder) *DocumentBuilder {
-        self.document.addLineBreak() catch @panic("OOM");
+        self.document.addLineBreak() catch |err| exitOnOom(err);
         return self;
     }
 
     pub fn indent(self: *DocumentBuilder, levels: u32) *DocumentBuilder {
-        self.document.addIndent(levels) catch @panic("OOM");
+        self.document.addIndent(levels) catch |err| exitOnOom(err);
         return self;
     }
 
     pub fn space(self: *DocumentBuilder, count: u32) *DocumentBuilder {
-        self.document.addSpace(count) catch @panic("OOM");
+        self.document.addSpace(count) catch |err| exitOnOom(err);
         return self;
     }
 
     pub fn rule(self: *DocumentBuilder, width: ?u32) *DocumentBuilder {
-        self.document.addHorizontalRule(width) catch @panic("OOM");
+        self.document.addHorizontalRule(width) catch |err| exitOnOom(err);
         return self;
     }
 
     pub fn keyword(self: *DocumentBuilder, kw: []const u8) *DocumentBuilder {
-        self.document.addKeyword(kw) catch @panic("OOM");
+        self.document.addKeyword(kw) catch |err| exitOnOom(err);
         return self;
     }
 
     pub fn typeText(self: *DocumentBuilder, type_name: []const u8) *DocumentBuilder {
-        self.document.addType(type_name) catch @panic("OOM");
+        self.document.addType(type_name) catch |err| exitOnOom(err);
         return self;
     }
 
     pub fn errorText(self: *DocumentBuilder, message: []const u8) *DocumentBuilder {
-        self.document.addError(message) catch @panic("OOM");
+        self.document.addError(message) catch |err| exitOnOom(err);
         return self;
     }
 
     pub fn warning(self: *DocumentBuilder, message: []const u8) *DocumentBuilder {
-        self.document.addWarning(message) catch @panic("OOM");
+        self.document.addWarning(message) catch |err| exitOnOom(err);
         return self;
     }
 
     pub fn suggestion(self: *DocumentBuilder, sug: []const u8) *DocumentBuilder {
-        self.document.addSuggestion(sug) catch @panic("OOM");
+        self.document.addSuggestion(sug) catch |err| exitOnOom(err);
         return self;
     }
 

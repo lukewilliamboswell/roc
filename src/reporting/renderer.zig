@@ -11,6 +11,9 @@ const DocumentElement = @import("document.zig").DocumentElement;
 const Annotation = @import("document.zig").Annotation;
 const ColorPalette = @import("style.zig").ColorPalette;
 const ColorUtils = @import("style.zig").ColorUtils;
+const ReportingConfig = @import("config.zig").ReportingConfig;
+const collections = @import("../collections.zig");
+const exitOnOom = collections.utils.exitOnOom;
 
 /// Supported rendering targets.
 pub const RenderTarget = enum {
@@ -22,8 +25,9 @@ pub const RenderTarget = enum {
 
 /// Render a report to the specified target format.
 pub fn renderReport(report: *const Report, writer: anytype, target: RenderTarget) !void {
+    const palette = ColorUtils.getPaletteForConfig(report.config);
     switch (target) {
-        .color_terminal => try renderReportToTerminal(report, writer, ColorPalette.ANSI),
+        .color_terminal => try renderReportToTerminal(report, writer, palette),
         .plain_text => try renderReportToPlainText(report, writer),
         .html => try renderReportToHtml(report, writer),
         .language_server => try renderReportToLsp(report, writer),
@@ -82,9 +86,10 @@ pub fn renderReportToLsp(report: *const Report, writer: anytype) !void {
 }
 
 /// Render a document to the specified target format.
-pub fn renderDocument(document: *const Document, writer: anytype, target: RenderTarget) !void {
+pub fn renderDocument(document: *const Document, writer: anytype, target: RenderTarget, config: ReportingConfig) !void {
+    const palette = ColorUtils.getPaletteForConfig(config);
     switch (target) {
-        .color_terminal => try renderDocumentToTerminal(document, writer, ColorPalette.ANSI),
+        .color_terminal => try renderDocumentToTerminal(document, writer, palette),
         .plain_text => try renderDocumentToPlainText(document, writer),
         .html => try renderDocumentToHtml(document, writer),
         .language_server => try renderDocumentToLsp(document, writer),
@@ -93,7 +98,7 @@ pub fn renderDocument(document: *const Document, writer: anytype, target: Render
 
 /// Render a document to terminal with color support.
 pub fn renderDocumentToTerminal(document: *const Document, writer: anytype, palette: ColorPalette) !void {
-    var annotation_stack = std.ArrayList(Annotation).init(std.heap.page_allocator);
+    var annotation_stack = std.ArrayList(Annotation).init(document.allocator);
     defer annotation_stack.deinit();
 
     for (document.elements.items) |element| {
@@ -110,7 +115,7 @@ pub fn renderDocumentToPlainText(document: *const Document, writer: anytype) !vo
 
 /// Render a document to HTML.
 pub fn renderDocumentToHtml(document: *const Document, writer: anytype) !void {
-    var annotation_stack = std.ArrayList(Annotation).init(std.heap.page_allocator);
+    var annotation_stack = std.ArrayList(Annotation).init(document.allocator);
     defer annotation_stack.deinit();
 
     for (document.elements.items) |element| {
@@ -157,7 +162,7 @@ fn renderElementToTerminal(element: DocumentElement, writer: anytype, palette: C
             }
         },
         .annotation_start => |annotation| {
-            try annotation_stack.append(annotation);
+            annotation_stack.append(annotation) catch |err| exitOnOom(err);
             const color = getAnnotationColor(annotation, palette);
             try writer.writeAll(color);
         },
@@ -257,7 +262,7 @@ fn renderElementToHtml(element: DocumentElement, writer: anytype, annotation_sta
             try writer.print("<hr style=\"width: {d}ch;\">\n", .{rule_width});
         },
         .annotation_start => |annotation| {
-            try annotation_stack.append(annotation);
+            annotation_stack.append(annotation) catch |err| exitOnOom(err);
             const tag = getAnnotationHtmlTag(annotation);
             const class = getAnnotationHtmlClass(annotation);
             try writer.print("<{s} class=\"{s}\">", .{ tag, class });
@@ -335,7 +340,8 @@ fn renderElementToLsp(element: DocumentElement, writer: anytype) !void {
 const testing = std.testing;
 
 test "render report to plain text" {
-    var report = Report.init(testing.allocator, "TEST ERROR", .runtime_error);
+    const config = ReportingConfig.initForTesting();
+    var report = Report.init(testing.allocator, "TEST ERROR", .runtime_error, config);
     defer report.deinit();
 
     try report.document.addText("This is a test error message.");
