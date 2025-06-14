@@ -10,10 +10,9 @@ UNDEFINED VARIABLE
 
 I cannot find this variable in scope.
 
-X£mwhen x is
-
-    ^^^^
-
+when x is
+    Ok(value) -> value
+    Err(msg) -> msg
 
 Note: Check the spelling and make sure this variable is defined before using it.
 ~~~TOKENS

@@ -8,9 +8,7 @@ INVALID NUMBER
 
 This number literal is not valid.
 
-8k£m99999999999999999999999999999999999999999
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
+99999999999999999999999999999999999999999
 
 Note: Check that the number format is correct. Roc supports integers, floats, and scientific notation.
 ~~~TOKENS

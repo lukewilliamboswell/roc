@@ -8,9 +8,7 @@ UNDEFINED VARIABLE
 
 I cannot find this variable in scope.
 
-ð£mfoo(42, "hello")
-    ^^^
-
+foo(42, "hello")
 
 Note: Check the spelling and make sure this variable is defined before using it.
 ~~~TOKENS

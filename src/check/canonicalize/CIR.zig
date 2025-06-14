@@ -113,59 +113,24 @@ pub fn diagnosticToReport(self: *CIR, diagnostic: Diagnostic, allocator: std.mem
     try report.document.addLineBreak();
     try report.document.addLineBreak();
 
-    // Add source context with line numbers using proper region calculation
+    // Add source context using Document API
     const region_info = self.calcRegionInfo(diagnostic.region);
     if (region_info.line_text.len > 0) {
-        const line_number = region_info.start_line_idx + 1; // Convert from 0-based to 1-based
-        const column_start = region_info.start_col_idx;
-        const column_end = region_info.end_col_idx;
-
-        // Add the source line with line number
-        try report.document.addFormattedText("{d}|  ", .{line_number});
-        try report.document.addText(region_info.line_text);
-        try report.document.addLineBreak();
-
-        // Add underline pointing to the problem
-        const line_number_width: u32 = if (line_number < 10) 1 else if (line_number < 100) 2 else if (line_number < 1000) 3 else 4;
-
-        // Add padding for line number and separator
-        var padding: u32 = 0;
-        while (padding < line_number_width + 3) : (padding += 1) {
-            try report.document.addText(" ");
-        }
-
-        // Add spaces up to error location
-        var col: u32 = 0;
-        while (col < column_start) : (col += 1) {
-            try report.document.addText(" ");
-        }
-
-        // Add underline
-        try report.document.startAnnotation(.error_highlight);
-        const underline_length = if (column_end > column_start) column_end - column_start else 1;
-        var ul: u32 = 0;
-        while (ul < underline_length) : (ul += 1) {
-            try report.document.addText("^");
-        }
-        try report.document.endAnnotation();
-        try report.document.addLineBreak();
+        try report.document.addSourceRegion(
+            self.env.source.items,
+            region_info.start_line_idx + 1, // Convert from 0-based to 1-based
+            region_info.start_col_idx + 1, // Convert from 0-based to 1-based
+            region_info.end_line_idx + 1, // Convert from 0-based to 1-based
+            region_info.end_col_idx + 1, // Convert from 0-based to 1-based
+            .error_highlight,
+            null, // filename
+        );
     }
 
     // Add specific suggestions based on diagnostic type
     switch (diagnostic.tag) {
         .expr_not_canonicalized => {
-            // Check if this might be a ++ concatenation attempt
-            if (region_info.line_text.len > 0) {
-                const start_col = region_info.start_col_idx;
-                const end_col = region_info.end_col_idx;
-                if (end_col <= region_info.line_text.len) {
-                    const problem_text = region_info.line_text[start_col..end_col];
-                    if (std.mem.indexOf(u8, problem_text, "++") != null) {
-                        try report.document.addLineBreak();
-                        try report.addSuggestion("To concatenate two lists or strings, try using List.concat or Str.concat instead.");
-                    }
-                }
-            }
+            // TODO
         },
         .ident_not_in_scope => {
             try report.document.addLineBreak();

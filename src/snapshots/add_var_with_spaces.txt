@@ -10,9 +10,9 @@ UNDEFINED VARIABLE
 
 I cannot find this variable in scope.
 
-Ø£madd2 = x +      2
-           ^
+module [add2]
 
+add2 = x +      2
 
 Note: Check the spelling and make sure this variable is defined before using it.
 ~~~TOKENS

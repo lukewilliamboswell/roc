@@ -11,10 +11,10 @@ UNDEFINED VARIABLE
 
 I cannot find this variable in scope.
 
-8k£mhello! = Stdout.line!("Hello")
-
-             ^^^^^^^^^^^^
-
+module [hello!, world]
+import pf.Stdout
+hello! = Stdout.line!("Hello")
+world = "World"
 
 Note: Check the spelling and make sure this variable is defined before using it.
 ~~~TOKENS

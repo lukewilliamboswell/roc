@@ -177,67 +177,29 @@ pub fn diagnosticToReport(self: *const AST, diagnostic: Diagnostic, allocator: s
     try report.document.addLineBreak();
     try report.document.addLineBreak();
 
-    // Add source context with line numbers using the tokenized region
+    // Add source context using Document API
+    var line_starts = try base.RegionInfo.findLineStarts(allocator, self.source);
+    defer line_starts.deinit();
+
     const start_region = self.tokens.resolve(diagnostic.region.start);
     const end_region = self.tokens.resolve(diagnostic.region.end);
-
-    if (start_region.start.offset < self.source.len and end_region.end.offset <= self.source.len) {
-        const start_offset = start_region.start.offset;
-        const end_offset = end_region.end.offset;
-
-        // Find the line and column information
-        var line_number: u32 = 1;
-        var line_start: usize = 0;
-        var i: usize = 0;
-
-        // Find which line our error starts on
-        while (i < start_offset and i < self.source.len) : (i += 1) {
-            if (self.source[i] == '\n') {
-                line_number += 1;
-                line_start = i + 1;
-            }
-        }
-
-        // Find the end of the current line
-        var line_end = line_start;
-        while (line_end < self.source.len and self.source[line_end] != '\n') {
-            line_end += 1;
-        }
-
-        const line_content = self.source[line_start..line_end];
-        const column_start = start_offset - line_start;
-        const column_end = @min(end_offset - line_start, line_content.len);
-
-        // Add the source line with line number
-        try report.document.addFormattedText("{d}│  ", .{line_number});
-        try report.document.addText(line_content);
-        try report.document.addLineBreak();
-
-        // Add underline pointing to the problem
-        const line_number_width: u32 = if (line_number < 10) 1 else if (line_number < 100) 2 else if (line_number < 1000) 3 else 4;
-
-        // Add padding for line number and separator
-        var padding: u32 = 0;
-        while (padding < line_number_width + 3) : (padding += 1) {
-            try report.document.addText(" ");
-        }
-
-        // Add spaces up to error location
-        var col: u32 = 0;
-        while (col < column_start) : (col += 1) {
-            try report.document.addText(" ");
-        }
-
-        // Add underline
-        try report.document.startAnnotation(.error_highlight);
-        const underline_length = if (column_end > column_start) column_end - column_start else 1;
-        var ul: u32 = 0;
-        while (ul < underline_length) : (ul += 1) {
-            try report.document.addText("^");
-        }
-        try report.document.endAnnotation();
-        try report.document.addLineBreak();
-        try report.document.addLineBreak();
+    const region_info = base.RegionInfo.position(self.source, line_starts.items, start_region.start.offset, end_region.end.offset) catch base.RegionInfo{
+        .start_line_idx = 0,
+        .start_col_idx = 0,
+        .end_line_idx = 0,
+        .end_col_idx = 0,
+        .line_text = "",
+    };
+    if (region_info.line_text.len > 0) {
+        try report.document.addSourceRegion(
+            self.source,
+            region_info.start_line_idx + 1, // Convert from 0-based to 1-based
+            region_info.start_col_idx + 1, // Convert from 0-based to 1-based
+            region_info.end_line_idx + 1, // Convert from 0-based to 1-based
+            region_info.end_col_idx + 1, // Convert from 0-based to 1-based
+            .error_highlight,
+            null, // filename
+        );
     }
 
     try report.addNote("This is a parse error. Check your syntax.");
