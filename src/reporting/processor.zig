@@ -311,8 +311,6 @@ pub const ProblemProcessor = struct {
         region: Region,
         source_files: anytype,
     ) !void {
-        _ = self;
-
         // Try to find the source file for this region
         // This is a simplified approach - in a real implementation,
         // we'd need to track which file each region belongs to

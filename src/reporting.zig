@@ -238,6 +238,7 @@ pub const ReportingSystem = struct {
         renderer: anytype,
         show_warnings: bool,
     ) !void {
+        _ = self;
         for (reports) |*report| {
             // Skip warnings if we have errors
             if (report.severity == .warning and !show_warnings) {

@@ -94,7 +94,7 @@ pub const Report = struct {
             const is_highlight = if (highlight_line) |hl| current_line == hl else false;
 
             // Line number with proper padding
-            try self.document.addFormattedText("{d:>width$} | ", .{ current_line, .width = line_number_width });
+            try self.document.addFormattedText("{d:>*} | ", .{ line_number_width, current_line });
 
             // Line content
             if (is_highlight) {

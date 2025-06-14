@@ -95,7 +95,7 @@ test "Document builder fluent interface" {
 
     var doc = builder
         .text("Error: ")
-        .error("Type mismatch")
+        .errorText("Type mismatch")
         .lineBreak()
         .indent(1)
         .text("Expected: ")

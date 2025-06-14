@@ -83,7 +83,7 @@ pub const ColorPalette = struct {
     // Core semantic colors
     primary: []const u8,
     secondary: []const u8,
-    error: []const u8,
+    error_color: []const u8,
     warning: []const u8,
     info: []const u8,
     success: []const u8,
@@ -109,7 +109,7 @@ pub const ColorPalette = struct {
         // Core colors
         .primary = AnsiCodes.CYAN,
         .secondary = AnsiCodes.BRIGHT_BLACK,
-        .error = AnsiCodes.RED,
+        .error_color = AnsiCodes.RED,
         .warning = AnsiCodes.YELLOW,
         .info = AnsiCodes.BLUE,
         .success = AnsiCodes.GREEN,
@@ -136,7 +136,7 @@ pub const ColorPalette = struct {
         // Core colors
         .primary = AnsiCodes.BRIGHT_CYAN,
         .secondary = AnsiCodes.WHITE,
-        .error = AnsiCodes.BRIGHT_RED,
+        .error_color = AnsiCodes.BRIGHT_RED,
         .warning = AnsiCodes.BRIGHT_YELLOW,
         .info = AnsiCodes.BRIGHT_BLUE,
         .success = AnsiCodes.BRIGHT_GREEN,
@@ -163,7 +163,7 @@ pub const ColorPalette = struct {
         // All colors are empty strings
         .primary = "",
         .secondary = "",
-        .error = "",
+        .error_color = "",
         .warning = "",
         .info = "",
         .success = "",
@@ -188,7 +188,7 @@ pub const ColorPalette = struct {
         // Core colors (CSS classes)
         .primary = "color: " ++ HtmlColors.CYAN ++ ";",
         .secondary = "color: " ++ HtmlColors.WHITE ++ ";",
-        .error = "color: " ++ HtmlColors.ERROR ++ ";",
+        .error_color = "color: " ++ HtmlColors.ERROR ++ ";",
         .warning = "color: " ++ HtmlColors.WARNING ++ ";",
         .info = "color: " ++ HtmlColors.INFO ++ ";",
         .success = "color: " ++ HtmlColors.SUCCESS ++ ";",
@@ -216,7 +216,7 @@ pub const ColorPalette = struct {
             .emphasized => self.bold,
             .keyword => self.keyword,
             .type_variable => self.type_variable,
-            .error_highlight => self.error,
+            .error_highlight => self.error_color,
             .warning_highlight => self.warning,
             .suggestion => self.success,
             .code_block, .inline_code => self.primary,
@@ -330,7 +330,8 @@ pub const ColorUtils = struct {
                 // Find the end of the escape sequence
                 i += 2;
                 while (i < input.len and (input[i] < 'A' or input[i] > 'Z') and
-                       (input[i] < 'a' or input[i] > 'z')) {
+                    (input[i] < 'a' or input[i] > 'z'))
+                {
                     i += 1;
                 }
                 if (i < input.len) i += 1; // Skip the final character
@@ -353,7 +354,8 @@ pub const ColorUtils = struct {
                 // Skip ANSI escape sequence
                 i += 2;
                 while (i < input.len and (input[i] < 'A' or input[i] > 'Z') and
-                       (input[i] < 'a' or input[i] > 'z')) {
+                    (input[i] < 'a' or input[i] > 'z'))
+                {
                     i += 1;
                 }
                 if (i < input.len) i += 1;

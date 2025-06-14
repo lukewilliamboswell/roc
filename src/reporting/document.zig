@@ -374,7 +374,7 @@ pub const DocumentBuilder = struct {
         return self;
     }
 
-    pub fn error(self: *DocumentBuilder, message: []const u8) *DocumentBuilder {
+    pub fn errorText(self: *DocumentBuilder, message: []const u8) *DocumentBuilder {
         self.document.addError(message) catch @panic("OOM");
         return self;
     }
@@ -420,7 +420,7 @@ test "DocumentBuilder fluent interface" {
 
     var doc = builder
         .text("Error: ")
-        .error("Type mismatch")
+        .errorText("Type mismatch")
         .lineBreak()
         .indent(1)
         .text("Expected: ")
