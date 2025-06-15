@@ -65,14 +65,33 @@ pub fn deinit(self: *CIR) void {
     self.imports.deinit(self.env.gpa);
 }
 
-/// Push a diagnostic error during canonicalization
+/// Records a diagnostic error during canonicalization without blocking compilation.
+///
+/// This creates a diagnostic node that stores error information for later reporting.
+/// The diagnostic is added to the diagnostic collection but does not create any
+/// malformed nodes in the IR.
+///
+/// Use this when you want to record an error but don't need to replace a node
+/// with a runtime error.
 pub fn pushDiagnostic(self: *CIR, reason: CIR.Diagnostic) void {
-    _ = self.store.addDiagnostic(Node.Idx, reason);
+    _ = self.store.addDiagnostic(reason);
 }
 
-/// Push a diagnostic error during canonicalization, and return an index of the requested type
+/// Creates a malformed node that represents a runtime error in the IR. Returns and index of the requested type pointing to a malformed node.
+///
+/// This follows the "Inform Don't Block" principle: it allows compilation to continue
+/// by creating a malformed node that will become a runtime_error in the CIR. If the
+/// program execution reaches this node, it will crash with the associated diagnostic.
+///
+/// This function:
+/// 1. Creates a diagnostic node to store the error details
+/// 2. Creates a malformed node that references the diagnostic
+/// 3. Returns an index of the requested type pointing to the malformed node
+///
+/// Use this when you need to replace a node (expression, pattern, etc.) with
+/// something that represents a compilation error but allows the compiler to continue.
 pub fn pushMalformed(self: *CIR, comptime t: type, reason: CIR.Diagnostic) t {
-    return self.store.addDiagnostic(t, reason);
+    return self.store.addMalformed(t, reason);
 }
 
 pub fn getDiagnostics(self: *CIR) []CIR.Diagnostic {

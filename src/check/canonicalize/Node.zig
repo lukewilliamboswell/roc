@@ -91,10 +91,19 @@ pub const Tag = enum {
     // todo -- put me somewhere and rename maybe
     if_branch,
 
-    // Runtime Error
+    // Runtime Error Node
+    //
+    // Malformed nodes represent runtime errors in the IR following the "Inform Don't Block" principle.
+    // They allow compilation to continue while preserving error information. When encountered during
+    // execution, they will crash with the associated diagnostic.
     malformed,
 
-    // Diagnostics
+    // Diagnostic Nodes
+    //
+    // Diagnostic nodes store error information separately from the main IR. They contain details
+    // about compilation errors and are referenced by malformed nodes. These nodes are never
+    // directly converted to IR - they exist only for error reporting and are accessed via
+    // diagnostic indices stored in malformed nodes.
     diag_not_implemented,
     diag_invalid_num_literal,
     diag_ident_already_in_scope,

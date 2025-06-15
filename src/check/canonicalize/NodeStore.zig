@@ -274,23 +274,11 @@ pub fn getExpr(store: *const NodeStore, expr: CIR.Expr.Idx) CIR.Expr {
                 .region = node.region,
             } };
         },
-        .diag_not_implemented,
-        .diag_invalid_num_literal,
-        .diag_ident_already_in_scope,
-        .diag_ident_not_in_scope,
-        .diag_invalid_top_level_statement,
-        .diag_expr_not_canonicalized,
-        .diag_invalid_string_interpolation,
-        .diag_pattern_arg_invalid,
-        .diag_pattern_not_canonicalized,
-        .diag_can_lambda_not_implemented,
-        .diag_lambda_body_not_canonicalized,
-        => {
-            return CIR.Expr{ .runtime_error = .{
-                .diagnostic = @enumFromInt(@intFromEnum(node_idx)),
-                .region = node.region,
-            } };
-        },
+
+        // NOTE: Diagnostic tags should NEVER appear in getExpr().
+        // If compilation errors occur, use pushMalformed() to create .malformed nodes
+        // that reference diagnostic indices. The .malformed case above handles
+        // converting these to runtime_error nodes in the CIR.
         else => {
             @panic("unreachable, node is not an expression tag");
         },
@@ -978,8 +966,16 @@ pub fn sliceDiagnostics(store: *const NodeStore, span: CIR.Diagnostic.Span) []CI
     return store.sliceFromSpan(CIR.Diagnostic.Idx, span.span);
 }
 
-/// Any node type can be malformed, but must come with a diagnostic reason
-pub fn addDiagnostic(store: *NodeStore, comptime t: type, reason: CIR.Diagnostic) t {
+/// Creates a diagnostic node that stores error information.
+///
+/// Diagnostics are informational nodes that contain details about compilation errors.
+/// They are stored separately from the main IR and are referenced by malformed nodes.
+///
+/// Note: This function creates diagnostic nodes for storage only.
+/// To create a malformed node that represents a runtime error, use `addMalformed()` instead.
+///
+/// Returns: Index to the created diagnostic node
+pub fn addDiagnostic(store: *NodeStore, reason: CIR.Diagnostic) CIR.Diagnostic.Idx {
     var node = Node{
         .data_1 = 0,
         .data_2 = 0,
@@ -1047,6 +1043,52 @@ pub fn addDiagnostic(store: *NodeStore, comptime t: type, reason: CIR.Diagnostic
     return @enumFromInt(nid);
 }
 
+/// Creates a malformed node that represents a runtime error in the IR.
+///
+/// Malformed nodes follow the "Inform Don't Block" principle: they allow compilation
+/// to continue while preserving error information. When encountered during execution,
+/// they will crash with the associated diagnostic.
+///
+/// This function:
+/// 1. Creates a diagnostic node to store the error details
+/// 2. Creates a malformed node (.malformed tag) that references the diagnostic
+/// 3. Returns an index of the requested type that points to the malformed node
+///
+/// The malformed node will generate a runtime_error in the CIR that properly
+/// references the diagnostic index.
+pub fn addMalformed(store: *NodeStore, comptime t: type, reason: CIR.Diagnostic) t {
+    // First create the diagnostic node
+    const diagnostic_idx = store.addDiagnostic(reason);
+
+    // Then create a malformed node that references the diagnostic
+    const malformed_node = Node{
+        .data_1 = @intFromEnum(diagnostic_idx),
+        .data_2 = 0,
+        .data_3 = 0,
+        .region = switch (reason) {
+            .not_implemented => |r| r.region,
+            .invalid_num_literal => |r| r.region,
+            .ident_already_in_scope => |r| r.region,
+            .ident_not_in_scope => |r| r.region,
+            .invalid_top_level_statement => |r| r.region,
+            .expr_not_canonicalized => |r| r.region,
+            .invalid_string_interpolation => |r| r.region,
+            .pattern_arg_invalid => |r| r.region,
+            .pattern_not_canonicalized => |r| r.region,
+            .can_lambda_not_implemented => |r| r.region,
+            .lambda_body_not_canonicalized => |r| r.region,
+        },
+        .tag = .malformed,
+    };
+
+    const malformed_nid = @intFromEnum(store.nodes.append(store.gpa, malformed_node));
+    return @enumFromInt(malformed_nid);
+}
+
+/// Retrieves diagnostic information from a diagnostic node.
+///
+/// This function extracts the stored diagnostic data from nodes with .diag_* tags.
+/// It reconstructs the original CIR.Diagnostic from the node's stored data.
 pub fn getDiagnostic(store: *const NodeStore, diagnostic: CIR.Diagnostic.Idx) CIR.Diagnostic {
     const node_idx: Node.Idx = @enumFromInt(@intFromEnum(diagnostic));
     const node = store.nodes.get(node_idx);
