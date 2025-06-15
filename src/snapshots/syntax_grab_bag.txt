@@ -421,7 +421,8 @@ expect {
 	blah = 1
 	blah == foo
 }
-The lambda body must be a valid expression.NOT IMPLEMENTED
+The lambda body must be a valid expression.
+NOT IMPLEMENTED
 
 Lambda expressions are not yet fully implemented.
 
@@ -632,7 +633,8 @@ expect {
 	blah = 1
 	blah == foo
 }
-Lambda expressions will be supported in a future version of Roc.INVALID LAMBDA
+Lambda expressions will be supported in a future version of Roc.
+INVALID LAMBDA
 
 The body of this lambda expression is not valid.
 
@@ -843,7 +845,8 @@ expect {
 	blah = 1
 	blah == foo
 }
-The lambda body must be a valid expression.NOT IMPLEMENTED
+The lambda body must be a valid expression.
+NOT IMPLEMENTED
 
 Lambda expressions are not yet fully implemented.
 
@@ -1054,7 +1057,8 @@ expect {
 	blah = 1
 	blah == foo
 }
-Lambda expressions will be supported in a future version of Roc.INVALID LAMBDA
+Lambda expressions will be supported in a future version of Roc.
+INVALID LAMBDA
 
 The body of this lambda expression is not valid.
 
@@ -1265,7 +1269,8 @@ expect {
 	blah = 1
 	blah == foo
 }
-The lambda body must be a valid expression.NOT IMPLEMENTED
+The lambda body must be a valid expression.
+NOT IMPLEMENTED
 
 Lambda expressions are not yet fully implemented.
 
@@ -1476,7 +1481,8 @@ expect {
 	blah = 1
 	blah == foo
 }
-Lambda expressions will be supported in a future version of Roc.INVALID LAMBDA
+Lambda expressions will be supported in a future version of Roc.
+INVALID LAMBDA
 
 The body of this lambda expression is not valid.
 
@@ -1687,7 +1693,8 @@ expect {
 	blah = 1
 	blah == foo
 }
-The lambda body must be a valid expression.NOT IMPLEMENTED
+The lambda body must be a valid expression.
+NOT IMPLEMENTED
 
 Lambda expressions are not yet fully implemented.
 
@@ -1898,7 +1905,8 @@ expect {
 	blah = 1
 	blah == foo
 }
-Lambda expressions will be supported in a future version of Roc.UNKNOWN OPERATOR
+Lambda expressions will be supported in a future version of Roc.
+UNKNOWN OPERATOR
 
 This looks like an operator, but it's not one I recognize!
 
@@ -2109,7 +2117,8 @@ expect {
 	blah = 1
 	blah == foo
 }
-Check the spelling and make sure you're using a valid Roc operator.~~~TOKENS
+Check the spelling and make sure you're using a valid Roc operator.
+~~~TOKENS
 Newline(1:2-1:28),
 KwApp(2:1-2:4),OpenSquare(2:5-2:6),LowerIdent(2:6-2:11),CloseSquare(2:11-2:12),OpenCurly(2:13-2:14),LowerIdent(2:15-2:17),OpColon(2:17-2:18),KwPlatform(2:19-2:27),StringStart(2:28-2:29),StringPart(2:29-2:54),StringEnd(2:54-2:55),CloseCurly(2:56-2:57),Newline(1:1-1:1),
 Newline(1:1-1:1),

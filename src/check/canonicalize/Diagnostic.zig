@@ -8,6 +8,7 @@ const Region = base.Region;
 const Ident = base.Ident;
 const StringLiteral = base.StringLiteral;
 const Document = reporting.Document;
+const Report = reporting.Report;
 const Allocator = std.mem.Allocator;
 
 /// Different types of diagnostic errors
@@ -54,166 +55,177 @@ pub const Diagnostic = union(enum) {
     pub const Span = struct { span: base.DataSpan };
 
     /// Build a report for "not implemented" diagnostic
-    pub fn buildNotImplementedReport(allocator: Allocator, feature: []const u8, source: []const u8, region: Region) !Document {
-        var doc = Document.init(allocator);
-        try doc.addText("This feature is not yet implemented: ");
-        try doc.addText(feature);
-        try doc.addLineBreak();
-        try doc.addLineBreak();
+    pub fn buildNotImplementedReport(allocator: Allocator, feature: []const u8, source: []const u8, region: Region) !Report {
+        var report = Report.init(allocator, "NOT IMPLEMENTED", .runtime_error, reporting.ReportingConfig.initPlainText());
+        try report.document.addText("This feature is not yet implemented: ");
+        try report.document.addText(feature);
+        try report.document.addLineBreak();
+        try report.document.addLineBreak();
 
-        try doc.addSourceRegion(source, region.start.offset, region.start.offset, region.end.offset, region.end.offset, .error_highlight, null);
+        try report.document.addSourceRegion(source, region.start.offset, region.start.offset, region.end.offset, region.end.offset, .error_highlight, null);
 
-        try doc.addLineBreak();
-        try doc.addReflowingText("This will be supported in a future version of Roc.");
-        return doc;
+        try report.document.addLineBreak();
+        try report.document.addReflowingText("This will be supported in a future version of Roc.");
+        try report.document.addLineBreak();
+        return report;
     }
 
     /// Build a report for "invalid number literal" diagnostic
-    pub fn buildInvalidNumLiteralReport(allocator: Allocator, literal: []const u8, source: []const u8, region: Region) !Document {
-        var doc = Document.init(allocator);
-        try doc.addText("This number literal is not valid: ");
-        try doc.addText(literal);
-        try doc.addLineBreak();
-        try doc.addLineBreak();
+    pub fn buildInvalidNumLiteralReport(allocator: Allocator, literal: []const u8, source: []const u8, region: Region) !Report {
+        var report = Report.init(allocator, "INVALID NUMBER", .runtime_error, reporting.ReportingConfig.initPlainText());
+        try report.document.addText("This number literal is not valid: ");
+        try report.document.addText(literal);
+        try report.document.addLineBreak();
+        try report.document.addLineBreak();
 
-        try doc.addSourceRegion(source, region.start.offset, region.start.offset, region.end.offset, region.end.offset, .error_highlight, null);
+        try report.document.addSourceRegion(source, region.start.offset, region.start.offset, region.end.offset, region.end.offset, .error_highlight, null);
 
-        try doc.addLineBreak();
-        try doc.addReflowingText("Roc supports integers, floats, and scientific notation. Check that the number format is correct.");
-        return doc;
+        try report.document.addLineBreak();
+        try report.document.addReflowingText("Roc supports integers, floats, and scientific notation. Check that the number format is correct.");
+        try report.document.addLineBreak();
+        return report;
     }
 
     /// Build a report for "identifier already in scope" diagnostic
-    pub fn buildIdentAlreadyInScopeReport(allocator: Allocator, ident_name: []const u8, source: []const u8, region: Region) !Document {
-        var doc = Document.init(allocator);
-        try doc.addText("The name `");
-        try doc.addUnqualifiedSymbol(ident_name);
-        try doc.addText("` is already defined in this scope.");
-        try doc.addLineBreak();
-        try doc.addLineBreak();
+    pub fn buildIdentAlreadyInScopeReport(allocator: Allocator, ident_name: []const u8, source: []const u8, region: Region) !Report {
+        var report = Report.init(allocator, "DUPLICATE DEFINITION", .runtime_error, reporting.ReportingConfig.initPlainText());
+        try report.document.addText("The name `");
+        try report.document.addUnqualifiedSymbol(ident_name);
+        try report.document.addText("` is already defined in this scope.");
+        try report.document.addLineBreak();
+        try report.document.addLineBreak();
 
-        try doc.addSourceRegion(source, region.start.offset, region.start.offset, region.end.offset, region.end.offset, .error_highlight, null);
+        try report.document.addSourceRegion(source, region.start.offset, region.start.offset, region.end.offset, region.end.offset, .error_highlight, null);
 
-        try doc.addLineBreak();
-        try doc.addReflowingText("Choose a different name for this identifier, or remove the duplicate definition.");
-        return doc;
+        try report.document.addLineBreak();
+        try report.document.addReflowingText("Choose a different name for this identifier, or remove the duplicate definition.");
+        try report.document.addLineBreak();
+        return report;
     }
 
     /// Build a report for "identifier not in scope" diagnostic
-    pub fn buildIdentNotInScopeReport(allocator: Allocator, ident_name: []const u8, source: []const u8, region: Region) !Document {
-        var doc = Document.init(allocator);
-        try doc.addText("Nothing is named `");
-        try doc.addUnqualifiedSymbol(ident_name);
-        try doc.addText("` in this scope.");
-        try doc.addLineBreak();
-        try doc.addLineBreak();
+    pub fn buildIdentNotInScopeReport(allocator: Allocator, ident_name: []const u8, source: []const u8, region: Region) !Report {
+        var report = Report.init(allocator, "UNDEFINED VARIABLE", .runtime_error, reporting.ReportingConfig.initPlainText());
+        try report.document.addText("Nothing is named `");
+        try report.document.addUnqualifiedSymbol(ident_name);
+        try report.document.addText("` in this scope.");
+        try report.document.addLineBreak();
+        try report.document.addLineBreak();
 
-        try doc.addSourceRegion(source, region.start.offset, region.start.offset, region.end.offset, region.end.offset, .error_highlight, null);
+        try report.document.addSourceRegion(source, region.start.offset, region.start.offset, region.end.offset, region.end.offset, .error_highlight, null);
 
-        try doc.addLineBreak();
-        try doc.addText("Is there an ");
-        try doc.addKeyword("import");
-        try doc.addText(" or ");
-        try doc.addKeyword("exposing");
-        try doc.addReflowingText(" missing up-top?");
-        return doc;
+        try report.document.addLineBreak();
+        try report.document.addText("Is there an ");
+        try report.document.addKeyword("import");
+        try report.document.addText(" or ");
+        try report.document.addKeyword("exposing");
+        try report.document.addReflowingText(" missing up-top?");
+        try report.document.addLineBreak();
+        return report;
     }
 
     /// Build a report for "invalid top level statement" diagnostic
-    pub fn buildInvalidTopLevelStatementReport(allocator: Allocator, source: []const u8, region: Region) !Document {
-        var doc = Document.init(allocator);
-        try doc.addReflowingText("This statement is not allowed at the top level.");
-        try doc.addLineBreak();
-        try doc.addLineBreak();
+    pub fn buildInvalidTopLevelStatementReport(allocator: Allocator, source: []const u8, region: Region) !Report {
+        var report = Report.init(allocator, "INVALID STATEMENT", .runtime_error, reporting.ReportingConfig.initPlainText());
+        try report.document.addReflowingText("This statement is not allowed at the top level.");
+        try report.document.addLineBreak();
+        try report.document.addLineBreak();
 
-        try doc.addSourceRegion(source, region.start.offset, region.start.offset, region.end.offset, region.end.offset, .error_highlight, null);
+        try report.document.addSourceRegion(source, region.start.offset, region.start.offset, region.end.offset, region.end.offset, .error_highlight, null);
 
-        try doc.addLineBreak();
-        try doc.addReflowingText("Only definitions, type annotations, and imports are allowed at the top level.");
-        return doc;
+        try report.document.addLineBreak();
+        try report.document.addReflowingText("Only definitions, type annotations, and imports are allowed at the top level.");
+        try report.document.addLineBreak();
+        return report;
     }
 
     /// Build a report for "expression not canonicalized" diagnostic
-    pub fn buildExprNotCanonicalizedReport(allocator: Allocator, source: []const u8, region: Region) !Document {
-        var doc = Document.init(allocator);
-        try doc.addReflowingText("This looks like an operator, but it's not one I recognize!");
-        try doc.addLineBreak();
-        try doc.addLineBreak();
+    pub fn buildExprNotCanonicalizedReport(allocator: Allocator, source: []const u8, region: Region) !Report {
+        var report = Report.init(allocator, "UNKNOWN OPERATOR", .runtime_error, reporting.ReportingConfig.initPlainText());
+        try report.document.addReflowingText("This looks like an operator, but it's not one I recognize!");
+        try report.document.addLineBreak();
+        try report.document.addLineBreak();
 
-        try doc.addSourceRegion(source, region.start.offset, region.start.offset, region.end.offset, region.end.offset, .error_highlight, null);
+        try report.document.addSourceRegion(source, region.start.offset, region.start.offset, region.end.offset, region.end.offset, .error_highlight, null);
 
-        try doc.addLineBreak();
-        try doc.addReflowingText("Check the spelling and make sure you're using a valid Roc operator.");
-        return doc;
+        try report.document.addLineBreak();
+        try report.document.addReflowingText("Check the spelling and make sure you're using a valid Roc operator.");
+        try report.document.addLineBreak();
+        return report;
     }
 
     /// Build a report for "invalid string interpolation" diagnostic
-    pub fn buildInvalidStringInterpolationReport(allocator: Allocator, source: []const u8, region: Region) !Document {
-        var doc = Document.init(allocator);
-        try doc.addReflowingText("This string interpolation is not valid.");
-        try doc.addLineBreak();
-        try doc.addLineBreak();
+    pub fn buildInvalidStringInterpolationReport(allocator: Allocator, source: []const u8, region: Region) !Report {
+        var report = Report.init(allocator, "INVALID INTERPOLATION", .runtime_error, reporting.ReportingConfig.initPlainText());
+        try report.document.addReflowingText("This string interpolation is not valid.");
+        try report.document.addLineBreak();
+        try report.document.addLineBreak();
 
-        try doc.addSourceRegion(source, region.start.offset, region.start.offset, region.end.offset, region.end.offset, .error_highlight, null);
+        try report.document.addSourceRegion(source, region.start.offset, region.start.offset, region.end.offset, region.end.offset, .error_highlight, null);
 
-        try doc.addLineBreak();
-        try doc.addReflowingText("String interpolation should use the format: \"text $(expression) more text\"");
-        return doc;
+        try report.document.addLineBreak();
+        try report.document.addReflowingText("String interpolation should use the format: \"text $(expression) more text\"");
+        try report.document.addLineBreak();
+        return report;
     }
 
     /// Build a report for "pattern argument invalid" diagnostic
-    pub fn buildPatternArgInvalidReport(allocator: Allocator, source: []const u8, region: Region) !Document {
-        var doc = Document.init(allocator);
-        try doc.addReflowingText("This pattern argument is not valid.");
-        try doc.addLineBreak();
-        try doc.addLineBreak();
+    pub fn buildPatternArgInvalidReport(allocator: Allocator, source: []const u8, region: Region) !Report {
+        var report = Report.init(allocator, "INVALID PATTERN", .runtime_error, reporting.ReportingConfig.initPlainText());
+        try report.document.addReflowingText("This pattern argument is not valid.");
+        try report.document.addLineBreak();
+        try report.document.addLineBreak();
 
-        try doc.addSourceRegion(source, region.start.offset, region.start.offset, region.end.offset, region.end.offset, .error_highlight, null);
+        try report.document.addSourceRegion(source, region.start.offset, region.start.offset, region.end.offset, region.end.offset, .error_highlight, null);
 
-        try doc.addLineBreak();
-        try doc.addReflowingText("Pattern arguments must be valid patterns like identifiers, literals, or destructuring patterns.");
-        return doc;
+        try report.document.addLineBreak();
+        try report.document.addReflowingText("Pattern arguments must be valid patterns like identifiers, literals, or destructuring patterns.");
+        try report.document.addLineBreak();
+        return report;
     }
 
     /// Build a report for "pattern not canonicalized" diagnostic
-    pub fn buildPatternNotCanonicalizedReport(allocator: Allocator, source: []const u8, region: Region) !Document {
-        var doc = Document.init(allocator);
-        try doc.addReflowingText("This pattern could not be processed.");
-        try doc.addLineBreak();
-        try doc.addLineBreak();
+    pub fn buildPatternNotCanonicalizedReport(allocator: Allocator, source: []const u8, region: Region) !Report {
+        var report = Report.init(allocator, "INVALID PATTERN", .runtime_error, reporting.ReportingConfig.initPlainText());
+        try report.document.addReflowingText("This pattern could not be processed.");
+        try report.document.addLineBreak();
+        try report.document.addLineBreak();
 
-        try doc.addSourceRegion(source, region.start.offset, region.start.offset, region.end.offset, region.end.offset, .error_highlight, null);
+        try report.document.addSourceRegion(source, region.start.offset, region.start.offset, region.end.offset, region.end.offset, .error_highlight, null);
 
-        try doc.addLineBreak();
-        try doc.addReflowingText("This pattern contains invalid syntax or uses unsupported features.");
-        return doc;
+        try report.document.addLineBreak();
+        try report.document.addReflowingText("This pattern contains invalid syntax or uses unsupported features.");
+        try report.document.addLineBreak();
+        return report;
     }
 
     /// Build a report for "lambda not implemented" diagnostic
-    pub fn buildCanLambdaNotImplementedReport(allocator: Allocator, source: []const u8, region: Region) !Document {
-        var doc = Document.init(allocator);
-        try doc.addReflowingText("Lambda expressions are not yet fully implemented.");
-        try doc.addLineBreak();
-        try doc.addLineBreak();
+    pub fn buildCanLambdaNotImplementedReport(allocator: Allocator, source: []const u8, region: Region) !Report {
+        var report = Report.init(allocator, "NOT IMPLEMENTED", .runtime_error, reporting.ReportingConfig.initPlainText());
+        try report.document.addReflowingText("Lambda expressions are not yet fully implemented.");
+        try report.document.addLineBreak();
+        try report.document.addLineBreak();
 
-        try doc.addSourceRegion(source, region.start.offset, region.start.offset, region.end.offset, region.end.offset, .error_highlight, null);
+        try report.document.addSourceRegion(source, region.start.offset, region.start.offset, region.end.offset, region.end.offset, .error_highlight, null);
 
-        try doc.addLineBreak();
-        try doc.addReflowingText("Lambda expressions will be supported in a future version of Roc.");
-        return doc;
+        try report.document.addLineBreak();
+        try report.document.addReflowingText("Lambda expressions will be supported in a future version of Roc.");
+        try report.document.addLineBreak();
+        return report;
     }
 
     /// Build a report for "lambda body not canonicalized" diagnostic
-    pub fn buildLambdaBodyNotCanonicalizedReport(allocator: Allocator, source: []const u8, region: Region) !Document {
-        var doc = Document.init(allocator);
-        try doc.addReflowingText("The body of this lambda expression is not valid.");
-        try doc.addLineBreak();
-        try doc.addLineBreak();
+    pub fn buildLambdaBodyNotCanonicalizedReport(allocator: Allocator, source: []const u8, region: Region) !Report {
+        var report = Report.init(allocator, "INVALID LAMBDA", .runtime_error, reporting.ReportingConfig.initPlainText());
+        try report.document.addReflowingText("The body of this lambda expression is not valid.");
+        try report.document.addLineBreak();
+        try report.document.addLineBreak();
 
-        try doc.addSourceRegion(source, region.start.offset, region.start.offset, region.end.offset, region.end.offset, .error_highlight, null);
+        try report.document.addSourceRegion(source, region.start.offset, region.start.offset, region.end.offset, region.end.offset, .error_highlight, null);
 
-        try doc.addLineBreak();
-        try doc.addReflowingText("The lambda body must be a valid expression.");
-        return doc;
+        try report.document.addLineBreak();
+        try report.document.addReflowingText("The lambda body must be a valid expression.");
+        try report.document.addLineBreak();
+        return report;
     }
 };

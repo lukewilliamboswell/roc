@@ -33,7 +33,8 @@ H{o,
 foo =
 
     "on        (string 'onmo %')))
-Only definitions, type annotations, and imports are allowed at the top level.~~~TOKENS
+Only definitions, type annotations, and imports are allowed at the top level.
+~~~TOKENS
 UpperIdent(1:1-1:2),OpenCurly(1:2-1:3),LowerIdent(1:3-1:4),Comma(1:4-1:5),Newline(1:1-1:1),
 CloseCurly(2:6-2:7),Newline(1:1-1:1),
 LowerIdent(3:1-3:4),OpAssign(3:5-3:6),Newline(1:1-1:1),

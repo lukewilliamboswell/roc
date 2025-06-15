@@ -108,24 +108,7 @@ pub fn getDiagnostics(self: *CIR) []CIR.Diagnostic {
 
 /// Convert a canonicalization diagnostic to a Report for rendering
 pub fn diagnosticToReport(self: *CIR, diagnostic: Diagnostic, allocator: std.mem.Allocator) !reporting.Report {
-    const title = switch (diagnostic) {
-        .not_implemented => "NOT IMPLEMENTED",
-        .invalid_num_literal => "INVALID NUMBER",
-        .ident_already_in_scope => "DUPLICATE DEFINITION",
-        .ident_not_in_scope => "UNDEFINED VARIABLE",
-        .invalid_top_level_statement => "INVALID STATEMENT",
-        .expr_not_canonicalized => "UNKNOWN OPERATOR",
-        .invalid_string_interpolation => "INVALID INTERPOLATION",
-        .pattern_arg_invalid => "INVALID PATTERN",
-        .pattern_not_canonicalized => "INVALID PATTERN",
-        .can_lambda_not_implemented => "NOT IMPLEMENTED",
-        .lambda_body_not_canonicalized => "INVALID LAMBDA",
-    };
-
-    var report = reporting.Report.init(allocator, title, .runtime_error, reporting.ReportingConfig.initPlainText());
-
-    // Build the document using the appropriate diagnostic build function
-    const document = switch (diagnostic) {
+    return switch (diagnostic) {
         .not_implemented => |data| blk: {
             const feature_text = self.env.strings.get(data.feature);
             break :blk Diagnostic.buildNotImplementedReport(
@@ -198,9 +181,6 @@ pub fn diagnosticToReport(self: *CIR, diagnostic: Diagnostic, allocator: std.mem
             data.region,
         ),
     };
-
-    report.document = try document;
-    return report;
 }
 
 // Helper to add type index info
