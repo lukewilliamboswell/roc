@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Roc Playground</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background-color: #2d2d30;
+            padding: 1rem;
+            border-bottom: 1px solid #3e3e42;
+        }
+
+        .header h1 {
+            color: #569cd6;
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            color: #9d9d9d;
+            font-size: 0.9rem;
+        }
+
+        .container {
+            display: flex;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .editor-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #3e3e42;
+        }
+
+        .editor-header {
+            background-color: #2d2d30;
+            padding: 0.5rem 1rem;
+            border-bottom: 1px solid #3e3e42;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .editor-header h2 {
+            font-size: 1rem;
+            color: #cccccc;
+        }
+
+        .check-button {
+            background-color: #0e639c;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: background-color 0.2s;
+        }
+
+        .check-button:hover {
+            background-color: #1177bb;
+        }
+
+        .check-button:disabled {
+            background-color: #666;
+            cursor: not-allowed;
+        }
+
+        .editor {
+            flex: 1;
+            border: none;
+            outline: none;
+            padding: 1rem;
+            font-family: inherit;
+            font-size: 14px;
+            line-height: 1.5;
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            resize: none;
+            tab-size: 4;
+        }
+
+        .output-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .output-header {
+            background-color: #2d2d30;
+            padding: 0.5rem 1rem;
+            border-bottom: 1px solid #3e3e42;
+        }
+
+        .output-header h2 {
+            font-size: 1rem;
+            color: #cccccc;
+        }
+
+        .status {
+            font-size: 0.8rem;
+            margin-top: 0.25rem;
+        }
+
+        .status.success {
+            color: #4ec9b0;
+        }
+
+        .status.error {
+            color: #f44747;
+        }
+
+        .status.warning {
+            color: #ffcc02;
+        }
+
+        .output {
+            flex: 1;
+            padding: 1rem;
+            overflow-y: auto;
+            background-color: #1e1e1e;
+        }
+
+        .report {
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+            border-left: 3px solid;
+            background-color: #2d2d30;
+            border-radius: 0 3px 3px 0;
+        }
+
+        .report.error {
+            border-left-color: #f44747;
+        }
+
+        .report.warning {
+            border-left-color: #ffcc02;
+        }
+
+        .report.info {
+            border-left-color: #4ec9b0;
+        }
+
+        .report.fatal {
+            border-left-color: #ff6b6b;
+        }
+
+        .report-severity {
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+        }
+
+        .report.error .report-severity {
+            color: #f44747;
+        }
+
+        .report.warning .report-severity {
+            color: #ffcc02;
+        }
+
+        .report.info .report-severity {
+            color: #4ec9b0;
+        }
+
+        .report.fatal .report-severity {
+            color: #ff6b6b;
+        }
+
+        .report-message {
+            color: #d4d4d4;
+            line-height: 1.4;
+        }
+
+        .loading {
+            color: #9d9d9d;
+            font-style: italic;
+        }
+
+        .example-code {
+            color: #569cd6;
+            cursor: pointer;
+            text-decoration: underline;
+            font-size: 0.8rem;
+            margin-left: 1rem;
+        }
+
+        .example-code:hover {
+            color: #7bb3f0;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1></h1>🚀 Roc Playground</h1>
+        <p>Write Roc code and check for errors in real-time</p>
+    </div>
+
+    <div class="container">
+        <div class="editor-panel">
+            <div class="editor-header">
+                <h2>main.roc</h2>
+                <div>
+                    <span class="example-code" onclick="loadExample()">Load Example</span>
+                    <button class="check-button" onclick="checkCode()" id="checkBtn">Check</button>
+                </div>
+            </div>
+            <textarea class="editor" id="editor" placeholder="# Write your Roc code here
+# Try some examples like:
+# Basic values, lists, records, functions..."></textarea>
+        </div>
+
+        <div class="output-panel">
+            <div class="output-header">
+                <h2>Output</h2>
+                <div class="status" id="status">Ready</div>
+            </div>
+            <div class="output" id="output">
+                <div class="loading">Click "Check" to analyze your code...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let wasmModule = null;
+        let wasmMemory = null;
+
+        // Load the WASM module
+        async function loadWasm() {
+            try {
+                const response = await fetch('playground.wasm');
+                const bytes = await response.arrayBuffer();
+                const module = await WebAssembly.instantiate(bytes, {
+                    env: {
+                        // Add any imports the WASM module needs
+                    }
+                });
+
+                wasmModule = module.instance.exports;
+                wasmMemory = wasmModule.memory;
+
+                // Initialize the module
+                wasmModule.init();
+
+                console.log('WASM module loaded successfully');
+                document.getElementById('checkBtn').disabled = false;
+                document.getElementById('status').textContent = 'Ready';
+            } catch (error) {
+                console.error('Failed to load WASM module:', error);
+                document.getElementById('status').textContent = 'Failed to load compiler';
+                document.getElementById('status').className = 'status error';
+            }
+        }
+
+        // Helper function to write string to WASM memory
+        function writeStringToMemory(str) {
+            const encoder = new TextEncoder();
+            const bytes = encoder.encode(str);
+            const ptr = wasmModule.allocate(bytes.length);
+            const memory = new Uint8Array(wasmMemory.buffer);
+            memory.set(bytes, ptr);
+            return { ptr, len: bytes.length };
+        }
+
+        // Helper function to read string from WASM memory
+        function readStringFromMemory(ptr, len) {
+            const memory = new Uint8Array(wasmMemory.buffer);
+            const bytes = memory.slice(ptr, ptr + len);
+            return new TextDecoder().decode(bytes);
+        }
+
+        // Check the code
+        async function checkCode() {
+            if (!wasmModule) {
+                alert('WASM module not loaded yet');
+                return;
+            }
+
+            const editor = document.getElementById('editor');
+            const output = document.getElementById('output');
+            const status = document.getElementById('status');
+            const checkBtn = document.getElementById('checkBtn');
+
+            const code = editor.value;
+
+            try {
+                checkBtn.disabled = true;
+                status.textContent = 'Checking...';
+                status.className = 'status';
+                output.innerHTML = '<div class="loading">Analyzing code...</div>';
+
+                // Set the source code
+                const { ptr, len } = writeStringToMemory(code);
+                wasmModule.setSource(ptr, len);
+                wasmModule.deallocate(ptr, len);
+
+                // Process the source
+                const result = wasmModule.processSource();
+
+                // Get results
+                const errorCount = wasmModule.getErrorCount();
+                const warningCount = wasmModule.getWarningCount();
+                const reportCount = wasmModule.getReportCount();
+
+                // Update status
+                if (errorCount > 0) {
+                    status.textContent = `${errorCount} error(s), ${warningCount} warning(s)`;
+                    status.className = 'status error';
+                } else if (warningCount > 0) {
+                    status.textContent = `${warningCount} warning(s)`;
+                    status.className = 'status warning';
+                } else {
+                    status.textContent = 'No issues found';
+                    status.className = 'status success';
+                }
+
+                // Display reports
+                if (reportCount > 0) {
+                    let outputHtml = '';
+                    const buffer = new Uint8Array(4096); // 4KB buffer for each report
+
+                    for (let i = 0; i < reportCount; i++) {
+                        const bufferPtr = wasmModule.allocate(buffer.length);
+                        const reportLen = wasmModule.getReport(i, bufferPtr, buffer.length);
+
+                        if (reportLen > 0) {
+                            const reportText = readStringFromMemory(bufferPtr, reportLen);
+                            const severity = reportText.split(':')[0].toLowerCase();
+                            const message = reportText.substring(reportText.indexOf(':') + 1).trim();
+
+                            outputHtml += `
+                                <div class="report ${severity}">
+                                    <div class="report-severity">${reportText.split(':')[0]}</div>
+                                    <div class="report-message">${escapeHtml(message)}</div>
+                                </div>
+                            `;
+                        }
+
+                        wasmModule.deallocate(bufferPtr, buffer.length);
+                    }
+
+                    output.innerHTML = outputHtml || '<div class="loading">No detailed reports available</div>';
+                } else {
+                    output.innerHTML = '<div style="color: #4ec9b0;">✓ Code looks good!</div>';
+                }
+
+            } catch (error) {
+                console.error('Error checking code:', error);
+                status.textContent = 'Check failed';
+                status.className = 'status error';
+                output.innerHTML = `<div class="report error">
+                    <div class="report-severity">ERROR</div>
+                    <div class="report-message">Failed to check code: ${escapeHtml(error.message)}</div>
+                </div>`;
+            } finally {
+                checkBtn.disabled = false;
+            }
+        }
+
+        // Escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Load example code
+        function loadExample() {
+            const exampleCode = `# Exploring Roc Language Features
+
+# Basic values and types
+name = "Alice"
+age = 25
+height = 5.8
+isActive = Bool.True
+
+# Lists with different types
+numbers = [1, 2, 3, 42, 100]
+words = ["hello", "world", "roc"]
+
+# Records
+person = {
+    name: "Bob",
+    age: 30,
+    scores: [95, 87, 92],
+    isStudent: Bool.True,
+}
+
+# Functions with type inference
+double = |x| x * 2
+add = |a, b| a + b
+
+# Pattern matching and conditionals
+describe = |num|
+    if num > 100
+        "big number"
+    else if num > 10
+        "medium number"
+    else
+        "small number"
+
+# String interpolation
+greeting = "Hello, ${person.name}! You are ${person.age.to_str()} years old."`;
+
+            document.getElementById('editor').value = exampleCode;
+        }
+
+        // Auto-check on Enter (Ctrl+Enter or Cmd+Enter)
+        document.getElementById('editor').addEventListener('keydown', function(e) {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault();
+                checkCode();
+            }
+        });
+
+        // Load WASM when page loads
+        window.addEventListener('load', loadWasm);
+    </script>
+</body>
+</html>
