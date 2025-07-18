@@ -114,11 +114,13 @@ pub fn build(b: *std.Build) void {
     const playground_html_install = b.addInstallFile(b.path("src/playground/index.html"), "playground/index.html");
     const playground_css_install = b.addInstallFile(b.path("src/playground/styles.css"), "playground/styles.css");
     const playground_js_install = b.addInstallFile(b.path("src/playground/app.js"), "playground/app.js");
+    const playground_roc_mode_install = b.addInstallFile(b.path("src/playground/codemirror-modes/roc.js"), "playground/codemirror-modes/roc.js");
 
     playground_step.dependOn(&playground_install.step);
     playground_step.dependOn(&playground_html_install.step);
     playground_step.dependOn(&playground_css_install.step);
     playground_step.dependOn(&playground_js_install.step);
+    playground_step.dependOn(&playground_roc_mode_install.step);
 
     const all_tests = b.addTest(.{
         .root_source_file = b.path("src/test.zig"),

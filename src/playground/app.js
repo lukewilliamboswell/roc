@@ -62,6 +62,7 @@ async function initializePlayground() {
     logInfo("Initializing CodeMirror...");
     const editorElement = document.getElementById("editor");
     codeMirrorEditor = CodeMirror(editorElement, {
+      mode: "roc",
       lineNumbers: true,
       matchBrackets: true,
       indentUnit: 4,

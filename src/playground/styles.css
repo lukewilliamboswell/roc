@@ -89,9 +89,7 @@
     --syntax-number: #d97706;
     --syntax-comment: #94a3b8;
     --syntax-function: #7c3aed;
-    --syntax-type: #db2777;
-    --syntax-operator: #ea580c;
-    --syntax-punctuation: #64748b;
+    --syntax-red: #db2777;
     --syntax-attribute: #0891b2;
 
     /* Interactive States */
@@ -148,9 +146,7 @@
         --syntax-number: #fbbf24;
         --syntax-comment: #94a3b8;
         --syntax-function: #c4b5fd;
-        --syntax-type: #f472b6;
-        --syntax-operator: #fb923c;
-        --syntax-punctuation: #cbd5e1;
+        --syntax-red: #f472b6;
         --syntax-attribute: #22d3ee;
 
         --state-hover: rgba(167, 139, 250, 0.1);
@@ -203,8 +199,6 @@
     --syntax-comment: #94a3b8;
     --syntax-function: #c4b5fd;
     --syntax-type: #f472b6;
-    --syntax-operator: #fb923c;
-    --syntax-punctuation: #cbd5e1;
     --syntax-attribute: #22d3ee;
 
     --state-hover: rgba(167, 139, 250, 0.1);
@@ -568,6 +562,63 @@ body {
     background-color: var(--editor-selection);
 }
 
+/* Roc Syntax Highlighting */
+.editor .cm-keyword {
+    color: var(--syntax-keyword);
+    font-weight: var(--font-medium);
+}
+
+.editor .cm-string {
+    color: var(--syntax-string);
+}
+
+.editor .cm-string-interpolation {
+    color: var(--syntax-function);
+    font-weight: var(--font-medium);
+    background-color: var(--overlay-function);
+}
+
+.editor .cm-number {
+    color: var(--syntax-number);
+}
+
+.editor .cm-comment {
+    color: var(--syntax-comment);
+    font-style: italic;
+}
+
+.editor .cm-operator {
+    color: var(--syntax-red);
+}
+
+.editor .cm-punctuation {
+    color: var(--syntax-red);
+}
+
+.editor .cm-builtin {
+    color: var(--syntax-type);
+    font-weight: var(--font-medium);
+}
+
+.editor .cm-type {
+    color: var(--syntax-type);
+    font-weight: var(--font-medium);
+}
+
+.editor .cm-constant {
+    color: var(--syntax-number);
+    font-weight: var(--font-medium);
+}
+
+.editor .cm-variable {
+    color: var(--text-primary);
+}
+
+.editor .cm-error {
+    color: var(--color-error);
+    background-color: var(--overlay-error);
+}
+
 /* === OUTPUT CONTAINER === */
 .output-container {
     flex: 1;
@@ -705,7 +756,7 @@ body {
     color: var(--syntax-number);
 }
 .token-punctuation {
-    color: var(--syntax-punctuation);
+    color: var(--syntax-red);
 }
 .token-comment {
     color: var(--syntax-comment);
