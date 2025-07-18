@@ -4,6 +4,7 @@ import {
   getDocumentContent,
   updateDiagnosticsInView,
 } from "./editor/cm6-setup";
+import { EditorView } from "@codemirror/view";
 import { createTypeHintTooltip } from "./editor/type-hints";
 import { initializeWasm } from "./wasm/roc-wasm";
 import "./styles/main.css";
@@ -352,6 +353,9 @@ class RocPlayground {
       const message = error instanceof Error ? error.message : String(error);
       this.showError(`Failed to get tokens: ${message}`);
     }
+
+    // Setup source range interactions after content is loaded
+    this.setupSourceRangeInteractions();
   }
 
   async showParseAst(): Promise<void> {
@@ -378,8 +382,11 @@ class RocPlayground {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.showError(`Failed to get AST: ${message}`);
+      this.showError(`Failed to get parse AST: ${message}`);
     }
+
+    // Setup source range interactions after content is loaded
+    this.setupSourceRangeInteractions();
   }
 
   async showCanCir(): Promise<void> {
@@ -406,8 +413,11 @@ class RocPlayground {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.showError(`Failed to get CIR: ${message}`);
+      this.showError(`Failed to get canonical IR: ${message}`);
     }
+
+    // Setup source range interactions after content is loaded
+    this.setupSourceRangeInteractions();
   }
 
   async showTypes(): Promise<void> {
@@ -436,6 +446,9 @@ class RocPlayground {
       const message = error instanceof Error ? error.message : String(error);
       this.showError(`Failed to get types: ${message}`);
     }
+
+    // Setup source range interactions after content is loaded
+    this.setupSourceRangeInteractions();
   }
 
   updateStageButtons(): void {
@@ -790,6 +803,152 @@ class RocPlayground {
 
     console.log("Total diagnostics parsed:", diagnostics.length);
     return diagnostics;
+  }
+
+  setupSourceRangeInteractions(): void {
+    const outputContent = document.getElementById("outputContent");
+    if (!outputContent) return;
+
+    // Remove existing event listeners to prevent duplicates
+    outputContent.removeEventListener(
+      "mouseenter",
+      this.handleSourceRangeHover,
+      true,
+    );
+    outputContent.removeEventListener(
+      "mouseleave",
+      this.handleSourceRangeLeave,
+      true,
+    );
+    outputContent.removeEventListener(
+      "click",
+      this.handleSourceRangeClick,
+      true,
+    );
+
+    // Add event listeners for source range interactions
+    outputContent.addEventListener(
+      "mouseenter",
+      this.handleSourceRangeHover.bind(this),
+      true,
+    );
+    outputContent.addEventListener(
+      "mouseleave",
+      this.handleSourceRangeLeave.bind(this),
+      true,
+    );
+    outputContent.addEventListener(
+      "click",
+      this.handleSourceRangeClick.bind(this),
+      true,
+    );
+  }
+
+  handleSourceRangeHover(event: Event): void {
+    const target = event.target as HTMLElement;
+    if (!target.classList.contains("source-range")) return;
+
+    const startByte = parseInt(target.dataset.startByte || "0", 10);
+    const endByte = parseInt(target.dataset.endByte || "0", 10);
+
+    if (!codeMirrorEditor || isNaN(startByte) || isNaN(endByte)) return;
+
+    // Highlight the range in the editor
+    this.highlightSourceRange(startByte, endByte);
+
+    // Add highlighted class to the source range element
+    target.classList.add("highlighted");
+  }
+
+  handleSourceRangeLeave(event: Event): void {
+    const target = event.target as HTMLElement;
+    if (!target.classList.contains("source-range")) return;
+
+    // Clear highlighting in the editor
+    this.clearSourceRangeHighlight();
+
+    // Remove highlighted class from the source range element
+    target.classList.remove("highlighted");
+  }
+
+  handleSourceRangeClick(event: Event): void {
+    const target = event.target as HTMLElement;
+    if (!target.classList.contains("source-range")) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const startByte = parseInt(target.dataset.startByte || "0", 10);
+
+    if (!codeMirrorEditor || isNaN(startByte)) return;
+
+    // Navigate to the start of the range
+    this.navigateToSourcePosition(startByte);
+  }
+
+  private sourceRangeSelection: any = null;
+
+  highlightSourceRange(startByte: number, endByte: number): void {
+    if (!codeMirrorEditor) return;
+
+    try {
+      // Clear existing highlights
+      this.clearSourceRangeHighlight();
+
+      const doc = codeMirrorEditor.state.doc;
+      const from = Math.min(startByte, doc.length);
+      const to = Math.min(endByte, doc.length);
+
+      if (from >= to) return;
+
+      // Create a selection range for highlighting
+      this.sourceRangeSelection = { from, to };
+
+      // Add a CSS class to the editor for styling
+      const editorElement = codeMirrorEditor.dom;
+      editorElement.classList.add("cm-highlighting-range");
+
+      // Scroll the range into view
+      codeMirrorEditor.dispatch({
+        effects: EditorView.scrollIntoView(from, { y: "nearest" }),
+      });
+    } catch (error) {
+      console.warn("Failed to highlight source range:", error);
+    }
+  }
+
+  clearSourceRangeHighlight(): void {
+    if (!codeMirrorEditor) return;
+
+    try {
+      // Remove the highlighting class
+      const editorElement = codeMirrorEditor.dom;
+      editorElement.classList.remove("cm-highlighting-range");
+
+      this.sourceRangeSelection = null;
+    } catch (error) {
+      console.warn("Failed to clear source range highlight:", error);
+    }
+  }
+
+  navigateToSourcePosition(byteOffset: number): void {
+    if (!codeMirrorEditor) return;
+
+    try {
+      const doc = codeMirrorEditor.state.doc;
+      const pos = Math.min(byteOffset, doc.length);
+
+      // Set cursor position and scroll into view
+      codeMirrorEditor.dispatch({
+        selection: { anchor: pos, head: pos },
+        effects: EditorView.scrollIntoView(pos, { y: "center" }),
+      });
+
+      // Focus the editor
+      codeMirrorEditor.focus();
+    } catch (error) {
+      console.warn("Failed to navigate to source position:", error);
+    }
   }
 
   addShareButton(): void {

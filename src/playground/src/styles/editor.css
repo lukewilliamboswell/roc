@@ -267,3 +267,16 @@
         border-left: 3px solid var(--editor-cursor);
     }
 }
+
+/* === SOURCE RANGE HIGHLIGHTING === */
+.cm-source-range-highlight {
+    background-color: rgba(124, 58, 237, 0.2);
+    border-radius: 2px;
+    outline: 2px solid rgba(124, 58, 237, 0.4);
+    outline-offset: -1px;
+}
+
+[data-theme="dark"] .cm-source-range-highlight {
+    background-color: rgba(139, 92, 246, 0.3);
+    outline-color: rgba(139, 92, 246, 0.5);
+}

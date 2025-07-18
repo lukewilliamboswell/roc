@@ -1196,3 +1196,38 @@ button:focus-visible,
 .token.eof .token-type {
     color: var(--text-tertiary);
 }
+
+/* === SOURCE RANGE INTERACTIVE ELEMENTS === */
+.source-range {
+    display: inline-block;
+    padding: 1px 2px;
+    margin: 0 0px;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    font-family: "SF Mono", "Monaco", "Inconsolata", "Roboto Mono", monospace;
+    font-size: calc(var(--text-sm) - 1px);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--duration-fast) var(--ease-out);
+    user-select: none;
+}
+
+.source-range:hover {
+    background-color: var(--color-accent);
+    color: var(--bg-primary);
+    border-color: var(--color-accent);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+}
+
+.source-range:active {
+    transform: translateY(0);
+    box-shadow: none;
+}
+
+.source-range.highlighted {
+    background-color: var(--color-primary);
+    color: var(--bg-primary);
+    border-color: var(--color-primary);
+}

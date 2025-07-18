@@ -548,6 +548,18 @@ fn writeLoadedResponse(response_buffer: []u8, data: CompilerStageData) usize {
     return stream.getWritten().len;
 }
 
+/// Generate an interactive source range span for the playground
+fn writeSourceRangeSpan(writer: anytype, region: base.Region, source: []const u8, line_starts: []const u32) !void {
+    const region_info = base.RegionInfo.position(source, line_starts, region.start.offset, region.end.offset) catch {
+        // Fallback to byte offsets if line calculation fails
+        try writer.print("<span class=\"source-range\" data-start-byte=\"{d}\" data-end-byte=\"{d}\">@{d}-{d}</span>", .{ region.start.offset, region.end.offset, region.start.offset, region.end.offset });
+        return;
+    };
+
+    // Generate interactive span with line/column info
+    try writer.print("<span class=\"source-range\" data-start-byte=\"{d}\" data-end-byte=\"{d}\" data-start-line=\"{d}\" data-start-col=\"{d}\" data-end-line=\"{d}\" data-end-col=\"{d}\">@{d}.{d}-{d}.{d}</span>", .{ region.start.offset, region.end.offset, region_info.start_line_idx + 1, region_info.start_col_idx + 1, region_info.end_line_idx + 1, region_info.end_col_idx + 1, region_info.start_line_idx + 1, region_info.start_col_idx + 1, region_info.end_line_idx + 1, region_info.end_col_idx + 1 });
+}
+
 /// Write tokens response with direct HTML generation
 fn writeTokensResponse(response_buffer: []u8, data: CompilerStageData) usize {
     var stream = std.io.fixedBufferStream(response_buffer);
@@ -576,8 +588,6 @@ fn writeTokensResponse(response_buffer: []u8, data: CompilerStageData) usize {
         for (token_tags, token_extras, 0..) |tag, _, i| {
             const token_name = @tagName(tag);
             const region = ast.tokens.resolve(i);
-            const start_pos = region.start.offset;
-            const end_pos = region.end.offset;
 
             // Determine CSS class based on token type
             var css_class: []const u8 = "default";
@@ -599,10 +609,11 @@ fn writeTokensResponse(response_buffer: []u8, data: CompilerStageData) usize {
                 css_class = "eof";
             }
 
-            // Write token HTML
+            // Write token HTML with interactive source range
             html_writer.print("<span class=\"token {s}\">", .{css_class}) catch return 0;
             html_writer.print("<span class=\"token-type\">{s}</span>", .{token_name}) catch return 0;
-            html_writer.print("<span class=\"token-position\">({d}:{d})</span>", .{ start_pos, end_pos }) catch return 0;
+            html_writer.writeAll(" ") catch return 0;
+            writeSourceRangeSpan(html_writer, region, data.module_env.source, data.module_env.line_starts.items.items) catch return 0;
             html_writer.writeAll("</span>") catch return 0;
         }
 
