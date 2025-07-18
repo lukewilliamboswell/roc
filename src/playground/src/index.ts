@@ -14,6 +14,25 @@ import "./styles/tooltips.css";
 // Interfaces
 import { examples } from "./examples";
 
+// Global verbose flag for debug logging
+let verbose = false;
+
+// Debug logging helper
+function debugLog(...args: any[]): void {
+  if (verbose) {
+    console.log(...args);
+  }
+}
+
+// Function to toggle verbose logging
+function toggleVerboseLogging(): void {
+  verbose = !verbose;
+  console.log(`Verbose logging ${verbose ? "enabled" : "disabled"}`);
+}
+
+// Make toggle function available globally for debugging
+(window as any).toggleVerboseLogging = toggleVerboseLogging;
+
 interface Diagnostic {
   severity: "error" | "warning" | "info";
   message: string;
@@ -93,6 +112,9 @@ class RocPlayground {
 
       currentState = "READY";
       console.log("Playground initialized successfully");
+      console.log(
+        "💡 Tip: Use toggleVerboseLogging() in console to enable detailed debug logging",
+      );
     } catch (error) {
       console.error("Failed to initialize playground:", error);
       const message = error instanceof Error ? error.message : String(error);
@@ -742,7 +764,7 @@ class RocPlayground {
   }
 
   parseDiagnostics(result: any): Diagnostic[] {
-    console.log("Raw result for diagnostic parsing:", result);
+    debugLog("Raw result for diagnostic parsing:", result);
     const diagnostics: Diagnostic[] = [];
 
     // Handle new structured diagnostic format
@@ -751,10 +773,7 @@ class RocPlayground {
       result.diagnostics.list &&
       Array.isArray(result.diagnostics.list)
     ) {
-      console.log(
-        "Found structured diagnostics list:",
-        result.diagnostics.list,
-      );
+      debugLog("Found structured diagnostics list:", result.diagnostics.list);
       for (const diag of result.diagnostics.list) {
         // Validate that the diagnostic has the expected region structure
         if (
@@ -774,34 +793,31 @@ class RocPlayground {
               end_column: diag.region.end_column,
             },
           };
-          console.log("Parsed diagnostic:", parsedDiag);
+          debugLog("Parsed diagnostic:", parsedDiag);
           diagnostics.push(parsedDiag);
         } else {
           console.warn("Skipping diagnostic without valid region:", diag);
         }
       }
     } else {
-      console.log("No structured diagnostics found in result");
+      debugLog("No structured diagnostics found in result");
     }
 
     // Debug: Show stage report distribution
     if (result.diagnostics && result.diagnostics.debug_counts) {
-      console.log(
-        "Stage report distribution:",
-        result.diagnostics.debug_counts,
-      );
+      debugLog("Stage report distribution:", result.diagnostics.debug_counts);
       const counts = result.diagnostics.debug_counts;
-      console.log("Detailed breakdown:");
-      console.log("  Tokenize:", counts.tokenize);
-      console.log("  Parse:", counts.parse);
-      console.log("  Canonicalize:", counts.can);
-      console.log("  Type:", counts.type);
+      debugLog("Detailed breakdown:");
+      debugLog("  Tokenize:", counts.tokenize);
+      debugLog("  Parse:", counts.parse);
+      debugLog("  Canonicalize:", counts.can);
+      debugLog("  Type:", counts.type);
     }
 
     // Summary is now only used for the "Found X errors, Y warnings" display
     // Individual diagnostics come from the structured list above
 
-    console.log("Total diagnostics parsed:", diagnostics.length);
+    debugLog("Total diagnostics parsed:", diagnostics.length);
     return diagnostics;
   }
 
@@ -846,24 +862,19 @@ class RocPlayground {
 
   handleSourceRangeHover(event: Event): void {
     const target = event.target as HTMLElement;
-    console.log(
-      "Hover event on element:",
-      target,
-      "classList:",
-      target.classList,
-    );
+    debugLog("Hover event on element:", target, "classList:", target.classList);
 
     if (!target.classList.contains("source-range")) {
-      console.log("Not a source-range element, ignoring");
+      debugLog("Not a source-range element, ignoring");
       return;
     }
 
     const startByte = parseInt(target.dataset.startByte || "0", 10);
     const endByte = parseInt(target.dataset.endByte || "0", 10);
-    console.log("Source range hover:", { startByte, endByte });
+    debugLog("Source range hover:", { startByte, endByte });
 
     if (!codeMirrorEditor || isNaN(startByte) || isNaN(endByte)) {
-      console.log("Invalid state or bytes:", {
+      debugLog("Invalid state or bytes:", {
         codeMirrorEditor: !!codeMirrorEditor,
         startByte,
         endByte,
@@ -880,14 +891,14 @@ class RocPlayground {
 
   handleSourceRangeLeave(event: Event): void {
     const target = event.target as HTMLElement;
-    console.log("Leave event on element:", target);
+    debugLog("Leave event on element:", target);
 
     if (!target.classList.contains("source-range")) {
-      console.log("Not a source-range element, ignoring leave");
+      debugLog("Not a source-range element, ignoring leave");
       return;
     }
 
-    console.log("Source range leave");
+    debugLog("Source range leave");
 
     // Clear highlighting in the editor
     this.clearSourceRangeHighlight();
@@ -898,10 +909,10 @@ class RocPlayground {
 
   handleSourceRangeClick(event: Event): void {
     const target = event.target as HTMLElement;
-    console.log("Click event on element:", target);
+    debugLog("Click event on element:", target);
 
     if (!target.classList.contains("source-range")) {
-      console.log("Not a source-range element, ignoring click");
+      debugLog("Not a source-range element, ignoring click");
       return;
     }
 
@@ -909,10 +920,10 @@ class RocPlayground {
     event.stopPropagation();
 
     const startByte = parseInt(target.dataset.startByte || "0", 10);
-    console.log("Source range click, navigating to:", startByte);
+    debugLog("Source range click, navigating to:", startByte);
 
     if (!codeMirrorEditor || isNaN(startByte)) {
-      console.log("Invalid state or startByte:", {
+      debugLog("Invalid state or startByte:", {
         codeMirrorEditor: !!codeMirrorEditor,
         startByte,
       });
@@ -952,7 +963,7 @@ class RocPlayground {
       const editorElement = codeMirrorEditor.dom;
       editorElement.classList.add("cm-source-range-active");
 
-      console.log(`Highlighting range ${from}-${to} in editor`);
+      debugLog(`Highlighting range ${from}-${to} in editor`);
     } catch (error) {
       console.warn("Failed to highlight source range:", error);
     }
@@ -976,7 +987,7 @@ class RocPlayground {
       }
 
       this.sourceRangeHighlight = null;
-      console.log("Cleared source range highlight");
+      debugLog("Cleared source range highlight");
     } catch (error) {
       console.warn("Failed to clear source range highlight:", error);
     }
