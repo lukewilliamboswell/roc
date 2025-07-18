@@ -111,16 +111,25 @@ pub fn build(b: *std.Build) void {
         .dest_dir = .{ .override = .{ .custom = "playground" } },
     });
 
-    const playground_html_install = b.addInstallFile(b.path("src/playground/index.html"), "playground/index.html");
-    const playground_css_install = b.addInstallFile(b.path("src/playground/styles.css"), "playground/styles.css");
-    const playground_js_install = b.addInstallFile(b.path("src/playground/app.js"), "playground/app.js");
-    const playground_roc_mode_install = b.addInstallFile(b.path("src/playground/codemirror-modes/roc.js"), "playground/codemirror-modes/roc.js");
+    // Build the playground frontend with Parcel
+    const playground_build = b.addSystemCommand(&[_][]const u8{ "npm", "run", "build" });
+    playground_build.setCwd(b.path("src/playground"));
 
+    // Copy the entire dist directory to playground directory
+    const playground_dist_install = b.addInstallDirectory(.{
+        .source_dir = b.path("src/playground/dist"),
+        .install_dir = .prefix,
+        .install_subdir = "playground",
+    });
+
+    // Dependencies
     playground_step.dependOn(&playground_install.step);
-    playground_step.dependOn(&playground_html_install.step);
-    playground_step.dependOn(&playground_css_install.step);
-    playground_step.dependOn(&playground_js_install.step);
-    playground_step.dependOn(&playground_roc_mode_install.step);
+    playground_step.dependOn(&playground_build.step);
+    playground_step.dependOn(&playground_dist_install.step);
+
+    // Ensure Parcel build runs after WASM is built and before copying dist
+    playground_build.step.dependOn(&playground_install.step);
+    playground_dist_install.step.dependOn(&playground_build.step);
 
     const all_tests = b.addTest(.{
         .root_source_file = b.path("src/test.zig"),

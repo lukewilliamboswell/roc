@@ -4,8 +4,6 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Roc Playground</title>
-
-        <link rel="stylesheet" href="styles.css" />
     </head>
     <body>
         <div class="header">
@@ -28,7 +26,9 @@
                         points="0,0 23.8834,3.21052 37.2438,19.0101 45.9665,16.6324 50.5,22 45,22 44.0315,26.3689 26.4673,39.3424 27.4527,45.2132 17.655,53 23.6751,22.7086"
                     />
                 </svg>
-                <span class="header-title-text">Roc Playground</span>
+                <h1 class="header-title-text" data-title="Roc Playground">
+                    Roc Playground
+                </h1>
             </div>
             <div class="header-status">
                 <div class="theme-toggle">
@@ -111,7 +111,7 @@
             </div>
         </div>
 
-        <!-- Load CM6 bundle and initialize playground -->
-        <script type="module" src="cm6-loader.js"></script>
+        <!-- Load playground entry point -->
+        <script type="module" src="index.js"></script>
     </body>
 </html>

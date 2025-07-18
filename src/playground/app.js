@@ -61,21 +61,70 @@ async function initializePlayground() {
 
     logInfo("Initializing CodeMirror...");
     const editorElement = document.getElementById("editor");
-    codeMirrorEditor = CodeMirror(editorElement, {
-      mode: "roc",
-      lineNumbers: true,
-      matchBrackets: true,
-      indentUnit: 4,
-      tabSize: 4,
-      lineWrapping: true,
-      placeholder:
-        "# Select an example from the footer or write your own Roc code here...",
-      theme: "default",
-    });
 
-    // Setup tooltips after a delay to ensure all CodeMirror addons are loaded
+    // Check if cm6 bundle is available
+    if (typeof window.cm6 === "undefined") {
+      throw new Error("CM6 bundle not loaded");
+    }
+
+    logInfo("CM6 bundle found, analyzing...");
+    logInfo("window.cm6 type:", typeof window.cm6);
+    logInfo("window.cm6 keys:", Object.keys(window.cm6));
+    logInfo(
+      "Available functions:",
+      Object.keys(window.cm6).filter(
+        (key) => typeof window.cm6[key] === "function",
+      ),
+    );
+
+    // Check specific functions
+    logInfo("createEditorView type:", typeof window.cm6.createEditorView);
+    logInfo("createEditorState type:", typeof window.cm6.createEditorState);
+
+    try {
+      // Create CodeMirror 6 editor using the bundle
+      const initialDoc =
+        "# Select an example from the footer or write your own Roc code here...";
+
+      logInfo("Creating editor view...");
+      codeMirrorEditor = cm6.createEditorView(undefined, editorElement);
+
+      logInfo("Creating editor state...");
+      const initialState = cm6.createEditorState(initialDoc);
+
+      logInfo("Setting editor state...");
+      codeMirrorEditor.setState(initialState);
+
+      logInfo("CodeMirror 6 editor created successfully");
+    } catch (cm6Error) {
+      logError("Error creating CodeMirror 6 editor:", cm6Error);
+      logError("CM6 object:", window.cm6);
+      throw new Error(`Failed to create CM6 editor: ${cm6Error.message}`);
+    }
+
+    // Set up auto-compile listener
+    let lastDoc = codeMirrorEditor.state.doc.toString();
+    const checkForChanges = () => {
+      const currentDoc = codeMirrorEditor.state.doc.toString();
+      if (currentDoc !== lastDoc) {
+        lastDoc = currentDoc;
+        // Debounce compilation to avoid excessive calls
+        clearTimeout(compileTimeout);
+        compileStartTime = performance.now(); // Start timing when user stops typing
+        compileTimeout = setTimeout(() => {
+          if (currentState === "READY" || currentState === "LOADED") {
+            compileCode();
+          }
+        }, 20); // 20ms delay for better responsiveness
+      }
+    };
+
+    // Check for changes periodically
+    setInterval(checkForChanges, 100);
+
+    // Setup type hints after a delay to ensure all CodeMirror addons are loaded
     setTimeout(() => {
-      setupTooltips();
+      setupTypeHints();
     }, 100);
 
     logInfo("Populating examples...");
@@ -324,7 +373,8 @@ async function loadExample(exampleId) {
 
   // Load code into editor
   logInfo("Loading code into editor...");
-  codeMirrorEditor.setValue(example.code);
+  const newState = cm6.createEditorState(code);
+  codeMirrorEditor.setState(newState);
   activeExample = exampleId;
 
   // Reset if we're in loaded state
@@ -343,7 +393,7 @@ async function loadExample(exampleId) {
 // Compile code
 async function compileCode() {
   logInfo("Starting compilation...");
-  const code = codeMirrorEditor.getValue().trim();
+  const code = codeMirrorEditor.state.doc.toString();
   logInfo("Code length:", code.length, "characters");
 
   if (!code) {
@@ -382,6 +432,8 @@ async function compileCode() {
       // Set timing before updating diagnostic summary
       lastCompileTime = performance.now() - startTime;
       compileStartTime = null; // Reset for next compilation
+
+      // Type info cache removed - no longer needed
 
       updateDiagnosticSummary();
 
@@ -749,18 +801,10 @@ let compileTimeout;
 let compileStartTime = null;
 
 function setupAutoCompile() {
-  if (codeMirrorEditor) {
-    codeMirrorEditor.on("change", () => {
-      // Debounce compilation to avoid excessive calls
-      clearTimeout(compileTimeout);
-      compileStartTime = performance.now(); // Start timing when user stops typing
-      compileTimeout = setTimeout(() => {
-        if (currentState === "READY" || currentState === "LOADED") {
-          compileCode();
-        }
-      }, 20); // 20ms delay for better responsiveness
-    });
-  }
+  // Auto-compile is now handled by the periodic change detection in the editor initialization
+  logInfo(
+    "Auto-compile setup complete (using CM6 bundle with change detection)",
+  );
 }
 
 // URL sharing functionality (gzip + base64 + hash fragment)
@@ -832,7 +876,8 @@ async function restoreFromHash() {
       logInfo(`Decompressed content: ${content.substring(0, 100)}...`);
 
       if (codeMirrorEditor) {
-        codeMirrorEditor.setValue(content);
+        const newState = cm6.createEditorState(content);
+        codeMirrorEditor.setState(newState);
         logInfo("Restored content from hash fragment");
 
         // Wait for the playground to be ready before compiling
@@ -890,7 +935,7 @@ function addShareButton() {
 
 async function copyShareLink() {
   if (codeMirrorEditor) {
-    const content = codeMirrorEditor.getValue().trim();
+    const content = codeMirrorEditor.state.doc.toString().trim();
     if (content) {
       try {
         const b64 = await compressAndEncode(content);
@@ -1049,96 +1094,142 @@ function logError(...args) {
   console.error("ERROR:", ...args);
 }
 
-// === TOOLTIP FUNCTIONALITY ===
+// === TYPE HINTS FUNCTIONALITY ===
 
-let tooltipElement = null;
-let tooltipTimeout = null;
-let isTooltipVisible = false;
+function setupTypeHints() {
+  // Type hints would need to be implemented in the cm6 bundle
+  // For now, we'll implement basic hover detection
+  logInfo("Type hints setup complete (basic hover detection)");
 
-function setupTooltips() {
-  if (!codeMirrorEditor) {
-    logWarn("CodeMirror editor not available for tooltips");
-    return;
+  // Add hover event listeners to the editor
+  if (codeMirrorEditor && codeMirrorEditor.dom) {
+    let hoverTimeout = null;
+
+    codeMirrorEditor.dom.addEventListener("mousemove", (event) => {
+      if (hoverTimeout) {
+        clearTimeout(hoverTimeout);
+      }
+
+      hoverTimeout = setTimeout(async () => {
+        // Get position from mouse coordinates
+        const pos = codeMirrorEditor.posAtCoords({
+          x: event.clientX,
+          y: event.clientY,
+        });
+        if (pos !== null) {
+          await showTypeHintAtPosition(pos);
+        }
+      }, 500);
+    });
+
+    codeMirrorEditor.dom.addEventListener("mouseleave", () => {
+      if (hoverTimeout) {
+        clearTimeout(hoverTimeout);
+        hoverTimeout = null;
+      }
+      hideTypeHint();
+    });
   }
-
-  logInfo("Setting up tooltips...");
-
-  // Create tooltip element
-  tooltipElement = document.createElement("div");
-  tooltipElement.className = "CodeMirror-tooltip";
-  document.body.appendChild(tooltipElement);
-
-  // Add mouse event listeners
-  const editorElement = codeMirrorEditor.getWrapperElement();
-  editorElement.addEventListener("mousemove", handleMouseMove);
-  editorElement.addEventListener("mouseleave", hideTooltip);
-
-  logInfo("Tooltips setup complete");
 }
 
-function handleMouseMove(event) {
-  if (!codeMirrorEditor || !tooltipElement) return;
-
-  // Clear any existing timeout
-  if (tooltipTimeout) {
-    clearTimeout(tooltipTimeout);
-    tooltipTimeout = null;
-  }
-
-  // Get the position in the editor
-  const pos = codeMirrorEditor.coordsChar({
-    left: event.clientX,
-    top: event.clientY,
-  });
-  if (!pos) return;
-
-  // Add delay before showing tooltip
-  tooltipTimeout = setTimeout(() => {
-    showTooltipForPosition(pos, event.clientX, event.clientY);
-  }, 300); // 300ms delay
-}
-
-async function showTooltipForPosition(pos, clientX, clientY) {
-  if (!codeMirrorEditor || !tooltipElement) return;
+async function showTypeHintAtPosition(pos) {
+  if (currentState !== "LOADED") return;
 
   try {
-    // Get the token at the cursor position
-    const token = codeMirrorEditor.getTokenAt(pos);
-    if (!token || !token.string || token.string.trim() === "") return;
+    const doc = codeMirrorEditor.state.doc;
+    const line = doc.lineAt(pos);
+    const lineText = line.text;
+    const relativePos = pos - line.from;
 
-    // Only show tooltips for identifiers (not keywords, strings, etc.)
+    // Find word at position
+    const wordMatch = lineText.match(/\b\w+\b/g);
+    if (!wordMatch) return;
+
+    let currentPos = 0;
+    let hoveredWord = null;
+
+    for (const word of wordMatch) {
+      const wordIndex = lineText.indexOf(word, currentPos);
+      if (wordIndex <= relativePos && relativePos < wordIndex + word.length) {
+        hoveredWord = word;
+        break;
+      }
+      currentPos = wordIndex + word.length;
+    }
+
+    if (!hoveredWord || hoveredWord.length < 2) return;
+
+    // Skip keywords
     if (
-      token.type &&
-      (token.type.includes("keyword") ||
-        token.type.includes("string") ||
-        token.type.includes("number") ||
-        token.type.includes("comment"))
+      /^(if|else|when|is|and|or|not|expect|crash|dbg|import|exposing|as|module)$/i.test(
+        hoveredWord,
+      )
     ) {
       return;
     }
 
-    // Also skip if the token is too short or looks like punctuation
-    if (token.string.length < 2 || /^[^a-zA-Z_]/.test(token.string)) {
-      return;
+    const lineNumber = doc.lineAt(pos).number - 1;
+    const columnNumber = pos - line.from;
+
+    const typeInfo = await getTypeInformation(hoveredWord, {
+      line: lineNumber,
+      ch: columnNumber,
+    });
+
+    if (typeInfo) {
+      showTypeHintTooltip(typeInfo, hoveredWord, pos);
     }
-
-    // Get type information from WASM
-    const typeInfo = await getTypeInformation(token.string, pos);
-    if (!typeInfo) return;
-
-    // Show the tooltip
-    displayTooltip(typeInfo, clientX, clientY);
   } catch (error) {
-    logError("Error showing tooltip:", error);
+    logError("Error showing type hint:", error);
   }
 }
 
+function showTypeHintTooltip(typeInfo, identifier, pos) {
+  hideTypeHint();
+
+  const tooltip = document.createElement("div");
+  tooltip.className = "type-hint-tooltip";
+  tooltip.innerHTML = `
+    <span class="hint-identifier">${escapeHtml(identifier)}</span> :
+    <span class="hint-type">${escapeHtml(typeInfo.type)}</span>
+    ${typeInfo.description ? `<div class="hint-description">${escapeHtml(typeInfo.description)}</div>` : ""}
+  `;
+
+  document.body.appendChild(tooltip);
+
+  // Position tooltip
+  const coords = codeMirrorEditor.coordsAtPos(pos);
+  if (coords) {
+    tooltip.style.position = "absolute";
+    tooltip.style.left = coords.left + "px";
+    tooltip.style.top = coords.top - tooltip.offsetHeight - 5 + "px";
+    tooltip.style.zIndex = "1000";
+  }
+
+  tooltip.dataset.tooltip = "active";
+}
+
+function hideTypeHint() {
+  const existingTooltip = document.querySelector('[data-tooltip="active"]');
+  if (existingTooltip) {
+    existingTooltip.remove();
+  }
+}
+
+// Removed unused getTypeHintTooltip function - replaced with custom hover detection for CM6 bundle
+
 async function getTypeInformation(identifier, pos) {
-  if (!wasmModule || !codeMirrorEditor) return null;
+  logInfo("Getting type information for:", identifier, "at position:", pos);
+
+  if (!wasmModule) {
+    logWarn("WASM module not available");
+    return null;
+  }
 
   try {
     // Only provide type information if we have compiled code
     if (currentState !== "LOADED") {
+      logInfo("Code not loaded, cannot get type information");
       return null;
     }
 
@@ -1150,68 +1241,17 @@ async function getTypeInformation(identifier, pos) {
       ch: pos.ch,
     });
 
-    if (response.status === "SUCCESS" && response.type_info) {
+    logInfo("WASM response:", response);
+
+    if (response && response.status === "SUCCESS" && response.type_info) {
       return response.type_info;
+    } else {
+      logInfo("No type information returned from WASM");
+      return null;
     }
   } catch (error) {
     logError("Error getting type information:", error);
-  }
-
-  return null;
-}
-
-function displayTooltip(typeInfo, clientX, clientY) {
-  if (!tooltipElement) return;
-
-  // Format the tooltip content
-  let content = "";
-  if (typeInfo.type) {
-    content += `<span class="type-info">${escapeHtml(typeInfo.type)}</span>`;
-  }
-  if (typeInfo.error) {
-    content += `<span class="error-info">${escapeHtml(typeInfo.error)}</span>`;
-  }
-  if (typeInfo.description) {
-    content += `\n${escapeHtml(typeInfo.description)}`;
-  }
-
-  if (!content) return;
-
-  tooltipElement.innerHTML = content;
-
-  // Position the tooltip
-  const tooltipRect = tooltipElement.getBoundingClientRect();
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-
-  let left = clientX + 10;
-  let top = clientY - 10;
-
-  // Adjust position if tooltip would go off screen
-  if (left + tooltipRect.width > viewportWidth) {
-    left = clientX - tooltipRect.width - 10;
-  }
-  if (top + tooltipRect.height > viewportHeight) {
-    top = clientY - tooltipRect.height - 10;
-  }
-
-  tooltipElement.style.left = Math.max(0, left) + "px";
-  tooltipElement.style.top = Math.max(0, top) + "px";
-
-  // Show the tooltip
-  tooltipElement.classList.add("show");
-  isTooltipVisible = true;
-}
-
-function hideTooltip() {
-  if (tooltipTimeout) {
-    clearTimeout(tooltipTimeout);
-    tooltipTimeout = null;
-  }
-
-  if (tooltipElement && isTooltipVisible) {
-    tooltipElement.classList.remove("show");
-    isTooltipVisible = false;
+    return null;
   }
 }
 
@@ -1227,7 +1267,8 @@ document.getElementById("themeSwitch").addEventListener("keydown", (e) => {
   }
 });
 
-// Initialize when page loads
-logInfo("Page loaded, setting up initialization...");
-
-window.addEventListener("load", initializePlayground);
+// Export startPlayground function for HTML to call after CM6 bundle is loaded
+window.startPlayground = function () {
+  logInfo("Page loaded, setting up initialization...");
+  initializePlayground();
+};
