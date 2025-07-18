@@ -42,7 +42,6 @@ export function createEditorView(
       },
       ".cm-content": {
         padding: "16px",
-        minHeight: "200px",
       },
       ".cm-editor": {
         borderRadius: "4px",

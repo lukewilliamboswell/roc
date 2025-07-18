@@ -6,6 +6,8 @@
     font-family: "SF Mono", "Monaco", "Inconsolata", "Roboto Mono", monospace;
     font-size: 14px;
     line-height: 1.5;
+    display: flex;
+    flex-direction: column;
 }
 
 .cm-editor.cm-focused {
@@ -15,8 +17,14 @@
 
 .cm-content {
     padding: var(--space-4);
-    min-height: 100%;
     caret-color: var(--editor-cursor);
+}
+
+.cm-scroller {
+    flex: 1;
+    overflow: auto;
+    height: 100%;
+    min-height: 0;
 }
 
 .cm-line {

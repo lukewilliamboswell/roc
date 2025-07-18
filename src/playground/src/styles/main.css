@@ -651,6 +651,8 @@ body {
     flex: 1;
     position: relative;
     background-color: var(--code-bg);
+    height: 0; /* Force flex item to respect container height */
+    overflow: hidden; /* Let CodeMirror handle scrolling */
 }
 
 /* === OUTPUT CONTAINER === */
