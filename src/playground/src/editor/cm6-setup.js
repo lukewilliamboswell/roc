@@ -1,7 +1,8 @@
 import { EditorView, basicSetup } from "codemirror";
 import { EditorState } from "@codemirror/state";
-import { hoverTooltip } from "@codemirror/view";
+import { hoverTooltip, keymap } from "@codemirror/view";
 import { search, openSearchPanel } from "@codemirror/search";
+import { defaultKeymap, indentMore, indentLess } from "@codemirror/commands";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { rocStreamLanguage } from "./roc-language.js";
 
@@ -25,6 +26,11 @@ export function createEditorView(parent, options = {}) {
     search(),
     EditorView.lineWrapping,
     rocStreamLanguage(),
+    keymap.of([
+      ...defaultKeymap,
+      { key: "Tab", run: indentMore, preventDefault: true },
+      { key: "Shift-Tab", run: indentLess, preventDefault: true },
+    ]),
     EditorView.theme({
       "&": {
         fontSize: "14px",
@@ -90,6 +96,11 @@ export function createEditorState(doc, options = {}) {
     search(),
     EditorView.lineWrapping,
     rocStreamLanguage(),
+    keymap.of([
+      ...defaultKeymap,
+      { key: "Tab", run: indentMore, preventDefault: true },
+      { key: "Shift-Tab", run: indentLess, preventDefault: true },
+    ]),
     EditorView.theme({
       "&": {
         fontSize: "14px",

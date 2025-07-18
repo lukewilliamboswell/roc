@@ -1,25 +1,35 @@
 import { hoverTooltip } from "@codemirror/view";
 
 /**
- * Creates a hover tooltip extension for type hints
+ * Creates a hover tooltip function for type hints
  * @param {Object} wasmInterface - The WASM interface for getting type information
- * @returns {Extension} CodeMirror extension for hover tooltips
+ * @returns {Function} Hover tooltip function for CodeMirror
  */
 export function createTypeHintTooltip(wasmInterface) {
-  return hoverTooltip(async (view, pos, side) => {
+  return async (view, pos, side) => {
     if (!wasmInterface) {
       return null;
     }
 
     // Get the word at the current position
-    const word = getWordAtPosition(view, pos);
-    if (!word || word.length === 0) {
+    const wordInfo = getWordAtPosition(view, pos);
+    if (!wordInfo || wordInfo.word.length === 0) {
       return null;
     }
 
     try {
+      // Calculate line/column from position
+      const line = view.state.doc.lineAt(pos);
+      const lineNumber = line.number - 1; // Convert to 0-based
+      const column = pos - line.from;
+
       // Get type information from WASM
-      const typeInfo = await getTypeInformation(wasmInterface, word, pos);
+      const typeInfo = await getTypeInformation(
+        wasmInterface,
+        wordInfo.word,
+        lineNumber,
+        column,
+      );
       if (!typeInfo) {
         return null;
       }
@@ -27,22 +37,23 @@ export function createTypeHintTooltip(wasmInterface) {
       return {
         pos,
         above: true,
-        create: () => ({
-          dom: createTooltipDOM(word, typeInfo)
-        })
+        create(view) {
+          const dom = createTooltipDOM(wordInfo.word, typeInfo);
+          return { dom };
+        },
       };
     } catch (error) {
       console.error("Error getting type information:", error);
       return null;
     }
-  });
+  };
 }
 
 /**
  * Gets the word at a specific position in the editor
  * @param {EditorView} view - The editor view
  * @param {number} pos - The position to check
- * @returns {string|null} The word at the position, or null if not found
+ * @returns {Object|null} Object with word and position info, or null if not found
  */
 function getWordAtPosition(view, pos) {
   const line = view.state.doc.lineAt(pos);
@@ -67,7 +78,14 @@ function getWordAtPosition(view, pos) {
     return null;
   }
 
-  return lineText.slice(start, end);
+  const word = lineText.slice(start, end);
+  return {
+    word,
+    start: line.from + start,
+    end: line.from + end,
+    lineNumber: line.number - 1, // 0-based
+    column: start,
+  };
 }
 
 /**
@@ -128,26 +146,33 @@ function createTooltipDOM(word, typeInfo) {
 /**
  * Gets type information for a word at a specific position
  * @param {Object} wasmInterface - The WASM interface
- * @param {string} word - The word to get type information for
- * @param {number} pos - The position in the document
+ * @param {string} identifier - The identifier to get type information for
+ * @param {number} line - The line number (0-based)
+ * @param {number} column - The column number (0-based)
  * @returns {Promise<Object|null>} Type information or null if not found
  */
-async function getTypeInformation(wasmInterface, word, pos) {
+async function getTypeInformation(wasmInterface, identifier, line, column) {
   try {
-    if (!wasmInterface.getTypeInfo) {
+    if (!wasmInterface || !wasmInterface.getTypeInfo) {
       console.warn("getTypeInfo not available in WASM interface");
       return null;
     }
 
-    const result = await wasmInterface.getTypeInfo(word, pos);
+    const result = await wasmInterface.getTypeInfo(identifier, line, column);
 
-    if (!result || result.error) {
+    if (!result || result.error || result.status !== "SUCCESS") {
+      return null;
+    }
+
+    // Extract type information from the response
+    const typeInfo = result.type_info;
+    if (!typeInfo || !typeInfo.type) {
       return null;
     }
 
     return {
-      type: result.type || "unknown",
-      description: result.description || null
+      type: typeInfo.type,
+      description: typeInfo.description || null,
     };
   } catch (error) {
     console.error("Error in getTypeInformation:", error);
@@ -162,14 +187,19 @@ async function getTypeInformation(wasmInterface, word, pos) {
  * @param {Object} wasmInterface - The WASM interface
  */
 export async function showTypeHintAtPosition(view, pos, wasmInterface) {
-  const word = getWordAtPosition(view, pos);
-  if (!word) return;
+  const wordInfo = getWordAtPosition(view, pos);
+  if (!wordInfo) return;
 
-  const typeInfo = await getTypeInformation(wasmInterface, word, pos);
+  const typeInfo = await getTypeInformation(
+    wasmInterface,
+    wordInfo.word,
+    wordInfo.lineNumber,
+    wordInfo.column,
+  );
   if (!typeInfo) return;
 
   // Create and show tooltip
-  const tooltip = createTooltipDOM(word, typeInfo);
+  const tooltip = createTooltipDOM(wordInfo.word, typeInfo);
   document.body.appendChild(tooltip);
 
   // Position the tooltip
@@ -177,7 +207,7 @@ export async function showTypeHintAtPosition(view, pos, wasmInterface) {
   if (coords) {
     tooltip.style.position = "fixed";
     tooltip.style.left = coords.left + "px";
-    tooltip.style.top = (coords.top - 40) + "px";
+    tooltip.style.top = coords.top - 40 + "px";
   }
 
   // Auto-hide after 3 seconds
@@ -193,7 +223,7 @@ export async function showTypeHintAtPosition(view, pos, wasmInterface) {
  */
 export function hideTypeHint() {
   const tooltips = document.querySelectorAll(".cm-tooltip-type-hint");
-  tooltips.forEach(tooltip => {
+  tooltips.forEach((tooltip) => {
     if (tooltip.parentNode) {
       tooltip.parentNode.removeChild(tooltip);
     }

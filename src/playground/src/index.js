@@ -24,27 +24,25 @@ const examples = [
   {
     name: "Hello World",
     description: "A simple hello world program",
-    code: `# A simple Roc program
-main! = |_| 
-    name = "World"
-    Stdout.line! "Hello, $(name)!"`,
+    code: `main! = |_|
+    Stdout.line! "Hello, World!"`,
   },
   {
-    name: "Pattern Matching",
-    description: "Using when expressions and pattern matching",
-    code: `# Pattern matching with when expressions
-processResult = \\result ->
-    when result is
-        Ok value -> "Success: $(Num.toStr value)"
-        Err msg -> "Error: $(msg)"
+    name: "Basic Types",
+    description: "Numbers, strings, and booleans",
+    code: `module [name, age, height, isActive]
 
-main! = |_|
-    results = [Ok 42, Err "Something went wrong", Ok 100]
-    
-    results 
-    |> List.map processResult
-    |> List.walk "" \\acc, item -> "$(acc)$(item)\\n"
-    |> Stdout.line!`,
+name : Str
+name = "Alice"
+
+age : I32
+age = 25
+
+height : Dec
+height = 5.8
+
+isActive : Bool
+isActive = Bool.True`,
   },
   {
     name: "Types & Functions",
@@ -321,7 +319,7 @@ class RocPlayground {
 
       const outputContent = document.getElementById("outputContent");
       if (result.status === "SUCCESS") {
-        outputContent.innerHTML = this.renderContent(result.data || "No tokens");
+        outputContent.innerHTML = `<div class="sexp-output">${result.data || "No tokens"}</div>`;
       } else {
         outputContent.innerHTML = `<div class="error-message">${this.escapeHtml(result.message || "Failed to get tokens")}</div>`;
       }
@@ -646,19 +644,6 @@ class RocPlayground {
     const div = document.createElement("div");
     div.textContent = text;
     return div.innerHTML;
-  }
-
-  renderContent(content, wrapClass = "sexp-output") {
-    // Check if content contains HTML tags
-    const hasHtml = /<[^>]*>/g.test(content);
-    
-    if (hasHtml) {
-      // Content contains HTML, render it directly
-      return `<div class="${wrapClass}">${content}</div>`;
-    } else {
-      // Content is plain text, escape it
-      return `<div class="${wrapClass}">${this.escapeHtml(content)}</div>`;
-    }
   }
 
   parseDiagnostics(result) {

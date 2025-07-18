@@ -103,12 +103,13 @@ function createWasmInterface() {
     getTypes: () => sendMessageQueued({ type: "QUERY_TYPES" }),
 
     // Type information methods
-    getTypeInfo: async (word, position) => {
+    getTypeInfo: async (identifier, line, ch) => {
       try {
         const result = await sendMessageQueued({
           type: "GET_TYPE_INFO",
-          word,
-          position,
+          identifier,
+          line,
+          ch,
         });
         return result;
       } catch (error) {
