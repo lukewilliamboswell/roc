@@ -10,11 +10,7 @@ import "./styles/editor.css";
 import "./styles/tooltips.css";
 
 // Interfaces
-interface Example {
-  name: string;
-  description: string;
-  code: string;
-}
+import { examples } from "./examples";
 
 interface Diagnostic {
   severity: "error" | "warning" | "info";
@@ -46,60 +42,6 @@ let lastCompileTime: number | null = null;
 let codeMirrorEditor: any = null;
 
 // Examples data (from app.js)
-const examples: Example[] = [
-  {
-    name: "Hello World",
-    description: "A simple hello world program",
-    code: `main! = |_|
-    Stdout.line! "Hello, World!"`,
-  },
-  {
-    name: "Basic Types",
-    description: "Numbers, strings, and booleans",
-    code: `module [name, age, height, isActive]
-
-name : Str
-name = "Alice"
-
-age : I32
-age = 25
-
-height : Dec
-height = 5.8
-
-isActive : Bool
-isActive = Bool.True`,
-  },
-  {
-    name: "Types & Functions",
-    description: "Custom types, functions, and conditionals",
-    code: `# Custom types and functions
-Color : [Red, Green, Blue]
-
-colorToHex : Color ->{ pf: platform \"../basic-cli/platform.roc\" }
-
-import pf.Stdout
-
-main! = |_| Stdout.line!(\"Hello, world!\")`,
-  },
-  {
-    name: "Basic Types",
-    description: "Numbers, strings, and booleans",
-    code: `module [name, age, height, isActive]
-
-name : Str
-name = "Alice"
-
-age : I32
-age = 25
-
-height : Dec
-height = 5.8
-
-isActive : Bool
-isActive = Bool.True`,
-  },
-];
 
 // Main playground class
 class RocPlayground {
