@@ -508,7 +508,11 @@ body {
 
 .editor {
     flex: 1;
-    padding: var(--space-5);
+    position: relative;
+}
+
+.editor .CodeMirror {
+    height: 100%;
     font-family:
         "SF Mono", "Monaco", "Inconsolata", "Fira Code", "Droid Sans Mono",
         "Source Code Pro", monospace;
@@ -516,18 +520,52 @@ body {
     line-height: var(--leading-relaxed);
     border: none;
     outline: none;
-    resize: none;
     background-color: var(--editor-bg);
     color: var(--text-primary);
-    caret-color: var(--editor-cursor);
+    /* padding: var(--space-5); */
 }
 
-.editor::selection {
+.editor .CodeMirror-focused {
+    background-color: var(--editor-line-highlight);
+}
+
+.editor .CodeMirror-cursor {
+    border-left: 1px solid var(--editor-cursor);
+}
+
+.editor .CodeMirror-selected {
     background-color: var(--editor-selection);
 }
 
-.editor:focus {
+.editor .CodeMirror-line::selection,
+.editor .CodeMirror-line > span::selection,
+.editor .CodeMirror-line > span > span::selection {
+    background-color: var(--editor-selection);
+}
+
+.editor .CodeMirror-gutters {
+    background-color: var(--editor-bg);
+    border-right: 1px solid var(--border-default);
+}
+
+.editor .CodeMirror-linenumber {
+    color: var(--text-secondary);
+    padding: 0 var(--space-2);
+}
+
+.editor .CodeMirror-activeline-background {
     background-color: var(--editor-line-highlight);
+}
+
+.editor .CodeMirror-matchingbracket {
+    color: var(--text-primary);
+    background-color: var(--editor-selection);
+    font-weight: bold;
+}
+
+.editor .CodeMirror-nonmatchingbracket {
+    color: var(--color-error);
+    background-color: var(--editor-selection);
 }
 
 /* === OUTPUT CONTAINER === */

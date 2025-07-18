@@ -7,6 +7,7 @@ let lastDiagnostics = null;
 let activeExample = null;
 let lastCompileTime = null;
 let updateUrlTimeout = null;
+let codeMirrorEditor = null;
 
 // Example modules
 const examples = [
@@ -57,6 +58,19 @@ async function initializePlayground() {
         `WASM initialization failed: ${response.message || "Unknown error"}`,
       );
     }
+
+    logInfo("Initializing CodeMirror...");
+    const editorElement = document.getElementById("editor");
+    codeMirrorEditor = CodeMirror(editorElement, {
+      lineNumbers: true,
+      matchBrackets: true,
+      indentUnit: 4,
+      tabSize: 4,
+      lineWrapping: true,
+      placeholder:
+        "# Select an example from the footer or write your own Roc code here...",
+      theme: "default",
+    });
 
     logInfo("Populating examples...");
     populateExamples();
@@ -304,7 +318,7 @@ async function loadExample(exampleId) {
 
   // Load code into editor
   logInfo("Loading code into editor...");
-  document.getElementById("editor").value = example.code;
+  codeMirrorEditor.setValue(example.code);
   activeExample = exampleId;
 
   // Reset if we're in loaded state
@@ -323,8 +337,7 @@ async function loadExample(exampleId) {
 // Compile code
 async function compileCode() {
   logInfo("Starting compilation...");
-  const editor = document.getElementById("editor");
-  const code = editor.value.trim();
+  const code = codeMirrorEditor.getValue().trim();
   logInfo("Code length:", code.length, "characters");
 
   if (!code) {
@@ -730,9 +743,8 @@ let compileTimeout;
 let compileStartTime = null;
 
 function setupAutoCompile() {
-  const editor = document.getElementById("editor");
-  if (editor) {
-    editor.addEventListener("input", () => {
+  if (codeMirrorEditor) {
+    codeMirrorEditor.on("change", () => {
       // Debounce compilation to avoid excessive calls
       clearTimeout(compileTimeout);
       compileStartTime = performance.now(); // Start timing when user stops typing
@@ -813,9 +825,8 @@ async function restoreFromHash() {
       const content = await decodeAndDecompress(b64);
       logInfo(`Decompressed content: ${content.substring(0, 100)}...`);
 
-      const editor = document.getElementById("editor");
-      if (editor) {
-        editor.value = content;
+      if (codeMirrorEditor) {
+        codeMirrorEditor.setValue(content);
         logInfo("Restored content from hash fragment");
 
         // Wait for the playground to be ready before compiling
@@ -825,7 +836,7 @@ async function restoreFromHash() {
           logInfo("Playground not ready, skipping auto-compile");
         }
       } else {
-        logError("Editor element not found");
+        logError("CodeMirror editor not found");
       }
     } catch (e) {
       logError("Failed to decompress content from hash", e);
@@ -872,9 +883,8 @@ function addShareButton() {
 }
 
 async function copyShareLink() {
-  const editor = document.getElementById("editor");
-  if (editor) {
-    const content = editor.value.trim();
+  if (codeMirrorEditor) {
+    const content = codeMirrorEditor.getValue().trim();
     if (content) {
       try {
         const b64 = await compressAndEncode(content);
