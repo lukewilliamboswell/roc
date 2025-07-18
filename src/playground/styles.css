@@ -2,6 +2,15 @@
 :root {
     /* === BASE DESIGN TOKENS === */
 
+    /* Site.css Colors */
+    --gray: #2e2e2e;
+    --orange: #5c2600;
+    --green: rgb(8 92 0);
+    --blue: #05006d;
+    --violet: #7c38f5;
+    --cyan: #004c5c;
+    --magenta: #a20031;
+
     /* Spacing Scale (4px base) */
     --space-1: 4px;
     --space-2: 8px;
@@ -78,19 +87,21 @@
     --color-accent: var(--roc-cyan);
     --color-accent-hover: var(--roc-cyan-light);
 
-    --color-success: #059669;
-    --color-warning: #d97706;
-    --color-error: #dc2626;
-    --color-info: #0284c7;
+    --color-success: var(--green);
+    --color-warning: var(--orange);
+    --color-error: var(--magenta);
+    --color-info: var(--blue);
 
     /* Code Syntax */
-    --syntax-keyword: #6366f1;
-    --syntax-string: #059669;
-    --syntax-number: #d97706;
-    --syntax-comment: #94a3b8;
-    --syntax-function: #7c3aed;
-    --syntax-red: #db2777;
-    --syntax-attribute: #0891b2;
+    --syntax-keyword: var(--magenta);
+    --syntax-string: var(--cyan);
+    --syntax-number: var(--cyan);
+    --syntax-comment: var(--gray);
+    --syntax-function: var(--blue);
+    --syntax-type: var(--green);
+    --syntax-operator: var(--orange);
+    --syntax-punctuation: var(--gray);
+    --syntax-attribute: var(--magenta);
 
     /* Interactive States */
     --state-hover: rgba(124, 56, 245, 0.08);
@@ -116,6 +127,15 @@
 /* Dark Theme */
 @media (prefers-color-scheme: dark) {
     :root {
+        /* Site.css Colors - Dark Mode */
+        --gray: #b3b3b3;
+        --orange: #fda668;
+        --green: #99d194;
+        --blue: #b8b6e2;
+        --violet: #caadfb;
+        --magenta: #f4a4b4;
+        --cyan: #72f3ea;
+
         --bg-primary: #0f172a;
         --bg-secondary: #1e293b;
         --bg-tertiary: #334155;
@@ -136,24 +156,11 @@
         --color-accent: #22d3ee;
         --color-accent-hover: #67e8f9;
 
-        --color-success: #10b981;
-        --color-warning: #f59e0b;
-        --color-error: #ef4444;
-        --color-info: #3b82f6;
-
-        --syntax-keyword: #a78bfa;
-        --syntax-string: #6ee7b7;
-        --syntax-number: #fbbf24;
-        --syntax-comment: #94a3b8;
-        --syntax-function: #c4b5fd;
-        --syntax-red: #f472b6;
-        --syntax-attribute: #22d3ee;
-
         --state-hover: rgba(167, 139, 250, 0.1);
         --state-active: rgba(167, 139, 250, 0.15);
         --state-focus: rgba(167, 139, 250, 0.2);
 
-        --editor-bg: #0f172a;
+        --editor-bg: #181d34;
         --editor-selection: rgba(167, 139, 250, 0.2);
         --editor-cursor: var(--color-primary);
         --editor-line-highlight: rgba(167, 139, 250, 0.05);
@@ -168,6 +175,25 @@
 }
 
 [data-theme="dark"] {
+    /* Site.css Colors - Dark Mode */
+    --gray: #6e6e6e;
+    --orange: #fd6e08;
+    --green: #8ecc88;
+    --blue: #b1afdf;
+    --violet: #7c38f5;
+    --magenta: #f39bac;
+
+    /* Code Syntax */
+    --syntax-keyword: var(--magenta);
+    --syntax-string: var(--cyan);
+    --syntax-number: var(--cyan);
+    --syntax-comment: var(--gray);
+    --syntax-function: var(--blue);
+    --syntax-type: var(--green);
+    --syntax-operator: var(--orange);
+    --syntax-punctuation: var(--gray);
+    --syntax-attribute: var(--magenta);
+
     --bg-primary: #0f172a;
     --bg-secondary: #1e293b;
     --bg-tertiary: #334155;
@@ -187,19 +213,6 @@
     --color-primary-active: #8b5cf6;
     --color-accent: #22d3ee;
     --color-accent-hover: #67e8f9;
-
-    --color-success: #10b981;
-    --color-warning: #f59e0b;
-    --color-error: #ef4444;
-    --color-info: #3b82f6;
-
-    --syntax-keyword: #a78bfa;
-    --syntax-string: #6ee7b7;
-    --syntax-number: #fbbf24;
-    --syntax-comment: #94a3b8;
-    --syntax-function: #c4b5fd;
-    --syntax-type: #f472b6;
-    --syntax-attribute: #22d3ee;
 
     --state-hover: rgba(167, 139, 250, 0.1);
     --state-active: rgba(167, 139, 250, 0.15);
@@ -588,11 +601,11 @@ body {
 }
 
 .editor .cm-operator {
-    color: var(--syntax-red);
+    color: var(--syntax-operator);
 }
 
 .editor .cm-punctuation {
-    color: var(--syntax-red);
+    color: var(--syntax-punctuation);
 }
 
 .editor .cm-builtin {
@@ -611,7 +624,7 @@ body {
 }
 
 .editor .cm-variable {
-    color: var(--text-primary);
+    color: var(--syntax-function);
 }
 
 .editor .cm-error {
@@ -756,7 +769,7 @@ body {
     color: var(--syntax-number);
 }
 .token-punctuation {
-    color: var(--syntax-red);
+    color: var(--syntax-punctuation);
 }
 .token-comment {
     color: var(--syntax-comment);
