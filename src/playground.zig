@@ -5,6 +5,12 @@
 //! 1. START: Initialize module, return compiler version
 //! 2. READY: Receive Roc source, compile through all stages, return "LOADED" with diagnostics
 //! 3. LOADED: Handle queries for tokens, AST, CIR, types, etc. Handle reset to go back to READY
+//!
+//! Compilation Strategy:
+//! The playground uses Roc's "keep going" approach - all compiler stages run even when there
+//! are errors in earlier stages. This provides better user experience by showing type information
+//! and later-stage errors even when there are syntax errors. Malformed nodes are used to
+//! represent invalid code, allowing the compiler to continue through all stages.
 
 const std = @import("std");
 const parse = @import("check/parse.zig");
@@ -17,6 +23,7 @@ const reporting = @import("reporting.zig");
 const snapshot = @import("snapshot.zig");
 const SExprTree = @import("base/SExprTree.zig");
 const types = @import("types.zig");
+const problem = @import("check/check_types/problem.zig");
 
 const ModuleEnv = base.ModuleEnv;
 const Allocator = std.mem.Allocator;
@@ -293,7 +300,9 @@ fn handleLoadedState(message_type: MessageType, message_json: std.json.Value, re
     }
 }
 
-/// Compile source through all compiler stages
+/// Compile source through all compiler stages using Roc's "keep going" strategy.
+/// All stages run even when there are errors in earlier stages, using malformed nodes
+/// to represent invalid code and allow continued compilation.
 fn compileSource(source: []const u8) !CompilerStageData {
     // Handle empty input gracefully to prevent crashes
     if (source.len == 0) {
@@ -350,48 +359,57 @@ fn compileSource(source: []const u8) !CompilerStageData {
         result.parse_reports.append(report) catch continue;
     }
 
-    // Stage 2: Canonicalization (if parsing succeeded)
-    if (parse_ast.parse_diagnostics.items.len == 0) {
-        // Initialize CIR directly in result to ensure stable pointer
-        result.can_ir = try can.CIR.init(module_env, "main");
-        var can_ir = &result.can_ir.?;
+    // Stage 2: Canonicalization (always run, even with parse errors)
+    // The canonicalizer handles malformed parse nodes and continues processing
+    // Initialize CIR directly in result to ensure stable pointer
+    result.can_ir = try can.CIR.init(module_env, "main");
+    var can_ir = &result.can_ir.?;
 
-        var canonicalizer = try can.init(can_ir, &parse_ast, null);
-        defer canonicalizer.deinit();
+    var canonicalizer = try can.init(can_ir, &parse_ast, null);
+    defer canonicalizer.deinit();
 
-        canonicalizer.canonicalizeFile() catch {};
+    canonicalizer.canonicalizeFile() catch {};
 
-        // Debug: Log the spans after canonicalization
-        const defs_count = can_ir.store.sliceDefs(can_ir.all_defs).len;
-        const stmts_count = can_ir.store.sliceStatements(can_ir.all_statements).len;
-        _ = defs_count;
-        _ = stmts_count;
+    // Debug: Log the spans after canonicalization
+    const defs_count = can_ir.store.sliceDefs(can_ir.all_defs).len;
+    const stmts_count = can_ir.store.sliceStatements(can_ir.all_statements).len;
+    _ = defs_count;
+    _ = stmts_count;
 
-        // Collect canonicalization diagnostics
-        const can_diags = can_ir.getDiagnostics() catch &.{};
-        for (can_diags) |diag| {
-            const report = can_ir.diagnosticToReport(diag, allocator, source, "main.roc") catch continue;
-            result.can_reports.append(report) catch continue;
-        }
+    // Collect canonicalization diagnostics
+    const can_diags = can_ir.getDiagnostics() catch &.{};
+    for (can_diags) |diag| {
+        const report = can_ir.diagnosticToReport(diag, allocator, source, "main.roc") catch continue;
+        result.can_reports.append(report) catch continue;
     }
 
-    // Stage 3: Type checking (if canonicalization succeeded)
-    if (result.can_ir) |*can_ir| {
-        if (result.can_reports.items.len == 0) {
-            const empty_modules: []const *can.CIR = &.{};
-            // Use pointer to the stored CIR to ensure solver references valid memory
-            var solver = try check_types.init(allocator, &module_env.types, can_ir, empty_modules, &can_ir.store.regions);
-            result.solver = solver;
+    // Stage 3: Type checking (always run if we have CIR, even with canonicalization errors)
+    // The type checker works with malformed canonical nodes to provide partial type information
+    if (result.can_ir) |*type_can_ir| {
+        const empty_modules: []const *can.CIR = &.{};
+        // Use pointer to the stored CIR to ensure solver references valid memory
+        var solver = try check_types.init(allocator, &module_env.types, type_can_ir, empty_modules, &type_can_ir.store.regions);
+        result.solver = solver;
 
-            solver.checkDefs() catch {};
+        solver.checkDefs() catch {};
 
-            // Collect type checking problems
-            var iter = solver.problems.problems.iterIndices();
-            while (iter.next()) |idx| {
-                const problem = solver.problems.problems.get(idx);
-                // TODO: generate report from problem
-                _ = problem;
-            }
+        // Collect type checking problems and convert them to reports using ReportBuilder
+        var report_builder = problem.ReportBuilder.init(
+            allocator,
+            module_env,
+            type_can_ir,
+            &solver.snapshots,
+            source,
+            "main.roc",
+            &.{}, // other_modules - empty for playground
+        );
+        defer report_builder.deinit();
+
+        var iter = solver.problems.problems.iterIndices();
+        while (iter.next()) |idx| {
+            const type_problem = solver.problems.problems.get(idx);
+            const report = report_builder.build(type_problem) catch continue;
+            result.type_reports.append(report) catch continue;
         }
     }
 
