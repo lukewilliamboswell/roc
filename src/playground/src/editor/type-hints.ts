@@ -72,17 +72,30 @@ function getWordAtPosition(view: EditorView, pos: number): WordInfo | null {
   const lineText = line.text;
   const linePos = pos - line.from;
 
-  // Find word boundaries
+  // Check if we're on a valid identifier character
+  const currentChar = lineText[linePos] || "";
+  if (!/[a-zA-Z0-9_!]/.test(currentChar)) {
+    return null;
+  }
+
+  // Find word boundaries for Roc identifiers
   let start = linePos;
   let end = linePos;
 
-  // Move start backward to find beginning of word
-  while (start > 0 && /\w/.test(lineText[start - 1] || "")) {
+  // Move start backward to find beginning of identifier
+  // Roc identifiers can contain letters, numbers, and underscores
+  while (start > 0 && /[a-zA-Z0-9_]/.test(lineText[start - 1] || "")) {
     start--;
   }
 
-  // Move end forward to find end of word
-  while (end < lineText.length && /\w/.test(lineText[end] || "")) {
+  // Move end forward to find end of identifier
+  // Include letters, numbers, and underscores
+  while (end < lineText.length && /[a-zA-Z0-9_]/.test(lineText[end] || "")) {
+    end++;
+  }
+
+  // Check for effect suffix (!) - this should be the last character
+  if (end < lineText.length && lineText[end] === "!") {
     end++;
   }
 
