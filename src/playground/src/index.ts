@@ -181,7 +181,7 @@ class RocPlayground {
         // Handle error response
         lastDiagnostics = [
           {
-            severity: "error",
+            severity: "error" as const,
             message: result.message || "Compilation failed",
             region: {
               start_line: 1,
@@ -736,37 +736,50 @@ class RocPlayground {
         result.diagnostics.list,
       );
       for (const diag of result.diagnostics.list) {
-        const parsedDiag = {
-          severity: diag.severity,
-          message: diag.message,
-          region: diag.region,
-        };
-        console.log("Parsed diagnostic:", parsedDiag);
-        diagnostics.push(parsedDiag);
+        // Validate that the diagnostic has the expected region structure
+        if (
+          diag.region &&
+          typeof diag.region.start_line === "number" &&
+          typeof diag.region.start_column === "number" &&
+          typeof diag.region.end_line === "number" &&
+          typeof diag.region.end_column === "number"
+        ) {
+          const parsedDiag: Diagnostic = {
+            severity: diag.severity as "error" | "warning" | "info",
+            message: diag.message,
+            region: {
+              start_line: diag.region.start_line,
+              start_column: diag.region.start_column,
+              end_line: diag.region.end_line,
+              end_column: diag.region.end_column,
+            },
+          };
+          console.log("Parsed diagnostic:", parsedDiag);
+          diagnostics.push(parsedDiag);
+        } else {
+          console.warn("Skipping diagnostic without valid region:", diag);
+        }
       }
     } else {
       console.log("No structured diagnostics found in result");
     }
 
-    if (result.diagnostics && result.diagnostics.summary) {
-      const summary = result.diagnostics.summary;
-
-      if (summary.errors > 0) {
-        diagnostics.push({
-          severity: "error" as const,
-          message: `${summary.errors} error${summary.errors > 1 ? "s" : ""}`,
-          location: "compilation",
-        });
-      }
-
-      if (summary.warnings > 0) {
-        diagnostics.push({
-          severity: "warning" as const,
-          message: `${summary.warnings} warning${summary.warnings > 1 ? "s" : ""}`,
-          location: "compilation",
-        });
-      }
+    // Debug: Show stage report distribution
+    if (result.diagnostics && result.diagnostics.debug_counts) {
+      console.log(
+        "Stage report distribution:",
+        result.diagnostics.debug_counts,
+      );
+      const counts = result.diagnostics.debug_counts;
+      console.log("Detailed breakdown:");
+      console.log("  Tokenize:", counts.tokenize);
+      console.log("  Parse:", counts.parse);
+      console.log("  Canonicalize:", counts.can);
+      console.log("  Type:", counts.type);
     }
+
+    // Summary is now only used for the "Found X errors, Y warnings" display
+    // Individual diagnostics come from the structured list above
 
     console.log("Total diagnostics parsed:", diagnostics.length);
     return diagnostics;

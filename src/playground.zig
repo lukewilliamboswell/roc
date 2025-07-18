@@ -397,21 +397,31 @@ fn writeErrorResponse(response_buffer: []u8, status: ResponseStatus, message: []
 }
 
 /// Write response for LOADED state with diagnostics
+///
+/// This function implements a two-tier diagnostic system:
+/// 1. SUMMARY: Counts ALL diagnostics from reports (for "Found X errors, Y warnings" display)
+/// 2. VISUAL INDICATORS: Only diagnostics with region info (for gutter markers & squiggly lines)
+///
+/// The summary provides the complete diagnostic picture, while visual indicators are limited
+/// to diagnostics that can be precisely positioned in the editor.
 fn writeLoadedResponse(response_buffer: []u8, data: CompilerStageData) usize {
     var stream = std.io.fixedBufferStream(response_buffer);
     var writer = stream.writer();
 
-    // Extract structured diagnostics for frontend
+    // TIER 1: Extract diagnostics for VISUAL INDICATORS (gutter markers, squiggly lines)
+    // This is a filtered subset - only includes diagnostics that have region information
+    // for precise positioning in the editor. Limited to 100 items to avoid UI performance issues.
     var diagnostics = std.ArrayList(Diagnostic).init(allocator);
     defer diagnostics.deinit();
 
-    // Extract diagnostics from all stages
     extractDiagnosticsFromReports(&diagnostics, data.tokenize_reports) catch return 0;
     extractDiagnosticsFromReports(&diagnostics, data.parse_reports) catch return 0;
     extractDiagnosticsFromReports(&diagnostics, data.can_reports) catch return 0;
     extractDiagnosticsFromReports(&diagnostics, data.type_reports) catch return 0;
 
-    // Count total diagnostics
+    // TIER 2: Count ALL diagnostics from reports (for SUMMARY display)
+    // This includes ALL diagnostics regardless of whether they have region info.
+    // Used for the "Found X errors, Y warnings" message shown to users.
     var total_errors: u32 = 0;
     var total_warnings: u32 = 0;
 
@@ -425,8 +435,11 @@ fn writeLoadedResponse(response_buffer: []u8, data: CompilerStageData) usize {
 
     writer.writeAll("{\"status\":\"SUCCESS\",\"message\":\"LOADED\",\"diagnostics\":{") catch return 0;
 
-    // Write summary
+    // Write summary with stage breakdown for debugging
     writer.print("\"summary\":{{\"errors\":{},\"warnings\":{}}},", .{ total_errors, total_warnings }) catch return 0;
+
+    // Add debug information showing counts by stage and report counts
+    writer.print("\"debug_counts\":{{\"tokenize\":{{\"errors\":{},\"warnings\":{},\"total_reports\":{}}},\"parse\":{{\"errors\":{},\"warnings\":{},\"total_reports\":{}}},\"can\":{{\"errors\":{},\"warnings\":{},\"total_reports\":{}}},\"type\":{{\"errors\":{},\"warnings\":{},\"total_reports\":{}}}}},", .{ tokenize_counts.errors, tokenize_counts.warnings, data.tokenize_reports.items.len, parse_counts.errors, parse_counts.warnings, data.parse_reports.items.len, can_counts.errors, can_counts.warnings, data.can_reports.items.len, type_counts.errors, type_counts.warnings, data.type_reports.items.len }) catch return 0;
 
     // Write structured diagnostics array
     writer.writeAll("\"list\":[") catch return 0;
@@ -817,17 +830,27 @@ fn countDiagnostics(reports: []reporting.Report) struct { errors: u32, warnings:
     return .{ .errors = errors, .warnings = warnings };
 }
 
+/// Extract diagnostics from reports for VISUAL INDICATORS only.
+///
+/// This function filters reports to only include those with region information
+/// that can be precisely positioned in the editor for gutter markers and squiggly lines.
+///
+/// Reports without region info are SKIPPED here but are still counted in the summary.
+/// This is intentional - the summary should show the complete diagnostic picture,
+/// while visual indicators are limited to locationally-precise diagnostics.
 fn extractDiagnosticsFromReports(
     diagnostics: *std.ArrayList(Diagnostic),
     reports: std.ArrayList(reporting.Report),
 ) !void {
     var count: usize = 0;
-    const max_diagnostics = 100;
+    const max_diagnostics = 100; // Limit visual indicators to avoid UI performance issues
 
     for (reports.items) |*report| {
         if (count >= max_diagnostics) break;
 
-        // Extract region info from the report
+        // Try to extract region info from the report
+        // If no region info is available, skip this report for visual indicators
+        // (it will still be counted in the summary statistics)
         const region_info = report.getRegionInfo() orelse continue;
 
         // Get the title as the message
