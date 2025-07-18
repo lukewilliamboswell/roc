@@ -970,21 +970,40 @@ function initTheme() {
     "(prefers-color-scheme: dark)",
   ).matches;
 
-  // Use saved theme, or fall back to system preference
-  const theme = savedTheme || (systemPrefersDark ? "dark" : "light");
-  document.documentElement.setAttribute("data-theme", theme);
+  // Use saved theme, or fall back to system preference (no data-theme attribute)
+  if (savedTheme) {
+    document.documentElement.setAttribute("data-theme", savedTheme);
+  } else {
+    // Remove data-theme attribute to use system preference
+    document.documentElement.removeAttribute("data-theme");
+
+    // Listen for system preference changes only if no manual theme is set
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    mediaQuery.addEventListener("change", handleSystemThemeChange);
+  }
 
   // Update theme switch state
   const themeSwitch = document.getElementById("themeSwitch");
-  themeSwitch.setAttribute("aria-checked", theme === "dark");
+  const currentTheme = savedTheme || (systemPrefersDark ? "dark" : "light");
+  themeSwitch.setAttribute("aria-checked", currentTheme === "dark");
 
   // Update theme label text
-  updateThemeLabel(theme);
+  updateThemeLabel(currentTheme);
 }
 
 function toggleTheme() {
   const currentTheme = document.documentElement.getAttribute("data-theme");
-  const newTheme = currentTheme === "dark" ? "light" : "dark";
+  const systemPrefersDark = window.matchMedia(
+    "(prefers-color-scheme: dark)",
+  ).matches;
+
+  // Determine current effective theme
+  const effectiveTheme = currentTheme || (systemPrefersDark ? "dark" : "light");
+  const newTheme = effectiveTheme === "dark" ? "light" : "dark";
+
+  // Remove system preference listener since user is now manually setting theme
+  const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  mediaQuery.removeEventListener("change", handleSystemThemeChange);
 
   document.documentElement.setAttribute("data-theme", newTheme);
   localStorage.setItem("theme", newTheme);
@@ -994,6 +1013,16 @@ function toggleTheme() {
 
   // Update theme label text
   updateThemeLabel(newTheme);
+}
+
+function handleSystemThemeChange(e) {
+  // Only respond to system changes if no manual theme is set
+  if (!localStorage.getItem("theme")) {
+    // Update UI to reflect new system preference
+    const themeSwitch = document.getElementById("themeSwitch");
+    themeSwitch.setAttribute("aria-checked", e.matches);
+    updateThemeLabel(e.matches ? "dark" : "light");
+  }
 }
 
 function updateThemeLabel(theme) {
