@@ -9,12 +9,7 @@ import {
   toggleComment,
 } from "@codemirror/commands";
 import { oneDark } from "@codemirror/theme-one-dark";
-import {
-  foldGutter,
-  codeFolding,
-  indentOnInput,
-  bracketMatching,
-} from "@codemirror/language";
+import { indentOnInput, bracketMatching } from "@codemirror/language";
 import { closeBrackets } from "@codemirror/autocomplete";
 import { rocStreamLanguage } from "./roc-language";
 import {
@@ -47,10 +42,6 @@ export function createEditorView(
     search(),
     EditorView.lineWrapping,
     rocStreamLanguage(),
-
-    // Code folding for better readability
-    codeFolding(),
-    foldGutter(),
 
     // Diagnostic integration
     rocDiagnosticsExtension(),
@@ -146,10 +137,6 @@ export function createEditorState(
     search(),
     EditorView.lineWrapping,
     rocStreamLanguage(),
-
-    // Code folding for better readability
-    codeFolding(),
-    foldGutter(),
 
     // Diagnostic integration
     rocDiagnosticsExtension(),

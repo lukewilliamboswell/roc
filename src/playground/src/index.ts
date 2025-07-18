@@ -16,7 +16,12 @@ import { examples } from "./examples";
 interface Diagnostic {
   severity: "error" | "warning" | "info";
   message: string;
-  location: string;
+  region: {
+    start_line: number;
+    start_column: number;
+    end_line: number;
+    end_column: number;
+  };
   code?: string;
 }
 
@@ -178,7 +183,12 @@ class RocPlayground {
           {
             severity: "error",
             message: result.message || "Compilation failed",
-            location: "unknown",
+            region: {
+              start_line: 1,
+              start_column: 1,
+              end_line: 1,
+              end_column: 1,
+            },
           },
         ];
         this.updateDiagnosticSummary();
@@ -296,7 +306,7 @@ class RocPlayground {
         <div class="diagnostic ${severity}">
           <div class="diagnostic-header">
             <span class="diagnostic-severity">${severity.toUpperCase()}</span>
-            <span class="diagnostic-location">${diagnostic.location || "unknown"}</span>
+            <span class="diagnostic-location">Line ${diagnostic.region.start_line}:${diagnostic.region.start_column}</span>
           </div>
           <div class="diagnostic-message">${this.escapeHtml(diagnostic.message || "")}</div>
           ${diagnostic.code ? `<div class="diagnostic-code">${this.escapeHtml(diagnostic.code)}</div>` : ""}
@@ -729,7 +739,7 @@ class RocPlayground {
         const parsedDiag = {
           severity: diag.severity,
           message: diag.message,
-          location: `${diag.region.start_line}:${diag.region.start_column}-${diag.region.end_line}:${diag.region.end_column}`,
+          region: diag.region,
         };
         console.log("Parsed diagnostic:", parsedDiag);
         diagnostics.push(parsedDiag);

@@ -85,34 +85,6 @@
     border-color: var(--search-match-selected-border);
 }
 
-/* === FOLDING === */
-.cm-foldGutter {
-    width: 16px;
-}
-
-.cm-foldMarker {
-    background: var(--fold-marker-bg);
-    color: var(--fold-marker-text);
-    border: 1px solid var(--fold-marker-border);
-    border-radius: 2px;
-    cursor: pointer;
-    font-size: 11px;
-    line-height: 1;
-    padding: 1px 3px;
-    margin: 0 2px;
-}
-
-.cm-foldMarker:hover {
-    background: var(--fold-marker-hover-bg);
-}
-
-.cm-fold-placeholder {
-    background-color: var(--fold-marker-bg);
-    color: var(--fold-marker-text);
-    padding: 0 4px;
-    border-radius: 2px;
-}
-
 /* === BRACKETS === */
 .cm-matchingBracket {
     background: var(--matching-bracket-bg);
@@ -223,27 +195,6 @@
     background-color: var(--color-info);
 }
 
-/* Diagnostic tooltip styling */
-.cm-tooltip-lint {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-base);
-    color: var(--text-primary);
-    font-size: var(--text-sm);
-    padding: var(--space-2) var(--space-3);
-    box-shadow: var(--shadow-lg);
-    max-width: 400px;
-    word-wrap: break-word;
-}
-
-.cm-tooltip-lint .cm-tooltip-arrow {
-    border-top-color: var(--border-default);
-}
-
-.cm-tooltip-lint .cm-tooltip-arrow:before {
-    border-top-color: var(--bg-elevated);
-}
-
 /* === EDITOR-SPECIFIC LIGHT THEME COLORS === */
 :root {
     --editor-header-bg: var(--bg-secondary);
@@ -259,11 +210,6 @@
     --search-match-border: rgba(255, 235, 59, 0.8);
     --search-match-selected-bg: rgba(255, 193, 7, 0.6);
     --search-match-selected-border: rgba(255, 193, 7, 1);
-
-    --fold-marker-bg: var(--bg-secondary);
-    --fold-marker-text: var(--text-secondary);
-    --fold-marker-border: var(--border-default);
-    --fold-marker-hover-bg: var(--bg-tertiary);
 
     --matching-bracket-bg: rgba(34, 134, 58, 0.15);
     --matching-bracket-border: rgba(34, 134, 58, 0.4);
@@ -286,11 +232,6 @@
     --search-match-border: rgba(255, 235, 59, 0.6);
     --search-match-selected-bg: rgba(255, 193, 7, 0.4);
     --search-match-selected-border: rgba(255, 193, 7, 0.8);
-
-    --fold-marker-bg: var(--bg-tertiary);
-    --fold-marker-text: var(--text-secondary);
-    --fold-marker-border: var(--border-default);
-    --fold-marker-hover-bg: var(--border-default);
 
     --matching-bracket-bg: rgba(46, 160, 67, 0.2);
     --matching-bracket-border: rgba(46, 160, 67, 0.5);

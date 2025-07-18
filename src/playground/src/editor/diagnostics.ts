@@ -6,107 +6,47 @@ import { Text } from "@codemirror/state";
 export interface RocDiagnostic {
   severity: "error" | "warning" | "info";
   message: string;
-  location: string;
+  region: {
+    start_line: number;
+    start_column: number;
+    end_line: number;
+    end_column: number;
+  };
   code?: string;
 }
 
-interface ParsedLocation {
-  line: number;
-  column: number;
-  endLine?: number;
-  endColumn?: number;
-}
-
 /**
- * Parses location strings from Roc compiler diagnostics
- * Expected formats:
- * - "line:column" (e.g., "5:10")
- * - "line:column-endColumn" (e.g., "5:10-15")
- * - "line:column-endLine:endColumn" (e.g., "5:10-7:5")
+ * Converts structured region data to CodeMirror document positions
  */
-function parseLocation(location: string): ParsedLocation | null {
-  if (!location || typeof location !== "string") {
-    return null;
-  }
-
-  // Handle different location formats
-  const rangeMatch = location.match(/^(\d+):(\d+)-(\d+):(\d+)$/);
-  if (rangeMatch) {
-    return {
-      line: parseInt(rangeMatch[1]!, 10),
-      column: parseInt(rangeMatch[2]!, 10),
-      endLine: parseInt(rangeMatch[3]!, 10),
-      endColumn: parseInt(rangeMatch[4]!, 10),
-    };
-  }
-
-  const columnRangeMatch = location.match(/^(\d+):(\d+)-(\d+)$/);
-  if (columnRangeMatch) {
-    return {
-      line: parseInt(columnRangeMatch[1]!, 10),
-      column: parseInt(columnRangeMatch[2]!, 10),
-      endColumn: parseInt(columnRangeMatch[3]!, 10),
-    };
-  }
-
-  const simpleMatch = location.match(/^(\d+):(\d+)$/);
-  if (simpleMatch) {
-    return {
-      line: parseInt(simpleMatch[1]!, 10),
-      column: parseInt(simpleMatch[2]!, 10),
-    };
-  }
-
-  return null;
-}
-
-/**
- * Converts a parsed location to CodeMirror document positions
- */
-function locationToPositions(
-  location: ParsedLocation,
+function regionToPositions(
+  region: {
+    start_line: number;
+    start_column: number;
+    end_line: number;
+    end_column: number;
+  },
   doc: Text,
 ): { from: number; to: number } | null {
   try {
-    // CodeMirror uses 0-based indexing, but compiler usually uses 1-based
-    const line = Math.max(0, location.line - 1);
-    const column = Math.max(0, location.column - 1);
+    // CodeMirror uses 0-based indexing, but compiler uses 1-based
+    const startLine = Math.max(0, region.start_line - 1);
+    const startColumn = Math.max(0, region.start_column - 1);
+    const endLine = Math.max(0, region.end_line - 1);
+    const endColumn = Math.max(0, region.end_column - 1);
 
-    if (line >= doc.lines) {
+    if (startLine >= doc.lines || endLine >= doc.lines) {
       return null;
     }
 
-    const lineObj = doc.line(line + 1);
-    const from = lineObj.from + Math.min(column, lineObj.length);
+    const startLineObj = doc.line(startLine + 1);
+    const from = startLineObj.from + Math.min(startColumn, startLineObj.length);
 
-    let to = from;
-
-    if (location.endLine && location.endColumn) {
-      const endLine = Math.max(0, location.endLine - 1);
-      const endColumn = Math.max(0, location.endColumn - 1);
-
-      if (endLine < doc.lines) {
-        const endLineObj = doc.line(endLine + 1);
-        to = endLineObj.from + Math.min(endColumn, endLineObj.length);
-      }
-    } else if (location.endColumn) {
-      const endColumn = Math.max(0, location.endColumn - 1);
-      to = lineObj.from + Math.min(endColumn, lineObj.length);
-    } else {
-      // Default to highlighting the whole word or at least one character
-      to = Math.min(from + 1, lineObj.to);
-
-      // Try to find the end of the current word
-      const text = doc.sliceString(from, lineObj.to);
-      const wordMatch = text.match(/^\w+/);
-      if (wordMatch) {
-        to = from + wordMatch[0].length;
-      }
-    }
+    const endLineObj = doc.line(endLine + 1);
+    const to = endLineObj.from + Math.min(endColumn, endLineObj.length);
 
     return { from, to: Math.max(from, to) };
   } catch (error) {
-    console.warn("Failed to convert location to positions:", error);
+    console.warn("Failed to convert region to positions:", error);
     return null;
   }
 }
@@ -120,18 +60,9 @@ export function createRocLinter(getDiagnostics: () => RocDiagnostic[]) {
     const rocDiagnostics = getDiagnostics();
 
     for (const rocDiag of rocDiagnostics) {
-      const parsedLocation = parseLocation(rocDiag.location);
-      if (!parsedLocation) {
-        console.warn("Could not parse location:", rocDiag.location);
-        continue;
-      }
-
-      const positions = locationToPositions(parsedLocation, view.state.doc);
+      const positions = regionToPositions(rocDiag.region, view.state.doc);
       if (!positions) {
-        console.warn(
-          "Could not convert location to positions:",
-          parsedLocation,
-        );
+        console.warn("Could not convert region to positions:", rocDiag.region);
         continue;
       }
 
@@ -203,12 +134,7 @@ export function createStatefulRocLinter() {
     const rocDiagnostics = view.state.field(diagnosticsState, false) || [];
 
     for (const rocDiag of rocDiagnostics) {
-      const parsedLocation = parseLocation(rocDiag.location);
-      if (!parsedLocation) {
-        continue;
-      }
-
-      const positions = locationToPositions(parsedLocation, view.state.doc);
+      const positions = regionToPositions(rocDiag.region, view.state.doc);
       if (!positions) {
         continue;
       }
