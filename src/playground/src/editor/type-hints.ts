@@ -117,52 +117,16 @@ function getWordAtPosition(view: EditorView, pos: number): WordInfo | null {
  * Creates the DOM element for the type hint tooltip
  */
 function createTooltipDOM(word: string, typeInfo: TypeInfo): HTMLElement {
-  const tooltip = document.createElement("div");
-  tooltip.className = "cm-tooltip-type-hint";
+  const element = document.createElement("span");
 
-  // Create the main content
-  const content = document.createElement("div");
-  content.className = "type-hint-content";
-
-  // Word name
-  const wordElement = document.createElement("div");
-  wordElement.className = "type-hint-word";
-  wordElement.textContent = word;
-  content.appendChild(wordElement);
-
-  // Type information
+  // Show only the type information - no styling since CodeMirror handles the tooltip container
   if (typeInfo.type) {
-    const typeElement = document.createElement("div");
-    typeElement.className = "type-hint-type";
-    typeElement.textContent = `: ${typeInfo.type}`;
-    content.appendChild(typeElement);
+    element.textContent = typeInfo.type;
+  } else {
+    element.textContent = "Unknown type";
   }
 
-  // Description if available
-  if (typeInfo.description) {
-    const descElement = document.createElement("div");
-    descElement.className = "type-hint-description";
-    descElement.textContent = typeInfo.description;
-    content.appendChild(descElement);
-  }
-
-  tooltip.appendChild(content);
-
-  // Add styles
-  tooltip.style.cssText = `
-    background: var(--tooltip-bg, #2d3748);
-    color: var(--tooltip-text, #e2e8f0);
-    border: 1px solid var(--tooltip-border, #4a5568);
-    border-radius: 4px;
-    padding: 8px 12px;
-    font-size: 12px;
-    font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-    max-width: 300px;
-    z-index: 1000;
-  `;
-
-  return tooltip;
+  return element;
 }
 
 /**
