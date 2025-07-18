@@ -280,3 +280,23 @@
     background-color: rgba(139, 92, 246, 0.3);
     outline-color: rgba(139, 92, 246, 0.5);
 }
+
+/* Enhanced selection visibility when highlighting source ranges */
+.cm-source-range-active .cm-selectionBackground {
+    background-color: rgba(124, 58, 237, 0.4) !important;
+}
+
+.cm-source-range-active .cm-focused .cm-selectionBackground {
+    background-color: rgba(124, 58, 237, 0.5) !important;
+}
+
+[data-theme="dark"] .cm-source-range-active .cm-selectionBackground {
+    background-color: rgba(139, 92, 246, 0.4) !important;
+}
+
+[data-theme="dark"]
+    .cm-source-range-active
+    .cm-focused
+    .cm-selectionBackground {
+    background-color: rgba(139, 92, 246, 0.5) !important;
+}

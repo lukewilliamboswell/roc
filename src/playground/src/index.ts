@@ -846,12 +846,30 @@ class RocPlayground {
 
   handleSourceRangeHover(event: Event): void {
     const target = event.target as HTMLElement;
-    if (!target.classList.contains("source-range")) return;
+    console.log(
+      "Hover event on element:",
+      target,
+      "classList:",
+      target.classList,
+    );
+
+    if (!target.classList.contains("source-range")) {
+      console.log("Not a source-range element, ignoring");
+      return;
+    }
 
     const startByte = parseInt(target.dataset.startByte || "0", 10);
     const endByte = parseInt(target.dataset.endByte || "0", 10);
+    console.log("Source range hover:", { startByte, endByte });
 
-    if (!codeMirrorEditor || isNaN(startByte) || isNaN(endByte)) return;
+    if (!codeMirrorEditor || isNaN(startByte) || isNaN(endByte)) {
+      console.log("Invalid state or bytes:", {
+        codeMirrorEditor: !!codeMirrorEditor,
+        startByte,
+        endByte,
+      });
+      return;
+    }
 
     // Highlight the range in the editor
     this.highlightSourceRange(startByte, endByte);
@@ -862,7 +880,14 @@ class RocPlayground {
 
   handleSourceRangeLeave(event: Event): void {
     const target = event.target as HTMLElement;
-    if (!target.classList.contains("source-range")) return;
+    console.log("Leave event on element:", target);
+
+    if (!target.classList.contains("source-range")) {
+      console.log("Not a source-range element, ignoring leave");
+      return;
+    }
+
+    console.log("Source range leave");
 
     // Clear highlighting in the editor
     this.clearSourceRangeHighlight();
@@ -873,20 +898,32 @@ class RocPlayground {
 
   handleSourceRangeClick(event: Event): void {
     const target = event.target as HTMLElement;
-    if (!target.classList.contains("source-range")) return;
+    console.log("Click event on element:", target);
+
+    if (!target.classList.contains("source-range")) {
+      console.log("Not a source-range element, ignoring click");
+      return;
+    }
 
     event.preventDefault();
     event.stopPropagation();
 
     const startByte = parseInt(target.dataset.startByte || "0", 10);
+    console.log("Source range click, navigating to:", startByte);
 
-    if (!codeMirrorEditor || isNaN(startByte)) return;
+    if (!codeMirrorEditor || isNaN(startByte)) {
+      console.log("Invalid state or startByte:", {
+        codeMirrorEditor: !!codeMirrorEditor,
+        startByte,
+      });
+      return;
+    }
 
     // Navigate to the start of the range
     this.navigateToSourcePosition(startByte);
   }
 
-  private sourceRangeSelection: any = null;
+  private sourceRangeHighlight: { from: number; to: number } | null = null;
 
   highlightSourceRange(startByte: number, endByte: number): void {
     if (!codeMirrorEditor) return;
@@ -901,17 +938,21 @@ class RocPlayground {
 
       if (from >= to) return;
 
-      // Create a selection range for highlighting
-      this.sourceRangeSelection = { from, to };
+      // Store the current selection to restore later
+      const currentSelection = codeMirrorEditor.state.selection;
+      this.sourceRangeHighlight = { from, to };
 
-      // Add a CSS class to the editor for styling
-      const editorElement = codeMirrorEditor.dom;
-      editorElement.classList.add("cm-highlighting-range");
-
-      // Scroll the range into view
+      // Create a temporary selection to highlight the range
       codeMirrorEditor.dispatch({
+        selection: { anchor: from, head: to },
         effects: EditorView.scrollIntoView(from, { y: "nearest" }),
       });
+
+      // Add a CSS class to the editor to show we're in highlighting mode
+      const editorElement = codeMirrorEditor.dom;
+      editorElement.classList.add("cm-source-range-active");
+
+      console.log(`Highlighting range ${from}-${to} in editor`);
     } catch (error) {
       console.warn("Failed to highlight source range:", error);
     }
@@ -923,9 +964,19 @@ class RocPlayground {
     try {
       // Remove the highlighting class
       const editorElement = codeMirrorEditor.dom;
-      editorElement.classList.remove("cm-highlighting-range");
+      editorElement.classList.remove("cm-source-range-active");
 
-      this.sourceRangeSelection = null;
+      // Restore the original cursor position (move to start of highlighted range)
+      if (this.sourceRangeHighlight) {
+        const doc = codeMirrorEditor.state.doc;
+        const pos = Math.min(this.sourceRangeHighlight.from, doc.length);
+        codeMirrorEditor.dispatch({
+          selection: { anchor: pos, head: pos },
+        });
+      }
+
+      this.sourceRangeHighlight = null;
+      console.log("Cleared source range highlight");
     } catch (error) {
       console.warn("Failed to clear source range highlight:", error);
     }
