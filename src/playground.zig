@@ -406,10 +406,10 @@ fn writeLoadedResponse(response_buffer: []u8, data: CompilerStageData) usize {
     defer diagnostics.deinit();
 
     // Extract diagnostics from all stages
-    extractDiagnosticsFromReports(&diagnostics, data.tokenize_reports, .@"error") catch return 0;
-    extractDiagnosticsFromReports(&diagnostics, data.parse_reports, .@"error") catch return 0;
-    extractDiagnosticsFromReports(&diagnostics, data.can_reports, .@"error") catch return 0;
-    extractDiagnosticsFromReports(&diagnostics, data.type_reports, .@"error") catch return 0;
+    extractDiagnosticsFromReports(&diagnostics, data.tokenize_reports) catch return 0;
+    extractDiagnosticsFromReports(&diagnostics, data.parse_reports) catch return 0;
+    extractDiagnosticsFromReports(&diagnostics, data.can_reports) catch return 0;
+    extractDiagnosticsFromReports(&diagnostics, data.type_reports) catch return 0;
 
     // Count total diagnostics
     var total_errors: u32 = 0;
@@ -820,7 +820,6 @@ fn countDiagnostics(reports: []reporting.Report) struct { errors: u32, warnings:
 fn extractDiagnosticsFromReports(
     diagnostics: *std.ArrayList(Diagnostic),
     reports: std.ArrayList(reporting.Report),
-    severity: DiagnosticSeverity,
 ) !void {
     var count: usize = 0;
     const max_diagnostics = 100;
@@ -834,8 +833,16 @@ fn extractDiagnosticsFromReports(
         // Get the title as the message
         const message = report.title;
 
+        // Convert report severity to diagnostic severity
+        const diagnostic_severity = switch (report.severity) {
+            .info => DiagnosticSeverity.info,
+            .warning => DiagnosticSeverity.warning,
+            .runtime_error => DiagnosticSeverity.@"error",
+            .fatal => DiagnosticSeverity.@"error",
+        };
+
         try diagnostics.append(Diagnostic{
-            .severity = severity,
+            .severity = diagnostic_severity,
             .message = message,
             .region = DiagnosticRegion{
                 .start_line = region_info.start_line_idx,
