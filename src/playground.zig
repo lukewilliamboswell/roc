@@ -47,7 +47,7 @@ const MessageType = enum {
     QUERY_AST,
     QUERY_CIR,
     QUERY_TYPES,
-
+    GET_TYPE_INFO,
     RESET,
 
     pub fn fromString(str: []const u8) ?MessageType {
@@ -57,7 +57,7 @@ const MessageType = enum {
         if (std.mem.eql(u8, str, "QUERY_AST")) return .QUERY_AST;
         if (std.mem.eql(u8, str, "QUERY_CIR")) return .QUERY_CIR;
         if (std.mem.eql(u8, str, "QUERY_TYPES")) return .QUERY_TYPES;
-
+        if (std.mem.eql(u8, str, "GET_TYPE_INFO")) return .GET_TYPE_INFO;
         if (std.mem.eql(u8, str, "RESET")) return .RESET;
         return null;
     }
@@ -237,7 +237,7 @@ fn handleReadyState(message_type: MessageType, root: std.json.Value, response_bu
 }
 
 /// Handle messages in LOADED state
-fn handleLoadedState(message_type: MessageType, _: std.json.Value, response_buffer: []u8) usize {
+fn handleLoadedState(message_type: MessageType, message_json: std.json.Value, response_buffer: []u8) usize {
     const data = compiler_data.?;
 
     switch (message_type) {
@@ -253,7 +253,9 @@ fn handleLoadedState(message_type: MessageType, _: std.json.Value, response_buff
         .QUERY_TYPES => {
             return writeTypesResponse(response_buffer, data);
         },
-
+        .GET_TYPE_INFO => {
+            return writeTypeInfoResponse(response_buffer, data, message_json);
+        },
         .RESET => {
             // Clean up and go back to READY
             if (compiler_data) |*old_data| {
@@ -587,6 +589,128 @@ fn writeCanCirResponse(response_buffer: []u8, data: CompilerStageData) usize {
     writeJsonString(writer, sexpr_buffer.items) catch return 0;
     writer.writeAll("\"}") catch return 0;
     return stream.getWritten().len;
+}
+
+/// Write type info response for a specific position
+fn writeTypeInfoResponse(response_buffer: []u8, data: CompilerStageData, message_json: std.json.Value) usize {
+    // Parse the position from the message
+    const line = message_json.object.get("line") orelse {
+        return writeErrorResponse(response_buffer, .INVALID_MESSAGE, "Missing line parameter");
+    };
+    const ch = message_json.object.get("ch") orelse {
+        return writeErrorResponse(response_buffer, .INVALID_MESSAGE, "Missing ch parameter");
+    };
+    const identifier = message_json.object.get("identifier") orelse {
+        return writeErrorResponse(response_buffer, .INVALID_MESSAGE, "Missing identifier parameter");
+    };
+
+    const line_num = switch (line) {
+        .integer => |i| @as(u32, @intCast(i)),
+        else => return writeErrorResponse(response_buffer, .INVALID_MESSAGE, "Invalid line parameter"),
+    };
+    const ch_num = switch (ch) {
+        .integer => |i| @as(u32, @intCast(i)),
+        else => return writeErrorResponse(response_buffer, .INVALID_MESSAGE, "Invalid ch parameter"),
+    };
+    const ident_str = switch (identifier) {
+        .string => |s| s,
+        else => return writeErrorResponse(response_buffer, .INVALID_MESSAGE, "Invalid identifier parameter"),
+    };
+
+    // Check for error conditions first
+    if (data.can_ir == null) {
+        return writeErrorResponse(response_buffer, .ERROR, "Canonicalization not completed.");
+    }
+
+    if (data.solver == null) {
+        return writeErrorResponse(response_buffer, .ERROR, "Type checking not completed.");
+    }
+
+    // Convert line/ch to byte offset
+    const source = data.module_env.source;
+    const line_starts = data.module_env.line_starts.items.items;
+
+    if (line_num >= line_starts.len) {
+        return writeErrorResponse(response_buffer, .ERROR, "Line number out of range");
+    }
+
+    const line_start = line_starts[line_num];
+    const byte_offset = line_start + ch_num;
+
+    if (byte_offset >= source.len) {
+        return writeErrorResponse(response_buffer, .ERROR, "Position out of range");
+    }
+
+    // Find type information for the identifier at this position
+    const type_info = findTypeInfoAtPosition(data, byte_offset, ident_str) catch {
+        return writeErrorResponse(response_buffer, .ERROR, "Failed to find type information");
+    };
+
+    // Write the response
+    var stream = std.io.fixedBufferStream(response_buffer);
+    var writer = stream.writer();
+
+    if (type_info) |info| {
+        writer.writeAll("{\"status\":\"SUCCESS\",\"type_info\":{\"type\":\"") catch return 0;
+        writeJsonString(writer, info) catch return 0;
+        writer.writeAll("\"}}") catch return 0;
+    } else {
+        writer.writeAll("{\"status\":\"SUCCESS\",\"type_info\":null}") catch return 0;
+    }
+
+    return stream.getWritten().len;
+}
+
+/// Find type information for an identifier at a specific byte position
+fn findTypeInfoAtPosition(data: CompilerStageData, byte_offset: u32, identifier: []const u8) !?[]const u8 {
+    const cir = data.can_ir.?;
+    const gpa = cir.env.gpa;
+
+    // Create TypeWriter for converting types to strings
+    var type_writer = types.writers.TypeWriter.init(gpa, cir.env) catch return null;
+    defer type_writer.deinit();
+
+    // Iterate through all definitions to find one that contains this position
+    const all_defs = cir.store.sliceDefs(cir.all_defs);
+
+    for (all_defs) |def_idx| {
+        const def = cir.store.getDef(def_idx);
+
+        // Check if this definition's pattern contains the byte offset
+        const pattern_region = cir.store.getPatternRegion(def.pattern);
+
+        if (byte_offset >= pattern_region.start.offset and byte_offset < pattern_region.end.offset) {
+            // Check if this pattern matches our identifier
+            const pattern = cir.store.getPattern(def.pattern);
+
+            switch (pattern) {
+                .assign => |assign| {
+                    // Get the identifier text
+                    const ident_text = cir.env.idents.getText(assign.ident);
+
+                    // Check if this matches our target identifier
+                    if (std.mem.eql(u8, ident_text, identifier)) {
+                        // Get the type variable for this definition
+                        const def_var = @as(types.Var, @enumFromInt(@intFromEnum(def_idx)));
+
+                        // Write the type to string
+                        type_writer.write(def_var) catch return null;
+
+                        // Return a copy of the type string
+                        const type_str = type_writer.get();
+                        const owned_str = gpa.dupe(u8, type_str) catch return null;
+                        return owned_str;
+                    }
+                },
+                else => {
+                    // For other pattern types, we could implement additional matching logic
+                    // For now, skip non-assign patterns
+                },
+            }
+        }
+    }
+
+    return null;
 }
 
 /// Write types response in S-expression format

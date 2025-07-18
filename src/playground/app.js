@@ -1137,21 +1137,22 @@ async function getTypeInformation(identifier, pos) {
   if (!wasmModule || !codeMirrorEditor) return null;
 
   try {
-    // Use existing type information if available
-    if (currentState === "LOADED" && currentView === "types") {
-      // Get the current types response from the output
-      const outputElement = document.getElementById("outputContent");
-      if (outputElement && outputElement.textContent) {
-        return parseTypeInfoFromOutput(identifier, outputElement.textContent);
-      }
+    // Only provide type information if we have compiled code
+    if (currentState !== "LOADED") {
+      return null;
     }
 
-    // For now, return a simple placeholder to test the tooltip functionality
-    // In a real implementation, this would query the type system
-    return {
-      type: "Hover type info for " + identifier,
-      description: "Type information will be available here",
-    };
+    // Send GET_TYPE_INFO message to WASM with position information
+    const response = await sendMessageQueued({
+      type: "GET_TYPE_INFO",
+      identifier: identifier,
+      line: pos.line,
+      ch: pos.ch,
+    });
+
+    if (response.status === "SUCCESS" && response.type_info) {
+      return response.type_info;
+    }
   } catch (error) {
     logError("Error getting type information:", error);
   }
@@ -1212,41 +1213,6 @@ function hideTooltip() {
     tooltipElement.classList.remove("show");
     isTooltipVisible = false;
   }
-}
-
-function parseTypeInfoFromOutput(identifier, outputText) {
-  // Simple parsing of type information from the output
-  const lines = outputText.split("\n");
-  for (const line of lines) {
-    if (line.includes(identifier)) {
-      // Look for type annotations like "identifier : Type"
-      const match = line.match(new RegExp(`${identifier}\\s*:\\s*(.+)`));
-      if (match) {
-        return {
-          type: match[1].trim(),
-          description: `Type of ${identifier}`,
-        };
-      }
-    }
-  }
-  return null;
-}
-
-function parseTypeInfoFromResponse(identifier, typesData) {
-  // Parse the types response to find information about the identifier
-  if (typeof typesData === "string") {
-    return parseTypeInfoFromOutput(identifier, typesData);
-  }
-
-  // If typesData is an object, look for the identifier
-  if (typesData && typesData[identifier]) {
-    return {
-      type: typesData[identifier],
-      description: `Type of ${identifier}`,
-    };
-  }
-
-  return null;
 }
 
 // Initialize theme on page load
