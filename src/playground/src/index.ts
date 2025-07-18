@@ -42,7 +42,7 @@ let currentView: "PROBLEMS" | "TOKENS" | "AST" | "CIR" | "TYPES" = "PROBLEMS";
 let lastDiagnostics: Diagnostic[] = [];
 let activeExample: number | null = null;
 let lastCompileTime: number | null = null;
-let updateUrlTimeout: number | null = null;
+
 let codeMirrorEditor: any = null;
 
 // Examples data (from app.js)
@@ -366,7 +366,7 @@ class RocPlayground {
       const result = await wasmInterface.tokenize();
 
       const outputContent = document.getElementById("outputContent");
-      if (result.success) {
+      if (result.status === "SUCCESS") {
         if (outputContent) {
           outputContent.innerHTML = `<div class="sexp-output">${result.data || "No tokens"}</div>`;
         }
@@ -393,7 +393,7 @@ class RocPlayground {
       const result = await wasmInterface.parse();
 
       const outputContent = document.getElementById("outputContent");
-      if (result.success) {
+      if (result.status === "SUCCESS") {
         if (outputContent) {
           outputContent.innerHTML = `<div class="sexp-output">${result.data || "No AST"}</div>`;
         }
@@ -420,7 +420,7 @@ class RocPlayground {
       const result = await wasmInterface.canonicalize();
 
       const outputContent = document.getElementById("outputContent");
-      if (result.success) {
+      if (result.status === "SUCCESS") {
         if (outputContent) {
           outputContent.innerHTML = `<div class="sexp-output">${result.data || "No CIR"}</div>`;
         }
@@ -447,7 +447,7 @@ class RocPlayground {
       const result = await wasmInterface.getTypes();
 
       const outputContent = document.getElementById("outputContent");
-      if (result.success) {
+      if (result.status === "SUCCESS") {
         if (outputContent) {
           outputContent.innerHTML = `<div class="sexp-output">${result.data || "No types"}</div>`;
         }

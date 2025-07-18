@@ -1,4 +1,4 @@
-import { hoverTooltip, EditorView } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
 
 interface WasmInterface {
   getTypeInfo: (identifier: string, line: number, ch: number) => Promise<any>;
@@ -21,7 +21,7 @@ interface WordInfo {
  * Creates a hover tooltip function for type hints
  */
 export function createTypeHintTooltip(wasmInterface: WasmInterface | null) {
-  return async (view: EditorView, pos: number, side: number) => {
+  return async (view: EditorView, pos: number, _side: number) => {
     if (!wasmInterface) {
       return null;
     }
@@ -52,7 +52,7 @@ export function createTypeHintTooltip(wasmInterface: WasmInterface | null) {
       return {
         pos,
         above: true,
-        create(view: EditorView) {
+        create(_view: EditorView) {
           const dom = createTooltipDOM(wordInfo.word, typeInfo);
           return { dom };
         },

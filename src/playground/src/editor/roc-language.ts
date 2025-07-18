@@ -18,7 +18,7 @@ export function rocStreamLanguage(): LanguageSupport {
         return {};
       },
 
-      token(stream: StringStream, state: StreamState): string | null {
+      token(stream: StringStream, _state: StreamState): string | null {
         // Skip whitespace
         if (stream.eatSpace()) return null;
 

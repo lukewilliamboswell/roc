@@ -1,5 +1,5 @@
 import { EditorView, basicSetup } from "codemirror";
-import { EditorState, Extension } from "@codemirror/state";
+import { EditorState } from "@codemirror/state";
 import { hoverTooltip, keymap } from "@codemirror/view";
 import { search, openSearchPanel } from "@codemirror/search";
 import { defaultKeymap, indentMore, indentLess } from "@codemirror/commands";
