@@ -2,12 +2,13 @@
 //! This module provides a state machine interface between JavaScript and the Roc compiler.
 //!
 //! State Machine:
-//! 1. START: Initialize module, return "READY" message
+//! 1. START: Initialize module, return compiler version
 //! 2. READY: Receive Roc source, compile through all stages, return "LOADED" with diagnostics
 //! 3. LOADED: Handle queries for tokens, AST, CIR, types, etc. Handle reset to go back to READY
 
 const std = @import("std");
 const parse = @import("check/parse.zig");
+const build_options = @import("build_options");
 const can = @import("check/canonicalize.zig");
 const check_types = @import("check/check_types.zig");
 const base = @import("base.zig");
@@ -207,7 +208,8 @@ fn handleStartState(message_type: MessageType, _: std.json.Value, response_buffe
     switch (message_type) {
         .INIT => {
             current_state = .READY;
-            return writeSuccessResponse(response_buffer, "READY TO RECEIVE ROC SOURCE FILE", null);
+            const compiler_version = build_options.compiler_version;
+            return writeSuccessResponse(response_buffer, compiler_version, null);
         },
         else => {
             return writeErrorResponse(response_buffer, .INVALID_STATE, "Can only handle INIT in START state");
@@ -245,7 +247,8 @@ fn handleReadyState(message_type: MessageType, root: std.json.Value, response_bu
         },
         .RESET => {
             // Already in READY state, just acknowledge
-            return writeSuccessResponse(response_buffer, "READY TO RECEIVE ROC SOURCE FILE", null);
+            const compiler_version = build_options.compiler_version;
+            return writeSuccessResponse(response_buffer, compiler_version, null);
         },
         else => {
             return writeErrorResponse(response_buffer, .INVALID_STATE, "Can only handle LOAD_SOURCE or RESET in READY state");
@@ -281,7 +284,8 @@ fn handleLoadedState(message_type: MessageType, message_json: std.json.Value, re
             }
             current_state = .READY;
 
-            return writeSuccessResponse(response_buffer, "READY TO RECEIVE ROC SOURCE FILE", null);
+            const compiler_version = build_options.compiler_version;
+            return writeSuccessResponse(response_buffer, compiler_version, null);
         },
         else => {
             return writeErrorResponse(response_buffer, .INVALID_STATE, "Invalid message type for LOADED state");

@@ -60,7 +60,10 @@ let messageInProgress: boolean = false;
 /**
  * Initializes the WASM module and returns an interface object
  */
-export async function initializeWasm(): Promise<WasmInterface> {
+export async function initializeWasm(): Promise<{
+  interface: WasmInterface;
+  compilerVersion?: string;
+}> {
   try {
     console.log("Initializing WASM module...");
 
@@ -112,11 +115,22 @@ export async function initializeWasm(): Promise<WasmInterface> {
     wasmModule.init();
     console.log("WASM module initialized successfully");
 
-    // Initialize the WASM module
-    await sendMessageDirect({ type: "INIT" });
+    // Initialize the WASM module and get compiler version
+    const initResponse = await sendMessageDirect({ type: "INIT" });
 
-    // Return the interface object
-    return createWasmInterface();
+    let compilerVersion: string | undefined;
+    if (initResponse.status === "SUCCESS" && initResponse.message) {
+      compilerVersion = initResponse.message;
+      console.log(`Roc Compiler Version: ${compilerVersion}`);
+    } else {
+      console.warn("Failed to get compiler version from INIT response");
+    }
+
+    // Return the interface object and compiler version
+    return {
+      interface: createWasmInterface(),
+      compilerVersion,
+    };
   } catch (error) {
     console.error("Error initializing WASM:", error);
     const message = error instanceof Error ? error.message : String(error);

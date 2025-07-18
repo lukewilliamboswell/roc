@@ -102,19 +102,26 @@ class RocPlayground {
   async initializeWasm(): Promise<void> {
     try {
       console.log("Loading WASM module...");
-      wasmInterface = await initializeWasm();
+      const wasmResult = await initializeWasm();
+      wasmInterface = wasmResult.interface;
 
       const outputContent = document.getElementById("outputContent");
       if (!outputContent) {
         throw new Error("Output content element not found");
       }
-      outputContent.innerHTML = "Ready to compile!";
+
+      if (wasmResult.compilerVersion) {
+        outputContent.innerHTML = `Ready to compile! (Roc ${wasmResult.compilerVersion})`;
+      } else {
+        outputContent.innerHTML = "Ready to compile!";
+      }
       outputContent.classList.add("status-text");
 
       console.log("WASM module loaded successfully");
     } catch (error) {
-      console.error("Error loading WASM:", error);
-      throw error;
+      console.error("Failed to initialize WASM:", error);
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`WASM initialization failed: ${message}`);
     }
   }
 
