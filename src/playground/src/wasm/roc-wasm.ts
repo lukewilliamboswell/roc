@@ -119,7 +119,8 @@ export async function initializeWasm(): Promise<WasmInterface> {
     return createWasmInterface();
   } catch (error) {
     console.error("Error initializing WASM:", error);
-    throw new Error(`Failed to initialize WASM module: ${error.message}`);
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to initialize WASM module: ${message}`);
   }
 }
 

@@ -77,12 +77,12 @@ function getWordAtPosition(view: EditorView, pos: number): WordInfo | null {
   let end = linePos;
 
   // Move start backward to find beginning of word
-  while (start > 0 && /\w/.test(lineText[start - 1])) {
+  while (start > 0 && /\w/.test(lineText[start - 1] || "")) {
     start--;
   }
 
   // Move end forward to find end of word
-  while (end < lineText.length && /\w/.test(lineText[end])) {
+  while (end < lineText.length && /\w/.test(lineText[end] || "")) {
     end++;
   }
 

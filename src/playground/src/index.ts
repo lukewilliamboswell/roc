@@ -146,7 +146,8 @@ class RocPlayground {
       console.log("Playground initialized successfully");
     } catch (error) {
       console.error("Failed to initialize playground:", error);
-      this.showError(`Failed to initialize playground: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.showError(`Failed to initialize playground: ${message}`);
     }
   }
 
@@ -243,7 +244,8 @@ class RocPlayground {
       this.updateUrlWithCompressedContent();
     } catch (error) {
       console.error("Compilation error:", error);
-      this.showError(`Compilation failed: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.showError(`Compilation failed: ${message}`);
     }
   }
 
@@ -272,13 +274,13 @@ class RocPlayground {
 
     // Update active example
     if (activeExample !== null) {
-      document
-        .querySelectorAll(".example-item")
-        [activeExample].classList.remove("active");
+      const exampleItems = document.querySelectorAll(".example-item");
+      exampleItems[activeExample]?.classList.remove("active");
     }
 
     activeExample = index;
-    document.querySelectorAll(".example-item")[index].classList.add("active");
+    const exampleItems = document.querySelectorAll(".example-item");
+    exampleItems[index]?.classList.add("active");
 
     // Set editor content
     setDocumentContent(codeMirrorEditor, example.code);
@@ -376,7 +378,8 @@ class RocPlayground {
         }
       }
     } catch (error) {
-      this.showError(`Failed to get tokens: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.showError(`Failed to get tokens: ${message}`);
     }
   }
 
@@ -403,7 +406,8 @@ class RocPlayground {
         }
       }
     } catch (error) {
-      this.showError(`Failed to get AST: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.showError(`Failed to get AST: ${message}`);
     }
   }
 
@@ -430,7 +434,8 @@ class RocPlayground {
         }
       }
     } catch (error) {
-      this.showError(`Failed to get CIR: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.showError(`Failed to get CIR: ${message}`);
     }
   }
 
@@ -457,7 +462,8 @@ class RocPlayground {
         }
       }
     } catch (error) {
-      this.showError(`Failed to get types: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.showError(`Failed to get types: ${message}`);
     }
   }
 
