@@ -1136,3 +1136,63 @@ button:focus-visible,
     margin-top: var(--space-1);
     display: block;
 }
+
+/* === TOKEN DISPLAY === */
+.token-list {
+    font-family: "SF Mono", "Monaco", "Inconsolata", "Roboto Mono", monospace;
+    font-size: var(--text-sm);
+    line-height: var(--leading-relaxed);
+    border-radius: var(--radius-base);
+    overflow-x: auto;
+}
+
+.token {
+    display: inline-block;
+    margin: 2px 4px;
+    font-size: var(--text-sm);
+    white-space: nowrap;
+}
+
+.token-type {
+    font-weight: var(--font-medium);
+    margin-right: var(--space-1);
+}
+
+.token-position {
+    color: var(--text-secondary);
+    font-size: calc(var(--text-sm) - 1px);
+    margin-left: var(--space-1);
+}
+
+/* Token type colors */
+.token.keyword .token-type {
+    color: var(--syntax-keyword);
+}
+
+.token.identifier .token-type {
+    color: var(--syntax-function);
+}
+
+.token.operator .token-type {
+    color: var(--syntax-operator);
+}
+
+.token.string .token-type {
+    color: var(--syntax-string);
+}
+
+.token.number .token-type {
+    color: var(--syntax-number);
+}
+
+.token.punctuation .token-type {
+    color: var(--syntax-punctuation);
+}
+
+.token.comment .token-type {
+    color: var(--syntax-comment);
+}
+
+.token.eof .token-type {
+    color: var(--text-tertiary);
+}

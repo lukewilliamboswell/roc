@@ -341,7 +341,7 @@ class RocPlayground {
       const outputContent = document.getElementById("outputContent");
       if (result.status === "SUCCESS") {
         if (outputContent) {
-          outputContent.innerHTML = `<div class="sexp-output">${result.data || "No tokens"}</div>`;
+          outputContent.innerHTML = result.data || "No tokens";
         }
       } else {
         if (outputContent) {

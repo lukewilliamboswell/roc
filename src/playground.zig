@@ -548,64 +548,73 @@ fn writeLoadedResponse(response_buffer: []u8, data: CompilerStageData) usize {
     return stream.getWritten().len;
 }
 
-/// Write tokens response by reusing the snapshot module
+/// Write tokens response with direct HTML generation
 fn writeTokensResponse(response_buffer: []u8, data: CompilerStageData) usize {
     var stream = std.io.fixedBufferStream(response_buffer);
     var writer = stream.writer();
 
-    writer.writeAll("{\"status\":\"SUCCESS\",\"data\":") catch return 0;
+    writer.writeAll("{\"status\":\"SUCCESS\",\"data\":\"") catch return 0;
 
-    // Generate tokens using the snapshot generator
-    // Write tokens as a markdown snapshot
+    // Generate tokens HTML directly
     if (data.parse_ast) |ast| {
         // Create a new arena for this query
         var local_arena = std.heap.ArenaAllocator.init(allocator);
         defer local_arena.deinit();
         const arena_allocator = local_arena.allocator();
 
-        var mut_ast = ast;
-        var sexpr_buffer = std.ArrayList(u8).init(arena_allocator);
-        defer sexpr_buffer.deinit();
+        var html_buffer = std.ArrayList(u8).init(arena_allocator);
+        defer html_buffer.deinit();
+        var html_writer = html_buffer.writer();
 
-        var md_buffer = std.ArrayList(u8).init(arena_allocator);
-        defer md_buffer.deinit();
+        // Write HTML container
+        html_writer.writeAll("<div class=\"token-list\">") catch return 0;
 
-        var dual_output = snapshot.DualOutput.init(allocator, &md_buffer, null);
+        // Generate tokens from AST
+        const token_tags = ast.tokens.tokens.items(.tag);
+        const token_extras = ast.tokens.tokens.items(.extra);
 
-        const content = snapshot.Content{
-            .meta = .{
-                .description = "Playground",
-                .node_type = .file,
-            },
-            .source = data.module_env.source,
-            .expected = null,
-            .formatted = null,
-            .has_canonicalize = false,
-        };
+        for (token_tags, token_extras, 0..) |tag, _, i| {
+            const token_name = @tagName(tag);
+            const region = ast.tokens.resolve(i);
+            const start_pos = region.start.offset;
+            const end_pos = region.end.offset;
 
-        snapshot.generateTokensSection(&dual_output, &mut_ast, &content, data.module_env) catch {
-            return writeErrorResponse(response_buffer, .ERROR, "Failed to generate tokens section");
-        };
+            // Determine CSS class based on token type
+            var css_class: []const u8 = "default";
+            if (std.mem.startsWith(u8, token_name, "Kw")) {
+                css_class = "keyword";
+            } else if (std.mem.indexOf(u8, token_name, "Ident")) |_| {
+                css_class = "identifier";
+            } else if (std.mem.startsWith(u8, token_name, "Op")) {
+                css_class = "operator";
+            } else if (std.mem.indexOf(u8, token_name, "String")) |_| {
+                css_class = "string";
+            } else if (std.mem.indexOf(u8, token_name, "Number")) |_| {
+                css_class = "number";
+            } else if (std.mem.indexOf(u8, token_name, "Open")) |_| {
+                css_class = "punctuation";
+            } else if (std.mem.indexOf(u8, token_name, "Close")) |_| {
+                css_class = "punctuation";
+            } else if (std.mem.eql(u8, token_name, "EndOfFile")) {
+                css_class = "eof";
+            }
 
-        // The output from generateTokensSection is a full markdown section.
-        // We need to extract just the S-expression content.
-        const full_output = md_buffer.items;
-        const sexpr_start_str = "~~~zig\n";
-        const sexpr_end_str = "\n~~~\n";
+            // Write token HTML
+            html_writer.print("<span class=\"token {s}\">", .{css_class}) catch return 0;
+            html_writer.print("<span class=\"token-type\">{s}</span>", .{token_name}) catch return 0;
+            html_writer.print("<span class=\"token-position\">({d}:{d})</span>", .{ start_pos, end_pos }) catch return 0;
+            html_writer.writeAll("</span>") catch return 0;
+        }
 
-        const start_index = std.mem.indexOf(u8, full_output, sexpr_start_str) orelse 0;
-        const end_index = std.mem.lastIndexOf(u8, full_output, sexpr_end_str) orelse full_output.len;
-        const sexpr_content = full_output[start_index + sexpr_start_str.len .. end_index];
+        html_writer.writeAll("</div>") catch return 0;
 
-        // Wrap the content in JSON
-        writer.writeAll("\"") catch return 0;
-        writeJsonString(writer, sexpr_content) catch return 0;
-        writer.writeAll("\"") catch return 0;
+        // Write the HTML content as JSON string
+        writeJsonString(writer, html_buffer.items) catch return 0;
     } else {
         return writeErrorResponse(response_buffer, .ERROR, "Tokens not available");
     }
 
-    writer.writeAll("}") catch return 0;
+    writer.writeAll("\"}") catch return 0;
     return stream.getWritten().len;
 }
 
