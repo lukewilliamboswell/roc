@@ -40,7 +40,7 @@ interface WasmInterface {
     identifier: string,
     line: number,
     ch: number,
-  ) => Promise<WasmResponse>;
+  ) => Promise<WasmResponse | null>;
   isReady: () => boolean;
   getMemoryUsage: () => number;
   sendMessage: (message: WasmMessage) => Promise<WasmResponse>;
@@ -195,7 +195,11 @@ async function processMessageQueue(): Promise<void> {
   messageInProgress = true;
 
   while (messageQueue.length > 0) {
-    const { message, resolve, reject } = messageQueue.shift();
+    const queuedMessage = messageQueue.shift();
+    if (!queuedMessage) {
+      break;
+    }
+    const { message, resolve, reject } = queuedMessage;
 
     try {
       const result = await sendMessageDirect(message);
@@ -230,6 +234,9 @@ async function sendMessageDirect(message: WasmMessage): Promise<WasmResponse> {
       throw new Error("Failed to allocate message memory");
     }
 
+    if (!wasmMemory) {
+      throw new Error("WASM memory not available");
+    }
     const memory = new Uint8Array(wasmMemory.buffer);
     memory.set(messageBytes, messagePtr);
 
@@ -253,6 +260,9 @@ async function sendMessageDirect(message: WasmMessage): Promise<WasmResponse> {
     }
 
     // Read response
+    if (!wasmMemory) {
+      throw new Error("WASM memory not available for response");
+    }
     const responseBytes = new Uint8Array(
       wasmMemory.buffer,
       responsePtr,

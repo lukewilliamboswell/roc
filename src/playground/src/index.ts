@@ -156,6 +156,9 @@ class RocPlayground {
       wasmInterface = await initializeWasm();
 
       const outputContent = document.getElementById("outputContent");
+      if (!outputContent) {
+        throw new Error("Output content element not found");
+      }
       outputContent.innerHTML = "Ready to compile!";
       outputContent.classList.add("status-text");
 
@@ -168,6 +171,9 @@ class RocPlayground {
 
   setupEditor(): void {
     const editorContainer = document.getElementById("editor");
+    if (!editorContainer) {
+      throw new Error("Editor container not found");
+    }
     const themeAttr = document.documentElement.getAttribute("data-theme");
     const theme: "light" | "dark" = themeAttr === "dark" ? "dark" : "light";
 
@@ -256,7 +262,7 @@ class RocPlayground {
         this.loadExample(index);
       });
 
-      examplesList.appendChild(exampleItem);
+      examplesList?.appendChild(exampleItem);
     });
   }
 
@@ -312,17 +318,17 @@ class RocPlayground {
     const outputContent = document.getElementById("outputContent");
 
     if (lastDiagnostics.length === 0) {
-      outputContent.innerHTML = `<div class="success-message">No problems found!</div>`;
+      if (outputContent) {
+        outputContent.innerHTML = `<div class="success-message">No problems found!</div>`;
+      }
       return;
     }
 
-    // If we have HTML diagnostics from WASM, use those
-    if (
-      this.lastCompileResult &&
-      this.lastCompileResult.diagnostics &&
-      this.lastCompileResult.diagnostics.html
-    ) {
-      outputContent.innerHTML = this.lastCompileResult.diagnostics.html;
+    // Use pre-formatted HTML from WASM if available
+    if (this.lastCompileResult?.diagnostics?.html) {
+      if (outputContent) {
+        outputContent.innerHTML = this.lastCompileResult.diagnostics.html;
+      }
       return;
     }
 
@@ -342,21 +348,32 @@ class RocPlayground {
       `;
     });
 
-    outputContent.innerHTML = html;
+    if (outputContent) {
+      outputContent.innerHTML = html;
+    }
   }
 
   async showTokens(): Promise<void> {
     currentView = "TOKENS";
     this.updateStageButtons();
 
+    if (!wasmInterface) {
+      this.showError("WASM module not loaded");
+      return;
+    }
+
     try {
       const result = await wasmInterface.tokenize();
 
       const outputContent = document.getElementById("outputContent");
-      if (result.status === "SUCCESS") {
-        outputContent.innerHTML = `<div class="sexp-output">${result.data || "No tokens"}</div>`;
+      if (result.success) {
+        if (outputContent) {
+          outputContent.innerHTML = `<div class="sexp-output">${result.data || "No tokens"}</div>`;
+        }
       } else {
-        outputContent.innerHTML = `<div class="error-message">${this.escapeHtml(result.message || "Failed to get tokens")}</div>`;
+        if (outputContent) {
+          outputContent.innerHTML = `<div class="error-message">${this.escapeHtml(result.message || "Failed to get tokens")}</div>`;
+        }
       }
     } catch (error) {
       this.showError(`Failed to get tokens: ${error.message}`);
@@ -367,14 +384,23 @@ class RocPlayground {
     currentView = "AST";
     this.updateStageButtons();
 
+    if (!wasmInterface) {
+      this.showError("WASM module not loaded");
+      return;
+    }
+
     try {
       const result = await wasmInterface.parse();
 
       const outputContent = document.getElementById("outputContent");
-      if (result.status === "SUCCESS") {
-        outputContent.innerHTML = `<div class="sexp-output">${result.data || "No AST"}</div>`;
+      if (result.success) {
+        if (outputContent) {
+          outputContent.innerHTML = `<div class="sexp-output">${result.data || "No AST"}</div>`;
+        }
       } else {
-        outputContent.innerHTML = `<div class="error-message">${this.escapeHtml(result.message || "Failed to get AST")}</div>`;
+        if (outputContent) {
+          outputContent.innerHTML = `<div class="error-message">${this.escapeHtml(result.message || "Failed to get AST")}</div>`;
+        }
       }
     } catch (error) {
       this.showError(`Failed to get AST: ${error.message}`);
@@ -385,14 +411,23 @@ class RocPlayground {
     currentView = "CIR";
     this.updateStageButtons();
 
+    if (!wasmInterface) {
+      this.showError("WASM module not loaded");
+      return;
+    }
+
     try {
       const result = await wasmInterface.canonicalize();
 
       const outputContent = document.getElementById("outputContent");
-      if (result.status === "SUCCESS") {
-        outputContent.innerHTML = `<div class="sexp-output">${result.data || "No CIR"}</div>`;
+      if (result.success) {
+        if (outputContent) {
+          outputContent.innerHTML = `<div class="sexp-output">${result.data || "No CIR"}</div>`;
+        }
       } else {
-        outputContent.innerHTML = `<div class="error-message">${this.escapeHtml(result.message || "Failed to get CIR")}</div>`;
+        if (outputContent) {
+          outputContent.innerHTML = `<div class="error-message">${this.escapeHtml(result.message || "Failed to get CIR")}</div>`;
+        }
       }
     } catch (error) {
       this.showError(`Failed to get CIR: ${error.message}`);
@@ -403,14 +438,23 @@ class RocPlayground {
     currentView = "TYPES";
     this.updateStageButtons();
 
+    if (!wasmInterface) {
+      this.showError("WASM module not loaded");
+      return;
+    }
+
     try {
       const result = await wasmInterface.getTypes();
 
       const outputContent = document.getElementById("outputContent");
-      if (result.status === "SUCCESS") {
-        outputContent.innerHTML = `<div class="sexp-output">${result.data || "No types"}</div>`;
+      if (result.success) {
+        if (outputContent) {
+          outputContent.innerHTML = `<div class="sexp-output">${result.data || "No types"}</div>`;
+        }
       } else {
-        outputContent.innerHTML = `<div class="error-message">${this.escapeHtml(result.message || "Failed to get types")}</div>`;
+        if (outputContent) {
+          outputContent.innerHTML = `<div class="error-message">${this.escapeHtml(result.message || "Failed to get types")}</div>`;
+        }
       }
     } catch (error) {
       this.showError(`Failed to get types: ${error.message}`);
@@ -652,7 +696,7 @@ class RocPlayground {
     this.updateThemeLabel();
 
     // Theme switch event
-    themeSwitch.addEventListener("click", () => {
+    themeSwitch?.addEventListener("click", () => {
       this.toggleTheme();
     });
 
@@ -682,7 +726,9 @@ class RocPlayground {
   updateThemeLabel(): void {
     const themeLabel = document.querySelector(".theme-label");
     const currentTheme = document.documentElement.getAttribute("data-theme");
-    themeLabel.textContent = currentTheme === "dark" ? "Dark" : "Light";
+    if (themeLabel) {
+      themeLabel.textContent = currentTheme === "dark" ? "Dark" : "Light";
+    }
   }
 
   setStatus(message: string): void {

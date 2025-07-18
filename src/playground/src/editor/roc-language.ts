@@ -72,7 +72,7 @@ export function rocStreamLanguage(): LanguageSupport {
         }
 
         // Hex numbers
-        if (ch === "0" && /[xX]/.test(stream.peek())) {
+        if (ch === "0" && /[xX]/.test(stream.peek() || "")) {
           stream.next();
           stream.eatWhile(/[0-9a-fA-F]/);
           return "number";

@@ -65,10 +65,11 @@ export function createEditorView(
 
   // Add change handler if provided
   if (options.onChange) {
+    const changeHandler = options.onChange;
     extensions.push(
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
-          options.onChange(update.state.doc.toString());
+          changeHandler(update.state.doc.toString());
         }
       }),
     );
