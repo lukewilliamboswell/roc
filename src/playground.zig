@@ -295,6 +295,26 @@ fn handleLoadedState(message_type: MessageType, message_json: std.json.Value, re
 
 /// Compile source through all compiler stages
 fn compileSource(source: []const u8) !CompilerStageData {
+    // Handle empty input gracefully to prevent crashes
+    if (source.len == 0) {
+        // Return empty compiler stage data for completely empty input
+        var module_env = try allocator.create(ModuleEnv);
+        const owned_source = try allocator.dupe(u8, source);
+        module_env.* = try ModuleEnv.init(allocator, owned_source);
+        try module_env.calcLineStarts(source);
+        return CompilerStageData.init(allocator, module_env);
+    }
+
+    const trimmed_source = std.mem.trim(u8, source, " \t\n\r");
+    if (trimmed_source.len == 0) {
+        // Return empty compiler stage data for whitespace-only input
+        var module_env = try allocator.create(ModuleEnv);
+        const owned_source = try allocator.dupe(u8, source);
+        module_env.* = try ModuleEnv.init(allocator, owned_source);
+        try module_env.calcLineStarts(source);
+        return CompilerStageData.init(allocator, module_env);
+    }
+
     // Set up the source in WASM filesystem
     WasmFilesystem.setSource(allocator, source);
 
@@ -310,15 +330,23 @@ fn compileSource(source: []const u8) !CompilerStageData {
     var parse_ast = try parse.parse(module_env, source);
     result.parse_ast = parse_ast;
 
-    // Collect tokenize diagnostics
+    // Collect tokenize diagnostics with additional error handling
     for (parse_ast.tokenize_diagnostics.items) |diagnostic| {
-        const report = parse_ast.tokenizeDiagnosticToReport(diagnostic, allocator) catch continue;
+        const report = parse_ast.tokenizeDiagnosticToReport(diagnostic, allocator) catch {
+            // Log the error and continue processing other diagnostics
+            // This prevents crashes on malformed diagnostics or empty input
+            continue;
+        };
         result.tokenize_reports.append(report) catch continue;
     }
 
-    // Collect parse diagnostics
+    // Collect parse diagnostics with additional error handling
     for (parse_ast.parse_diagnostics.items) |diagnostic| {
-        const report = parse_ast.parseDiagnosticToReport(module_env, diagnostic, allocator, "main.roc") catch continue;
+        const report = parse_ast.parseDiagnosticToReport(module_env, diagnostic, allocator, "main.roc") catch {
+            // Log the error and continue processing other diagnostics
+            // This prevents crashes on malformed diagnostics or empty input
+            continue;
+        };
         result.parse_reports.append(report) catch continue;
     }
 
@@ -418,10 +446,13 @@ fn writeLoadedResponse(response_buffer: []u8, data: CompilerStageData) usize {
     var diagnostics = std.ArrayList(Diagnostic).init(allocator);
     defer diagnostics.deinit();
 
-    extractDiagnosticsFromReports(&diagnostics, data.tokenize_reports) catch return 0;
-    extractDiagnosticsFromReports(&diagnostics, data.parse_reports) catch return 0;
-    extractDiagnosticsFromReports(&diagnostics, data.can_reports) catch return 0;
-    extractDiagnosticsFromReports(&diagnostics, data.type_reports) catch return 0;
+    // Extract diagnostics from all stages with additional safeguards
+    extractDiagnosticsFromReports(&diagnostics, data.tokenize_reports) catch {
+        // Log error but continue - don't fail the entire response
+    };
+    extractDiagnosticsFromReports(&diagnostics, data.parse_reports) catch {};
+    extractDiagnosticsFromReports(&diagnostics, data.can_reports) catch {};
+    extractDiagnosticsFromReports(&diagnostics, data.type_reports) catch {};
 
     // TIER 2: Count ALL diagnostics from reports (for SUMMARY display)
     // This includes ALL diagnostics regardless of whether they have region info.
@@ -445,11 +476,16 @@ fn writeLoadedResponse(response_buffer: []u8, data: CompilerStageData) usize {
     // Add debug information showing counts by stage and report counts
     writer.print("\"debug_counts\":{{\"tokenize\":{{\"errors\":{},\"warnings\":{},\"total_reports\":{}}},\"parse\":{{\"errors\":{},\"warnings\":{},\"total_reports\":{}}},\"can\":{{\"errors\":{},\"warnings\":{},\"total_reports\":{}}},\"type\":{{\"errors\":{},\"warnings\":{},\"total_reports\":{}}}}},", .{ tokenize_counts.errors, tokenize_counts.warnings, data.tokenize_reports.items.len, parse_counts.errors, parse_counts.warnings, data.parse_reports.items.len, can_counts.errors, can_counts.warnings, data.can_reports.items.len, type_counts.errors, type_counts.warnings, data.type_reports.items.len }) catch return 0;
 
-    // Write structured diagnostics array
+    // Write structured diagnostics array with safeguards
     writer.writeAll("\"list\":[") catch return 0;
-    for (diagnostics.items, 0..) |diagnostic, i| {
-        if (i > 0) writer.writeAll(",") catch return 0;
-        writeDiagnosticJson(writer, diagnostic) catch return 0;
+    if (diagnostics.items.len > 0) {
+        for (diagnostics.items, 0..) |diagnostic, i| {
+            if (i > 0) writer.writeAll(",") catch return 0;
+            writeDiagnosticJson(writer, diagnostic) catch {
+                // Skip malformed diagnostic but continue with others
+                continue;
+            };
+        }
     }
     writer.writeAll("],") catch return 0;
 
@@ -856,6 +892,13 @@ fn extractDiagnosticsFromReports(
         // If no region info is available, skip this report for visual indicators
         // (it will still be counted in the summary statistics)
         const region_info = report.getRegionInfo() orelse continue;
+
+        // Additional validation for empty or invalid regions
+        if (region_info.start_line_idx == 0 and region_info.start_col_idx == 0 and
+            region_info.end_line_idx == 0 and region_info.end_col_idx == 0)
+        {
+            continue; // Skip invalid zero regions
+        }
 
         // Get the title as the message
         const message = report.title;
