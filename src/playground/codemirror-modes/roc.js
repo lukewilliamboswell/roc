@@ -230,11 +230,6 @@
           return "constant";
         }
 
-        // Effect functions get special styling
-        if (hasEffect) {
-          return "variable-effect";
-        }
-
         return "variable";
       }
 
