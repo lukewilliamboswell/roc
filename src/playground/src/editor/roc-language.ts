@@ -27,7 +27,7 @@ const rocHighlightStyle = HighlightStyle.define([
   { tag: t.className, class: "cm-builtin" },
   { tag: t.variableName, class: "cm-variable" },
   { tag: t.literal, class: "cm-constant" },
-  { tag: t.processingInstruction, class: "cm-string-interpolation" },
+  { tag: t.processingInstruction, class: "cm-string" },
   { tag: t.invalid, class: "cm-error" },
 ]);
 

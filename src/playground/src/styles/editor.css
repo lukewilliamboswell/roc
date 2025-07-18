@@ -108,12 +108,6 @@
     color: var(--syntax-string);
 }
 
-.editor .cm-string-interpolation {
-    color: var(--syntax-function);
-    font-weight: var(--font-medium);
-    background-color: var(--overlay-function);
-}
-
 .editor .cm-number {
     color: var(--syntax-number);
 }
