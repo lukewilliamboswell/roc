@@ -20,6 +20,7 @@ interface Diagnostic {
   severity: "error" | "warning" | "info";
   message: string;
   location: string;
+  code?: string;
 }
 
 interface WasmInterface {
@@ -102,13 +103,14 @@ isActive = Bool.True`,
 
 // Main playground class
 class RocPlayground {
-  private compileTimeout: number | null = null;
+  private compileTimeout: ReturnType<typeof setTimeout> | null = null;
   private compileStartTime: number | null = null;
   private isResizing: boolean = false;
   private startX: number = 0;
   private startWidthLeft: number = 0;
   private startWidthRight: number = 0;
   private lastCompileResult: any = null;
+  private updateUrlTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     this.compileTimeout = null;
@@ -166,14 +168,14 @@ class RocPlayground {
 
   setupEditor(): void {
     const editorContainer = document.getElementById("editor");
-    const theme =
-      document.documentElement.getAttribute("data-theme") || "light";
+    const themeAttr = document.documentElement.getAttribute("data-theme");
+    const theme: "light" | "dark" = themeAttr === "dark" ? "dark" : "light";
 
     codeMirrorEditor = createEditorView(editorContainer, {
       doc: "# Select an example or write Roc code here...",
       theme: theme,
       hoverTooltip: createTypeHintTooltip(wasmInterface),
-      onChange: (content) => {
+      onChange: (content: string) => {
         this.handleCodeChange(content);
       },
     });
@@ -428,7 +430,7 @@ class RocPlayground {
   }
 
   getButtonId(view: string): string {
-    const mapping = {
+    const mapping: Record<string, string> = {
       PROBLEMS: "diagnosticsBtn",
       TOKENS: "tokensBtn",
       AST: "parseBtn",
@@ -495,17 +497,22 @@ class RocPlayground {
 
   setupResizeHandle(): void {
     const resizeHandle = document.getElementById("resizeHandle");
-    const editorContainer = document.querySelector(".editor-container");
-    const outputContainer = document.querySelector(".output-container");
+    const editorContainer = document.querySelector(
+      ".editor-container",
+    ) as HTMLElement;
+    const outputContainer = document.querySelector(
+      ".output-container",
+    ) as HTMLElement;
 
-    resizeHandle.addEventListener("mousedown", (e) => {
+    resizeHandle?.addEventListener("mousedown", (e: MouseEvent) => {
       this.isResizing = true;
       this.startX = e.clientX;
-      this.startWidthLeft = editorContainer.offsetWidth;
-      this.startWidthRight = outputContainer.offsetWidth;
-
-      document.addEventListener("mousemove", this.handleMouseMove.bind(this));
-      document.addEventListener("mouseup", this.handleMouseUp.bind(this));
+      this.startWidthLeft = editorContainer?.offsetWidth || 0;
+      this.startWidthRight = outputContainer?.offsetWidth || 0;
+      document.addEventListener("mousemove", (e: MouseEvent) =>
+        this.handleMouseMove(e),
+      );
+      document.addEventListener("mouseup", () => this.handleMouseUp());
     });
   }
 
@@ -517,17 +524,27 @@ class RocPlayground {
     const newRightWidth = this.startWidthRight - deltaX;
 
     if (newLeftWidth > 200 && newRightWidth > 200) {
-      document.querySelector(".editor-container").style.flex =
-        `0 0 ${newLeftWidth}px`;
-      document.querySelector(".output-container").style.flex =
-        `0 0 ${newRightWidth}px`;
+      const editorContainer = document.querySelector(
+        ".editor-container",
+      ) as HTMLElement;
+      const outputContainer = document.querySelector(
+        ".output-container",
+      ) as HTMLElement;
+      if (editorContainer) {
+        editorContainer.style.flex = `0 0 ${newLeftWidth}px`;
+      }
+      if (outputContainer) {
+        outputContainer.style.flex = `0 0 ${newRightWidth}px`;
+      }
     }
   }
 
   handleMouseUp(): void {
     this.isResizing = false;
-    document.removeEventListener("mousemove", this.handleMouseMove);
-    document.removeEventListener("mouseup", this.handleMouseUp);
+    document.removeEventListener("mousemove", (e: MouseEvent) =>
+      this.handleMouseMove(e),
+    );
+    document.removeEventListener("mouseup", () => this.handleMouseUp());
   }
 
   setupUrlSharing(): void {
@@ -670,12 +687,16 @@ class RocPlayground {
 
   setStatus(message: string): void {
     const outputContent = document.getElementById("outputContent");
-    outputContent.innerHTML = `<div class="status-text">${message}</div>`;
+    if (outputContent) {
+      outputContent.innerHTML = `<div class="status-text">${message}</div>`;
+    }
   }
 
   showError(message: string): void {
     const outputContent = document.getElementById("outputContent");
-    outputContent.innerHTML = `<div class="error-message">${this.escapeHtml(message)}</div>`;
+    if (outputContent) {
+      outputContent.innerHTML = `<div class="error-message">${this.escapeHtml(message)}</div>`;
+    }
   }
 
   escapeHtml(text: string): string {
@@ -686,14 +707,14 @@ class RocPlayground {
 
   parseDiagnostics(result: any): Diagnostic[] {
     // Parse diagnostics from WASM result
-    const diagnostics = [];
+    const diagnostics: Diagnostic[] = [];
 
     if (result.diagnostics && result.diagnostics.summary) {
       const summary = result.diagnostics.summary;
 
       if (summary.errors > 0) {
         diagnostics.push({
-          severity: "error",
+          severity: "error" as const,
           message: `${summary.errors} error${summary.errors > 1 ? "s" : ""}`,
           location: "compilation",
         });
@@ -701,7 +722,7 @@ class RocPlayground {
 
       if (summary.warnings > 0) {
         diagnostics.push({
-          severity: "warning",
+          severity: "warning" as const,
           message: `${summary.warnings} warning${summary.warnings > 1 ? "s" : ""}`,
           location: "compilation",
         });
@@ -715,7 +736,9 @@ class RocPlayground {
   addShareButton(): void {
     const headerStatus = document.querySelector(".header-status");
     if (headerStatus) {
-      let shareButton = headerStatus.querySelector(".share-button");
+      let shareButton = headerStatus.querySelector(
+        ".share-button",
+      ) as HTMLButtonElement;
       if (!shareButton) {
         shareButton = document.createElement("button");
         shareButton.className = "share-button";
@@ -738,10 +761,13 @@ class RocPlayground {
           await navigator.clipboard.writeText(shareUrl);
 
           // Show temporary feedback
-          const shareButton = document.querySelector(".share-button");
+          const shareButton = document.querySelector(
+            ".share-button",
+          ) as HTMLButtonElement;
           const originalText = shareButton.innerHTML;
           shareButton.innerHTML = "copied!";
           shareButton.style.background = "var(--color-success)";
+
           setTimeout(() => {
             shareButton.innerHTML = originalText;
             shareButton.style.background = "";

@@ -52,7 +52,7 @@ export function createTypeHintTooltip(wasmInterface: WasmInterface | null) {
       return {
         pos,
         above: true,
-        create(view) {
+        create(view: EditorView) {
           const dom = createTooltipDOM(wordInfo.word, typeInfo);
           return { dom };
         },
