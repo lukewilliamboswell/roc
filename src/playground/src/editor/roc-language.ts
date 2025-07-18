@@ -1,14 +1,29 @@
-import { StreamLanguage } from "@codemirror/language";
+import { StreamLanguage, LanguageSupport } from "@codemirror/language";
 
-export function rocStreamLanguage() {
+interface StreamState {
+  context?: string;
+  tokenize?: (stream: any, state: StreamState) => string | null;
+}
+
+interface Stream {
+  next(): string;
+  peek(): string;
+  eat(match: string | RegExp): string | undefined;
+  eatWhile(match: string | RegExp): boolean;
+  eatSpace(): boolean;
+  skipToEnd(): void;
+  current(): string;
+}
+
+export function rocStreamLanguage(): LanguageSupport {
   return StreamLanguage.define({
     name: "roc",
 
-    startState() {
+    startState(): StreamState {
       return {};
     },
 
-    token(stream, state) {
+    token(stream: Stream, state: StreamState): string | null {
       // Skip whitespace
       if (stream.eatSpace()) return null;
 
@@ -24,7 +39,7 @@ export function rocStreamLanguage() {
       if (ch === '"' || ch === "'") {
         const quote = ch;
         let escaped = false;
-        let next;
+        let next: string | null;
 
         while ((next = stream.next()) != null) {
           if (next === quote && !escaped) {
@@ -107,7 +122,7 @@ export function rocStreamLanguage() {
         const baseWord = word.endsWith("!") ? word.slice(0, -1) : word;
 
         // Keywords
-        const keywords = [
+        const keywords: string[] = [
           "if",
           "else",
           "match",
@@ -140,7 +155,7 @@ export function rocStreamLanguage() {
         }
 
         // Built-in types
-        const builtins = [
+        const builtins: string[] = [
           "List",
           "Dict",
           "Set",

@@ -3,16 +3,64 @@
  * Handles loading, initialization, and communication with the Roc WASM module
  */
 
-let wasmModule = null;
-let wasmMemory = null;
-let messageQueue = [];
-let messageInProgress = false;
+interface WasmMessage {
+  type: string;
+  source?: string;
+  identifier?: string;
+  line?: number;
+  ch?: number;
+  word?: string;
+  position?: number;
+}
+
+interface WasmResponse {
+  status: "SUCCESS" | "ERROR" | "INVALID_STATE" | "INVALID_MESSAGE";
+  message?: string;
+  data?: string;
+  diagnostics?: {
+    summary: {
+      errors: number;
+      warnings: number;
+    };
+    html: string;
+  };
+  type_info?: {
+    type: string;
+    description?: string;
+  };
+}
+
+interface WasmInterface {
+  compile: (code: string) => Promise<WasmResponse>;
+  tokenize: () => Promise<WasmResponse>;
+  parse: () => Promise<WasmResponse>;
+  canonicalize: () => Promise<WasmResponse>;
+  getTypes: () => Promise<WasmResponse>;
+  getTypeInfo: (
+    identifier: string,
+    line: number,
+    ch: number,
+  ) => Promise<WasmResponse>;
+  isReady: () => boolean;
+  getMemoryUsage: () => number;
+  sendMessage: (message: WasmMessage) => Promise<WasmResponse>;
+}
+
+interface QueuedMessage {
+  message: WasmMessage;
+  resolve: (value: WasmResponse) => void;
+  reject: (reason?: any) => void;
+}
+
+let wasmModule: any = null;
+let wasmMemory: WebAssembly.Memory | null = null;
+let messageQueue: QueuedMessage[] = [];
+let messageInProgress: boolean = false;
 
 /**
  * Initializes the WASM module and returns an interface object
- * @returns {Promise<Object>} WASM interface object
  */
-export async function initializeWasm() {
+export async function initializeWasm(): Promise<WasmInterface> {
   try {
     console.log("Initializing WASM module...");
 
@@ -77,9 +125,8 @@ export async function initializeWasm() {
 
 /**
  * Creates the WASM interface object that other modules can use
- * @returns {Object} WASM interface with methods
  */
-function createWasmInterface() {
+function createWasmInterface(): WasmInterface {
   return {
     // Core compilation methods
     compile: async (code) => {
@@ -129,11 +176,9 @@ function createWasmInterface() {
 
 /**
  * Sends a message to the WASM module (queued to handle concurrency)
- * @param {Object} message - The message to send
- * @returns {Promise<Object>} The response from WASM
  */
-function sendMessageQueued(message) {
-  return new Promise((resolve, reject) => {
+function sendMessageQueued(message: WasmMessage): Promise<WasmResponse> {
+  return new Promise<WasmResponse>((resolve, reject) => {
     messageQueue.push({ message, resolve, reject });
     processMessageQueue();
   });
@@ -142,7 +187,7 @@ function sendMessageQueued(message) {
 /**
  * Processes the message queue, ensuring only one message is processed at a time
  */
-async function processMessageQueue() {
+async function processMessageQueue(): Promise<void> {
   if (messageInProgress || messageQueue.length === 0) {
     return;
   }
@@ -165,17 +210,15 @@ async function processMessageQueue() {
 
 /**
  * Sends a message directly to the WASM module
- * @param {Object} message - The message to send
- * @returns {Promise<Object>} The response from WASM
  */
-async function sendMessageDirect(message) {
+async function sendMessageDirect(message: WasmMessage): Promise<WasmResponse> {
   if (!wasmModule) {
     throw new Error("WASM module not loaded");
   }
 
-  let messagePtr = null;
-  let responsePtr = null;
-  let messageBytes = null;
+  let messagePtr: number | null = null;
+  let responsePtr: number | null = null;
+  let messageBytes: Uint8Array | null = null;
 
   try {
     const messageStr = JSON.stringify(message);
@@ -221,9 +264,9 @@ async function sendMessageDirect(message) {
       throw new Error("WASM returned empty response string");
     }
 
-    let parsedResponse;
+    let parsedResponse: WasmResponse;
     try {
-      parsedResponse = JSON.parse(responseStr);
+      parsedResponse = JSON.parse(responseStr) as WasmResponse;
     } catch (jsonError) {
       throw new Error(
         `Invalid JSON response from WASM: ${responseStr.substring(0, 100)}...`,
@@ -247,24 +290,22 @@ async function sendMessageDirect(message) {
 
 /**
  * Utility function to check if WASM is ready
- * @returns {boolean} True if WASM is loaded and ready
  */
-export function isWasmReady() {
+export function isWasmReady(): boolean {
   return wasmModule !== null;
 }
 
 /**
  * Gets the current memory usage of the WASM module
- * @returns {number} Memory usage in bytes
  */
-export function getWasmMemoryUsage() {
+export function getWasmMemoryUsage(): number {
   return wasmMemory ? wasmMemory.buffer.byteLength : 0;
 }
 
 /**
  * Resets the WASM module state (for testing or recovery)
  */
-export function resetWasm() {
+export function resetWasm(): void {
   wasmModule = null;
   wasmMemory = null;
   messageQueue = [];

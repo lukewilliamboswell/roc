@@ -2,25 +2,50 @@ import {
   createEditorView,
   setDocumentContent,
   getDocumentContent,
-} from "./editor/cm6-setup.js";
-import { createTypeHintTooltip } from "./editor/type-hints.js";
-import { initializeWasm } from "./wasm/roc-wasm.js";
+} from "./editor/cm6-setup";
+import { createTypeHintTooltip } from "./editor/type-hints";
+import { initializeWasm } from "./wasm/roc-wasm";
 import "./styles/main.css";
 import "./styles/editor.css";
 import "./styles/tooltips.css";
 
+// Interfaces
+interface Example {
+  name: string;
+  description: string;
+  code: string;
+}
+
+interface Diagnostic {
+  severity: "error" | "warning" | "info";
+  message: string;
+  location: string;
+}
+
+interface WasmInterface {
+  compile: (code: string) => Promise<any>;
+  tokenize: () => Promise<any>;
+  parse: () => Promise<any>;
+  canonicalize: () => Promise<any>;
+  getTypes: () => Promise<any>;
+  getTypeInfo: (identifier: string, line: number, ch: number) => Promise<any>;
+  isReady: () => boolean;
+  getMemoryUsage: () => number;
+  sendMessage: (message: any) => Promise<any>;
+}
+
 // Global state variables (keeping same structure as app.js)
-let wasmInterface = null;
-let currentState = "INIT";
-let currentView = "PROBLEMS";
-let lastDiagnostics = [];
-let activeExample = null;
-let lastCompileTime = null;
-let updateUrlTimeout = null;
-let codeMirrorEditor = null;
+let wasmInterface: WasmInterface | null = null;
+let currentState: "INIT" | "READY" | "LOADED" = "INIT";
+let currentView: "PROBLEMS" | "TOKENS" | "AST" | "CIR" | "TYPES" = "PROBLEMS";
+let lastDiagnostics: Diagnostic[] = [];
+let activeExample: number | null = null;
+let lastCompileTime: number | null = null;
+let updateUrlTimeout: number | null = null;
+let codeMirrorEditor: any = null;
 
 // Examples data (from app.js)
-const examples = [
+const examples: Example[] = [
   {
     name: "Hello World",
     description: "A simple hello world program",
@@ -77,6 +102,14 @@ isActive = Bool.True`,
 
 // Main playground class
 class RocPlayground {
+  private compileTimeout: number | null = null;
+  private compileStartTime: number | null = null;
+  private isResizing: boolean = false;
+  private startX: number = 0;
+  private startWidthLeft: number = 0;
+  private startWidthRight: number = 0;
+  private lastCompileResult: any = null;
+
   constructor() {
     this.compileTimeout = null;
     this.compileStartTime = null;
@@ -87,7 +120,7 @@ class RocPlayground {
     this.lastCompileResult = null;
   }
 
-  async initialize() {
+  async initialize(): Promise<void> {
     try {
       console.log("Initializing Roc Playground...");
 
@@ -115,7 +148,7 @@ class RocPlayground {
     }
   }
 
-  async initializeWasm() {
+  async initializeWasm(): Promise<void> {
     try {
       console.log("Loading WASM module...");
       wasmInterface = await initializeWasm();
@@ -131,7 +164,7 @@ class RocPlayground {
     }
   }
 
-  setupEditor() {
+  setupEditor(): void {
     const editorContainer = document.getElementById("editor");
     const theme =
       document.documentElement.getAttribute("data-theme") || "light";
@@ -148,7 +181,7 @@ class RocPlayground {
     console.log("Editor setup complete");
   }
 
-  handleCodeChange(content) {
+  handleCodeChange(content: string): void {
     // Auto-compile with debouncing
     if (this.compileTimeout) {
       clearTimeout(this.compileTimeout);
@@ -159,7 +192,7 @@ class RocPlayground {
     }, 500);
   }
 
-  async compileCode(code) {
+  async compileCode(code?: string): Promise<void> {
     if (!wasmInterface) {
       this.showError("WASM module not loaded");
       return;
@@ -206,7 +239,7 @@ class RocPlayground {
     }
   }
 
-  setupExamples() {
+  setupExamples(): void {
     const examplesList = document.getElementById("examplesList");
 
     examples.forEach((example, index) => {
@@ -225,7 +258,7 @@ class RocPlayground {
     });
   }
 
-  async loadExample(index) {
+  async loadExample(index: number): Promise<void> {
     const example = examples[index];
     if (!example) return;
 
@@ -246,11 +279,11 @@ class RocPlayground {
     await this.compileCode(example.code);
   }
 
-  setupAutoCompile() {
+  setupAutoCompile(): void {
     // Auto-compile is handled in handleCodeChange
   }
 
-  showCurrentView() {
+  showCurrentView(): void {
     switch (currentView) {
       case "PROBLEMS":
         this.showDiagnostics();
@@ -270,7 +303,7 @@ class RocPlayground {
     }
   }
 
-  async showDiagnostics() {
+  async showDiagnostics(): Promise<void> {
     currentView = "PROBLEMS";
     this.updateStageButtons();
 
@@ -310,7 +343,7 @@ class RocPlayground {
     outputContent.innerHTML = html;
   }
 
-  async showTokens() {
+  async showTokens(): Promise<void> {
     currentView = "TOKENS";
     this.updateStageButtons();
 
@@ -328,7 +361,7 @@ class RocPlayground {
     }
   }
 
-  async showParseAst() {
+  async showParseAst(): Promise<void> {
     currentView = "AST";
     this.updateStageButtons();
 
@@ -346,7 +379,7 @@ class RocPlayground {
     }
   }
 
-  async showCanCir() {
+  async showCanCir(): Promise<void> {
     currentView = "CIR";
     this.updateStageButtons();
 
@@ -364,7 +397,7 @@ class RocPlayground {
     }
   }
 
-  async showTypes() {
+  async showTypes(): Promise<void> {
     currentView = "TYPES";
     this.updateStageButtons();
 
@@ -382,7 +415,7 @@ class RocPlayground {
     }
   }
 
-  updateStageButtons() {
+  updateStageButtons(): void {
     const buttons = document.querySelectorAll(".stage-button");
     buttons.forEach((button) => {
       button.classList.remove("active");
@@ -394,7 +427,7 @@ class RocPlayground {
     }
   }
 
-  getButtonId(view) {
+  getButtonId(view: string): string {
     const mapping = {
       PROBLEMS: "diagnosticsBtn",
       TOKENS: "tokensBtn",
@@ -405,57 +438,62 @@ class RocPlayground {
     return mapping[view] || "diagnosticsBtn";
   }
 
-  updateDiagnosticSummary() {
+  updateDiagnosticSummary(): void {
     const editorHeader = document.querySelector(".editor-header");
-    let summary = editorHeader.querySelector(".diagnostic-summary");
 
-    if (!summary) {
-      summary = document.createElement("div");
-      summary.className = "diagnostic-summary";
-      editorHeader.appendChild(summary);
+    // Remove existing summary
+    const existingSummary = editorHeader?.querySelector(".diagnostic-summary");
+    if (existingSummary) {
+      existingSummary.remove();
     }
 
-    // Use summary from WASM result if available
-    if (
-      this.lastCompileResult &&
-      this.lastCompileResult.diagnostics &&
-      this.lastCompileResult.diagnostics.summary
-    ) {
-      const diagnosticSummary = this.lastCompileResult.diagnostics.summary;
-      const errorCount = diagnosticSummary.errors;
-      const warningCount = diagnosticSummary.warnings;
+    // Always show summary after compilation (when timing info is available)
+    if (lastCompileTime !== null) {
+      const summaryDiv = document.createElement("div");
+      summaryDiv.className = "diagnostic-summary";
 
-      if (errorCount === 0 && warningCount === 0) {
-        summary.innerHTML =
-          '<span class="success-message">✓ No problems</span>';
-      } else {
-        summary.innerHTML = `
-          ${errorCount > 0 ? `<span class="error-count">${errorCount} error${errorCount > 1 ? "s" : ""}</span>` : ""}
-          ${warningCount > 0 ? `<span class="warning-count">${warningCount} warning${warningCount > 1 ? "s" : ""}</span>` : ""}
-        `;
-      }
-    } else {
-      // Fallback to counting diagnostics
-      const errorCount = lastDiagnostics.filter(
-        (d) => d.severity === "error",
-      ).length;
-      const warningCount = lastDiagnostics.filter(
-        (d) => d.severity === "warning",
-      ).length;
+      let totalErrors = 0;
+      let totalWarnings = 0;
 
-      if (errorCount === 0 && warningCount === 0) {
-        summary.innerHTML =
-          '<span class="success-message">✓ No problems</span>';
+      // Use summary from WASM result if available
+      if (
+        this.lastCompileResult &&
+        this.lastCompileResult.diagnostics &&
+        this.lastCompileResult.diagnostics.summary
+      ) {
+        const diagnosticSummary = this.lastCompileResult.diagnostics.summary;
+        totalErrors = diagnosticSummary.errors;
+        totalWarnings = diagnosticSummary.warnings;
       } else {
-        summary.innerHTML = `
-          ${errorCount > 0 ? `<span class="error-count">${errorCount} error${errorCount > 1 ? "s" : ""}</span>` : ""}
-          ${warningCount > 0 ? `<span class="warning-count">${warningCount} warning${warningCount > 1 ? "s" : ""}</span>` : ""}
-        `;
+        // Fallback to counting diagnostics
+        totalErrors = lastDiagnostics.filter(
+          (d) => d.severity === "error",
+        ).length;
+        totalWarnings = lastDiagnostics.filter(
+          (d) => d.severity === "warning",
+        ).length;
       }
+
+      let summaryText = "";
+      // Always show error/warning count after compilation
+      summaryText += `Found ${totalErrors} error(s) and ${totalWarnings} warning(s)`;
+
+      if (lastCompileTime !== null) {
+        let timeText;
+        if (lastCompileTime < 1000) {
+          timeText = `${Math.round(lastCompileTime)}ms`;
+        } else {
+          timeText = `${(lastCompileTime / 1000).toFixed(1)}s`;
+        }
+        summaryText += (summaryText ? " " : "") + `⚡ ${timeText}`;
+      }
+
+      summaryDiv.innerHTML = summaryText;
+      editorHeader?.appendChild(summaryDiv);
     }
   }
 
-  setupResizeHandle() {
+  setupResizeHandle(): void {
     const resizeHandle = document.getElementById("resizeHandle");
     const editorContainer = document.querySelector(".editor-container");
     const outputContainer = document.querySelector(".output-container");
@@ -471,7 +509,7 @@ class RocPlayground {
     });
   }
 
-  handleMouseMove(e) {
+  handleMouseMove(e: MouseEvent): void {
     if (!this.isResizing) return;
 
     const deltaX = e.clientX - this.startX;
@@ -486,13 +524,13 @@ class RocPlayground {
     }
   }
 
-  handleMouseUp() {
+  handleMouseUp(): void {
     this.isResizing = false;
     document.removeEventListener("mousemove", this.handleMouseMove);
     document.removeEventListener("mouseup", this.handleMouseUp);
   }
 
-  setupUrlSharing() {
+  setupUrlSharing(): void {
     // URL sharing functionality
     window.addEventListener("hashchange", () => {
       this.restoreFromHash();
@@ -501,7 +539,7 @@ class RocPlayground {
     this.addShareButton();
   }
 
-  async updateUrlWithCompressedContent() {
+  async updateUrlWithCompressedContent(): Promise<void> {
     if (this.updateUrlTimeout) {
       clearTimeout(this.updateUrlTimeout);
     }
@@ -524,7 +562,7 @@ class RocPlayground {
     }, 1000);
   }
 
-  async restoreFromHash() {
+  async restoreFromHash(): Promise<void> {
     const hash = window.location.hash.slice(1);
     if (hash) {
       try {
@@ -551,7 +589,7 @@ class RocPlayground {
     }
   }
 
-  async compressAndEncode(text) {
+  async compressAndEncode(text: string): Promise<string> {
     // Use simple base64 encoding for better browser support
     // TODO: Add compression later with a polyfill
     const encoder = new TextEncoder();
@@ -559,18 +597,18 @@ class RocPlayground {
     return this.uint8ToBase64(data);
   }
 
-  async decodeAndDecompress(base64) {
+  async decodeAndDecompress(base64: string): Promise<string> {
     // Use simple base64 decoding for better browser support
     // TODO: Add decompression later with a polyfill
     const data = this.base64ToUint8(base64);
     return new TextDecoder().decode(data);
   }
 
-  uint8ToBase64(uint8Array) {
+  uint8ToBase64(uint8Array: Uint8Array): string {
     return btoa(String.fromCharCode(...uint8Array));
   }
 
-  base64ToUint8(base64) {
+  base64ToUint8(base64: string): Uint8Array {
     return new Uint8Array(
       atob(base64)
         .split("")
@@ -578,7 +616,7 @@ class RocPlayground {
     );
   }
 
-  initTheme() {
+  initTheme(): void {
     const themeSwitch = document.getElementById("themeSwitch");
     const prefersDark = window.matchMedia(
       "(prefers-color-scheme: dark)",
@@ -615,7 +653,7 @@ class RocPlayground {
       });
   }
 
-  toggleTheme() {
+  toggleTheme(): void {
     const currentTheme = document.documentElement.getAttribute("data-theme");
     const newTheme = currentTheme === "dark" ? "light" : "dark";
 
@@ -624,29 +662,29 @@ class RocPlayground {
     this.updateThemeLabel();
   }
 
-  updateThemeLabel() {
+  updateThemeLabel(): void {
     const themeLabel = document.querySelector(".theme-label");
     const currentTheme = document.documentElement.getAttribute("data-theme");
     themeLabel.textContent = currentTheme === "dark" ? "Dark" : "Light";
   }
 
-  setStatus(message) {
+  setStatus(message: string): void {
     const outputContent = document.getElementById("outputContent");
     outputContent.innerHTML = `<div class="status-text">${message}</div>`;
   }
 
-  showError(message) {
+  showError(message: string): void {
     const outputContent = document.getElementById("outputContent");
     outputContent.innerHTML = `<div class="error-message">${this.escapeHtml(message)}</div>`;
   }
 
-  escapeHtml(text) {
+  escapeHtml(text: string): string {
     const div = document.createElement("div");
     div.textContent = text;
     return div.innerHTML;
   }
 
-  parseDiagnostics(result) {
+  parseDiagnostics(result: any): Diagnostic[] {
     // Parse diagnostics from WASM result
     const diagnostics = [];
 
@@ -674,7 +712,7 @@ class RocPlayground {
     return diagnostics;
   }
 
-  addShareButton() {
+  addShareButton(): void {
     const headerStatus = document.querySelector(".header-status");
     if (headerStatus) {
       let shareButton = headerStatus.querySelector(".share-button");
@@ -690,7 +728,7 @@ class RocPlayground {
     }
   }
 
-  async copyShareLink() {
+  async copyShareLink(): Promise<void> {
     if (codeMirrorEditor) {
       const content = getDocumentContent(codeMirrorEditor).trim();
       if (content) {
@@ -720,16 +758,27 @@ class RocPlayground {
 }
 
 // Global functions for button clicks (maintaining compatibility)
-window.showDiagnostics = () => playground.showDiagnostics();
-window.showTokens = () => playground.showTokens();
-window.showParseAst = () => playground.showParseAst();
-window.showCanCir = () => playground.showCanCir();
-window.showTypes = () => playground.showTypes();
+declare global {
+  interface Window {
+    showDiagnostics: () => void;
+    showTokens: () => void;
+    showParseAst: () => void;
+    showCanCir: () => void;
+    showTypes: () => void;
+  }
+}
 
 // Initialize playground when DOM is ready
-let playground;
+let playground: RocPlayground;
 
 document.addEventListener("DOMContentLoaded", () => {
   playground = new RocPlayground();
   playground.initialize();
+
+  // Set up global functions
+  window.showDiagnostics = () => playground.showDiagnostics();
+  window.showTokens = () => playground.showTokens();
+  window.showParseAst = () => playground.showParseAst();
+  window.showCanCir = () => playground.showCanCir();
+  window.showTypes = () => playground.showTypes();
 });

@@ -8,7 +8,8 @@
     "dev": "parcel serve src/index.html --port 8000",
     "build": "parcel build src/index.html --public-url ./",
     "clean": "rm -rf dist .parcel-cache",
-    "preview": "parcel serve dist/index.html --port 8001"
+    "preview": "parcel serve dist/index.html --port 8001",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.10.0",
@@ -25,6 +26,8 @@
     "@parcel/optimizer-cssnano": "^2.15.4",
     "@parcel/optimizer-terser": "^2.15.4",
     "@parcel/transformer-raw": "^2.10.3",
-    "parcel": "^2.10.3"
+    "@types/node": "^20.0.0",
+    "parcel": "^2.10.3",
+    "typescript": "^5.0.0"
   }
 }

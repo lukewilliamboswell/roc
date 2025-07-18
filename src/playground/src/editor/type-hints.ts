@@ -1,12 +1,27 @@
-import { hoverTooltip } from "@codemirror/view";
+import { hoverTooltip, EditorView } from "@codemirror/view";
+
+interface WasmInterface {
+  getTypeInfo: (identifier: string, line: number, ch: number) => Promise<any>;
+}
+
+interface TypeInfo {
+  type: string;
+  description?: string | null;
+}
+
+interface WordInfo {
+  word: string;
+  start: number;
+  end: number;
+  lineNumber: number;
+  column: number;
+}
 
 /**
  * Creates a hover tooltip function for type hints
- * @param {Object} wasmInterface - The WASM interface for getting type information
- * @returns {Function} Hover tooltip function for CodeMirror
  */
-export function createTypeHintTooltip(wasmInterface) {
-  return async (view, pos, side) => {
+export function createTypeHintTooltip(wasmInterface: WasmInterface | null) {
+  return async (view: EditorView, pos: number, side: number) => {
     if (!wasmInterface) {
       return null;
     }
@@ -51,11 +66,8 @@ export function createTypeHintTooltip(wasmInterface) {
 
 /**
  * Gets the word at a specific position in the editor
- * @param {EditorView} view - The editor view
- * @param {number} pos - The position to check
- * @returns {Object|null} Object with word and position info, or null if not found
  */
-function getWordAtPosition(view, pos) {
+function getWordAtPosition(view: EditorView, pos: number): WordInfo | null {
   const line = view.state.doc.lineAt(pos);
   const lineText = line.text;
   const linePos = pos - line.from;
@@ -90,11 +102,8 @@ function getWordAtPosition(view, pos) {
 
 /**
  * Creates the DOM element for the type hint tooltip
- * @param {string} word - The word being hovered over
- * @param {Object} typeInfo - Type information object
- * @returns {HTMLElement} The tooltip DOM element
  */
-function createTooltipDOM(word, typeInfo) {
+function createTooltipDOM(word: string, typeInfo: TypeInfo): HTMLElement {
   const tooltip = document.createElement("div");
   tooltip.className = "cm-tooltip-type-hint";
 
@@ -145,13 +154,13 @@ function createTooltipDOM(word, typeInfo) {
 
 /**
  * Gets type information for a word at a specific position
- * @param {Object} wasmInterface - The WASM interface
- * @param {string} identifier - The identifier to get type information for
- * @param {number} line - The line number (0-based)
- * @param {number} column - The column number (0-based)
- * @returns {Promise<Object|null>} Type information or null if not found
  */
-async function getTypeInformation(wasmInterface, identifier, line, column) {
+async function getTypeInformation(
+  wasmInterface: WasmInterface | null,
+  identifier: string,
+  line: number,
+  column: number,
+): Promise<TypeInfo | null> {
   try {
     if (!wasmInterface || !wasmInterface.getTypeInfo) {
       console.warn("getTypeInfo not available in WASM interface");
@@ -182,11 +191,12 @@ async function getTypeInformation(wasmInterface, identifier, line, column) {
 
 /**
  * Utility function to show a type hint tooltip at a specific position
- * @param {EditorView} view - The editor view
- * @param {number} pos - The position to show the tooltip at
- * @param {Object} wasmInterface - The WASM interface
  */
-export async function showTypeHintAtPosition(view, pos, wasmInterface) {
+export async function showTypeHintAtPosition(
+  view: EditorView,
+  pos: number,
+  wasmInterface: WasmInterface | null,
+): Promise<void> {
   const wordInfo = getWordAtPosition(view, pos);
   if (!wordInfo) return;
 
@@ -221,7 +231,7 @@ export async function showTypeHintAtPosition(view, pos, wasmInterface) {
 /**
  * Hides any visible type hint tooltips
  */
-export function hideTypeHint() {
+export function hideTypeHint(): void {
   const tooltips = document.querySelectorAll(".cm-tooltip-type-hint");
   tooltips.forEach((tooltip) => {
     if (tooltip.parentNode) {

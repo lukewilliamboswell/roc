@@ -1,22 +1,25 @@
 import { EditorView, basicSetup } from "codemirror";
-import { EditorState } from "@codemirror/state";
+import { EditorState, Extension } from "@codemirror/state";
 import { hoverTooltip, keymap } from "@codemirror/view";
 import { search, openSearchPanel } from "@codemirror/search";
 import { defaultKeymap, indentMore, indentLess } from "@codemirror/commands";
 import { oneDark } from "@codemirror/theme-one-dark";
-import { rocStreamLanguage } from "./roc-language.js";
+import { rocStreamLanguage } from "./roc-language";
+
+interface EditorViewOptions {
+  doc?: string;
+  theme?: "light" | "dark";
+  hoverTooltip?: (view: EditorView, pos: number, side: number) => Promise<any>;
+  onChange?: (content: string) => void;
+}
 
 /**
  * Creates a CodeMirror 6 editor view with the specified configuration
- * @param {HTMLElement} parent - The parent element to attach the editor to
- * @param {Object} options - Configuration options
- * @param {string} options.doc - Initial document content
- * @param {string} options.theme - Theme ('light' or 'dark')
- * @param {Function} options.hoverTooltip - Hover tooltip function
- * @param {Function} options.onChange - Change handler
- * @returns {EditorView} The created editor view
  */
-export function createEditorView(parent, options = {}) {
+export function createEditorView(
+  parent: HTMLElement,
+  options: EditorViewOptions = {},
+): EditorView {
   if (!parent) {
     throw new Error("Parent element is required for createEditorView");
   }
@@ -82,15 +85,18 @@ export function createEditorView(parent, options = {}) {
   });
 }
 
+interface EditorStateOptions {
+  theme?: "light" | "dark";
+  hoverTooltip?: (view: EditorView, pos: number, side: number) => Promise<any>;
+}
+
 /**
  * Creates a CodeMirror 6 editor state with the specified configuration
- * @param {string} doc - Initial document content
- * @param {Object} options - Configuration options
- * @param {string} options.theme - Theme ('light' or 'dark')
- * @param {Function} options.hoverTooltip - Hover tooltip function
- * @returns {EditorState} The created editor state
  */
-export function createEditorState(doc, options = {}) {
+export function createEditorState(
+  doc: string,
+  options: EditorStateOptions = {},
+): EditorState {
   const extensions = [
     basicSetup,
     search(),
@@ -132,27 +138,22 @@ export function createEditorState(doc, options = {}) {
 
 /**
  * Opens the search panel in the given editor view
- * @param {EditorView} view - The editor view to open search panel in
  */
-export function openSearchPanelInView(view) {
+export function openSearchPanelInView(view: EditorView): void {
   openSearchPanel(view);
 }
 
 /**
  * Gets the current document content from an editor view
- * @param {EditorView} view - The editor view
- * @returns {string} The document content
  */
-export function getDocumentContent(view) {
+export function getDocumentContent(view: EditorView): string {
   return view.state.doc.toString();
 }
 
 /**
  * Sets the document content in an editor view
- * @param {EditorView} view - The editor view
- * @param {string} content - The new content
  */
-export function setDocumentContent(view, content) {
+export function setDocumentContent(view: EditorView, content: string): void {
   view.dispatch({
     changes: {
       from: 0,
@@ -164,19 +165,15 @@ export function setDocumentContent(view, content) {
 
 /**
  * Gets the current cursor position in an editor view
- * @param {EditorView} view - The editor view
- * @returns {number} The cursor position
  */
-export function getCursorPosition(view) {
+export function getCursorPosition(view: EditorView): number {
   return view.state.selection.main.head;
 }
 
 /**
  * Sets the cursor position in an editor view
- * @param {EditorView} view - The editor view
- * @param {number} pos - The position to set the cursor to
  */
-export function setCursorPosition(view, pos) {
+export function setCursorPosition(view: EditorView, pos: number): void {
   view.dispatch({
     selection: { anchor: pos, head: pos },
   });
