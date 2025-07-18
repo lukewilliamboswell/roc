@@ -122,6 +122,14 @@
     --overlay-info: rgba(2, 132, 199, 0.1);
     --overlay-type: rgba(219, 39, 119, 0.1);
     --overlay-function: rgba(124, 58, 237, 0.1);
+
+    /* Tooltip Colors */
+    --tooltip-bg: var(--bg-elevated);
+    --tooltip-text: var(--text-primary);
+    --tooltip-border: var(--border-default);
+    --tooltip-shadow: var(--shadow-lg);
+    --tooltip-type: var(--syntax-type);
+    --tooltip-error: var(--color-error);
 }
 
 /* Dark Theme */
@@ -351,6 +359,9 @@
     --overlay-info: rgba(59, 130, 246, 0.15);
     --overlay-type: rgba(244, 114, 182, 0.15);
     --overlay-function: rgba(196, 181, 253, 0.15);
+
+    /* Tooltip Colors - Dark Theme */
+    --tooltip-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 /* === RESET & BASE STYLES === */
@@ -1198,5 +1209,41 @@ button:focus-visible,
 }
 
 .loading {
-    animation: pulse 2s infinite;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+/* === TOOLTIP === */
+.CodeMirror-tooltip {
+    position: absolute;
+    z-index: 1000;
+    background: var(--tooltip-bg);
+    color: var(--tooltip-text);
+    border: 1px solid var(--tooltip-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-2) var(--space-3);
+    font-family:
+        "SF Mono", "Monaco", "Inconsolata", "Fira Code", "Fira Mono",
+        "Roboto Mono", monospace;
+    font-size: var(--text-sm);
+    line-height: var(--leading-normal);
+    box-shadow: var(--tooltip-shadow);
+    max-width: 400px;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity var(--duration-base) var(--ease-out);
+}
+
+.CodeMirror-tooltip.show {
+    opacity: 1;
+}
+
+.CodeMirror-tooltip .type-info {
+    color: var(--tooltip-type);
+    font-weight: var(--font-medium);
+}
+
+.CodeMirror-tooltip .error-info {
+    color: var(--tooltip-error);
 }

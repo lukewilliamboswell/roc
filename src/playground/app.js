@@ -73,6 +73,11 @@ async function initializePlayground() {
       theme: "default",
     });
 
+    // Setup tooltips after a delay to ensure all CodeMirror addons are loaded
+    setTimeout(() => {
+      setupTooltips();
+    }, 100);
+
     logInfo("Populating examples...");
     populateExamples();
     logInfo("Updating UI...");
@@ -1042,6 +1047,206 @@ function logWarn(...args) {
 
 function logError(...args) {
   console.error("ERROR:", ...args);
+}
+
+// === TOOLTIP FUNCTIONALITY ===
+
+let tooltipElement = null;
+let tooltipTimeout = null;
+let isTooltipVisible = false;
+
+function setupTooltips() {
+  if (!codeMirrorEditor) {
+    logWarn("CodeMirror editor not available for tooltips");
+    return;
+  }
+
+  logInfo("Setting up tooltips...");
+
+  // Create tooltip element
+  tooltipElement = document.createElement("div");
+  tooltipElement.className = "CodeMirror-tooltip";
+  document.body.appendChild(tooltipElement);
+
+  // Add mouse event listeners
+  const editorElement = codeMirrorEditor.getWrapperElement();
+  editorElement.addEventListener("mousemove", handleMouseMove);
+  editorElement.addEventListener("mouseleave", hideTooltip);
+
+  logInfo("Tooltips setup complete");
+}
+
+function handleMouseMove(event) {
+  if (!codeMirrorEditor || !tooltipElement) return;
+
+  // Clear any existing timeout
+  if (tooltipTimeout) {
+    clearTimeout(tooltipTimeout);
+    tooltipTimeout = null;
+  }
+
+  // Get the position in the editor
+  const pos = codeMirrorEditor.coordsChar({
+    left: event.clientX,
+    top: event.clientY,
+  });
+  if (!pos) return;
+
+  // Add delay before showing tooltip
+  tooltipTimeout = setTimeout(() => {
+    showTooltipForPosition(pos, event.clientX, event.clientY);
+  }, 300); // 300ms delay
+}
+
+async function showTooltipForPosition(pos, clientX, clientY) {
+  if (!codeMirrorEditor || !tooltipElement) return;
+
+  try {
+    // Get the token at the cursor position
+    const token = codeMirrorEditor.getTokenAt(pos);
+    if (!token || !token.string || token.string.trim() === "") return;
+
+    // Only show tooltips for identifiers (not keywords, strings, etc.)
+    if (
+      token.type &&
+      (token.type.includes("keyword") ||
+        token.type.includes("string") ||
+        token.type.includes("number") ||
+        token.type.includes("comment"))
+    ) {
+      return;
+    }
+
+    // Also skip if the token is too short or looks like punctuation
+    if (token.string.length < 2 || /^[^a-zA-Z_]/.test(token.string)) {
+      return;
+    }
+
+    // Get type information from WASM
+    const typeInfo = await getTypeInformation(token.string, pos);
+    if (!typeInfo) return;
+
+    // Show the tooltip
+    displayTooltip(typeInfo, clientX, clientY);
+  } catch (error) {
+    logError("Error showing tooltip:", error);
+  }
+}
+
+async function getTypeInformation(identifier, pos) {
+  if (!wasmModule || !codeMirrorEditor) return null;
+
+  try {
+    // Use existing type information if available
+    if (currentState === "LOADED" && currentView === "types") {
+      // Get the current types response from the output
+      const outputElement = document.getElementById("outputContent");
+      if (outputElement && outputElement.textContent) {
+        return parseTypeInfoFromOutput(identifier, outputElement.textContent);
+      }
+    }
+
+    // For now, return a simple placeholder to test the tooltip functionality
+    // In a real implementation, this would query the type system
+    return {
+      type: "Hover type info for " + identifier,
+      description: "Type information will be available here",
+    };
+  } catch (error) {
+    logError("Error getting type information:", error);
+  }
+
+  return null;
+}
+
+function displayTooltip(typeInfo, clientX, clientY) {
+  if (!tooltipElement) return;
+
+  // Format the tooltip content
+  let content = "";
+  if (typeInfo.type) {
+    content += `<span class="type-info">${escapeHtml(typeInfo.type)}</span>`;
+  }
+  if (typeInfo.error) {
+    content += `<span class="error-info">${escapeHtml(typeInfo.error)}</span>`;
+  }
+  if (typeInfo.description) {
+    content += `\n${escapeHtml(typeInfo.description)}`;
+  }
+
+  if (!content) return;
+
+  tooltipElement.innerHTML = content;
+
+  // Position the tooltip
+  const tooltipRect = tooltipElement.getBoundingClientRect();
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+
+  let left = clientX + 10;
+  let top = clientY - 10;
+
+  // Adjust position if tooltip would go off screen
+  if (left + tooltipRect.width > viewportWidth) {
+    left = clientX - tooltipRect.width - 10;
+  }
+  if (top + tooltipRect.height > viewportHeight) {
+    top = clientY - tooltipRect.height - 10;
+  }
+
+  tooltipElement.style.left = Math.max(0, left) + "px";
+  tooltipElement.style.top = Math.max(0, top) + "px";
+
+  // Show the tooltip
+  tooltipElement.classList.add("show");
+  isTooltipVisible = true;
+}
+
+function hideTooltip() {
+  if (tooltipTimeout) {
+    clearTimeout(tooltipTimeout);
+    tooltipTimeout = null;
+  }
+
+  if (tooltipElement && isTooltipVisible) {
+    tooltipElement.classList.remove("show");
+    isTooltipVisible = false;
+  }
+}
+
+function parseTypeInfoFromOutput(identifier, outputText) {
+  // Simple parsing of type information from the output
+  const lines = outputText.split("\n");
+  for (const line of lines) {
+    if (line.includes(identifier)) {
+      // Look for type annotations like "identifier : Type"
+      const match = line.match(new RegExp(`${identifier}\\s*:\\s*(.+)`));
+      if (match) {
+        return {
+          type: match[1].trim(),
+          description: `Type of ${identifier}`,
+        };
+      }
+    }
+  }
+  return null;
+}
+
+function parseTypeInfoFromResponse(identifier, typesData) {
+  // Parse the types response to find information about the identifier
+  if (typeof typesData === "string") {
+    return parseTypeInfoFromOutput(identifier, typesData);
+  }
+
+  // If typesData is an object, look for the identifier
+  if (typesData && typesData[identifier]) {
+    return {
+      type: typesData[identifier],
+      description: `Type of ${identifier}`,
+    };
+  }
+
+  return null;
 }
 
 // Initialize theme on page load

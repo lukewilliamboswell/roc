@@ -47,6 +47,7 @@ const MessageType = enum {
     QUERY_AST,
     QUERY_CIR,
     QUERY_TYPES,
+
     RESET,
 
     pub fn fromString(str: []const u8) ?MessageType {
@@ -56,6 +57,7 @@ const MessageType = enum {
         if (std.mem.eql(u8, str, "QUERY_AST")) return .QUERY_AST;
         if (std.mem.eql(u8, str, "QUERY_CIR")) return .QUERY_CIR;
         if (std.mem.eql(u8, str, "QUERY_TYPES")) return .QUERY_TYPES;
+
         if (std.mem.eql(u8, str, "RESET")) return .RESET;
         return null;
     }
@@ -251,6 +253,7 @@ fn handleLoadedState(message_type: MessageType, _: std.json.Value, response_buff
         .QUERY_TYPES => {
             return writeTypesResponse(response_buffer, data);
         },
+
         .RESET => {
             // Clean up and go back to READY
             if (compiler_data) |*old_data| {
