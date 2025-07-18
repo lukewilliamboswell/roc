@@ -2,15 +2,33 @@ import { EditorView, basicSetup } from "codemirror";
 import { EditorState } from "@codemirror/state";
 import { hoverTooltip, keymap } from "@codemirror/view";
 import { search, openSearchPanel } from "@codemirror/search";
-import { defaultKeymap, indentMore, indentLess } from "@codemirror/commands";
+import {
+  defaultKeymap,
+  indentMore,
+  indentLess,
+  toggleComment,
+} from "@codemirror/commands";
 import { oneDark } from "@codemirror/theme-one-dark";
+import {
+  foldGutter,
+  codeFolding,
+  indentOnInput,
+  bracketMatching,
+} from "@codemirror/language";
+import { closeBrackets } from "@codemirror/autocomplete";
 import { rocStreamLanguage } from "./roc-language";
+import {
+  rocDiagnosticsExtension,
+  updateEditorDiagnostics,
+  RocDiagnostic,
+} from "./diagnostics";
 
 interface EditorViewOptions {
   doc?: string;
   theme?: "light" | "dark";
   hoverTooltip?: (view: EditorView, pos: number, side: number) => Promise<any>;
   onChange?: (content: string) => void;
+  diagnostics?: RocDiagnostic[];
 }
 
 /**
@@ -29,11 +47,32 @@ export function createEditorView(
     search(),
     EditorView.lineWrapping,
     rocStreamLanguage(),
+
+    // Code folding for better readability
+    codeFolding(),
+    foldGutter(),
+
+    // Diagnostic integration
+    rocDiagnosticsExtension(),
+
+    // Better indentation handling
+    indentOnInput(),
+
+    // Auto-complete brackets and quotes
+    closeBrackets(),
+
+    // Highlight matching brackets
+    bracketMatching(),
+
+    // Enhanced key bindings
     keymap.of([
       ...defaultKeymap,
       { key: "Tab", run: indentMore, preventDefault: true },
       { key: "Shift-Tab", run: indentLess, preventDefault: true },
+      { key: "Ctrl-/", run: toggleComment },
+      { key: "Cmd-/", run: toggleComment },
     ]),
+
     EditorView.theme({
       "&": {
         fontSize: "14px",
@@ -45,9 +84,13 @@ export function createEditorView(
       },
       ".cm-editor": {
         borderRadius: "4px",
+        border: "1px solid var(--border-color, #e1e5e9)",
       },
       ".cm-scroller": {
         borderRadius: "4px",
+      },
+      ".cm-focused": {
+        outline: "2px solid var(--accent-color, #7c3aed)",
       },
     }),
   ];
@@ -88,6 +131,7 @@ export function createEditorView(
 interface EditorStateOptions {
   theme?: "light" | "dark";
   hoverTooltip?: (view: EditorView, pos: number, side: number) => Promise<any>;
+  diagnostics?: RocDiagnostic[];
 }
 
 /**
@@ -102,11 +146,32 @@ export function createEditorState(
     search(),
     EditorView.lineWrapping,
     rocStreamLanguage(),
+
+    // Code folding for better readability
+    codeFolding(),
+    foldGutter(),
+
+    // Diagnostic integration
+    rocDiagnosticsExtension(),
+
+    // Better indentation handling
+    indentOnInput(),
+
+    // Auto-complete brackets and quotes
+    closeBrackets(),
+
+    // Highlight matching brackets
+    bracketMatching(),
+
+    // Enhanced key bindings
     keymap.of([
       ...defaultKeymap,
       { key: "Tab", run: indentMore, preventDefault: true },
       { key: "Shift-Tab", run: indentLess, preventDefault: true },
+      { key: "Ctrl-/", run: toggleComment },
+      { key: "Cmd-/", run: toggleComment },
     ]),
+
     EditorView.theme({
       "&": {
         fontSize: "14px",
@@ -116,6 +181,16 @@ export function createEditorState(
       ".cm-content": {
         padding: "16px",
         minHeight: "200px",
+      },
+      ".cm-editor": {
+        borderRadius: "4px",
+        border: "1px solid var(--border-color, #e1e5e9)",
+      },
+      ".cm-scroller": {
+        borderRadius: "4px",
+      },
+      ".cm-focused": {
+        outline: "2px solid var(--accent-color, #7c3aed)",
       },
     }),
   ];
@@ -179,5 +254,17 @@ export function setCursorPosition(view: EditorView, pos: number): void {
   });
 }
 
+/**
+ * Updates diagnostics in an editor view
+ */
+export function updateDiagnosticsInView(
+  view: EditorView,
+  diagnostics: RocDiagnostic[],
+): void {
+  updateEditorDiagnostics(view, diagnostics);
+}
+
 // Export the search function for compatibility
 export { openSearchPanel };
+// Export diagnostic types for use in other modules
+export type { RocDiagnostic };

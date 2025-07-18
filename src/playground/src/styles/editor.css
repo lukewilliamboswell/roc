@@ -106,6 +106,13 @@
     background: var(--fold-marker-hover-bg);
 }
 
+.cm-fold-placeholder {
+    background-color: var(--fold-marker-bg);
+    color: var(--fold-marker-text);
+    padding: 0 4px;
+    border-radius: 2px;
+}
+
 /* === BRACKETS === */
 .cm-matchingBracket {
     background: var(--matching-bracket-bg);
@@ -174,6 +181,67 @@
 .editor .cm-error {
     color: var(--color-error);
     background-color: var(--overlay-error);
+}
+
+/* === DIAGNOSTICS === */
+.cm-diagnostic-error {
+    border-bottom: 2px wavy var(--color-error);
+}
+
+.cm-diagnostic-warning {
+    border-bottom: 2px wavy var(--color-warning);
+}
+
+.cm-diagnostic-info {
+    border-bottom: 2px wavy var(--color-info);
+}
+
+/* Diagnostic gutter markers */
+.cm-lint-marker {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    margin: 2px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: bold;
+    color: white;
+}
+
+.cm-lint-marker-error {
+    background-color: var(--color-error);
+}
+
+.cm-lint-marker-warning {
+    background-color: var(--color-warning);
+}
+
+.cm-lint-marker-info {
+    background-color: var(--color-info);
+}
+
+/* Diagnostic tooltip styling */
+.cm-tooltip-lint {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-base);
+    color: var(--text-primary);
+    font-size: var(--text-sm);
+    padding: var(--space-2) var(--space-3);
+    box-shadow: var(--shadow-lg);
+    max-width: 400px;
+    word-wrap: break-word;
+}
+
+.cm-tooltip-lint .cm-tooltip-arrow {
+    border-top-color: var(--border-default);
+}
+
+.cm-tooltip-lint .cm-tooltip-arrow:before {
+    border-top-color: var(--bg-elevated);
 }
 
 /* === EDITOR-SPECIFIC LIGHT THEME COLORS === */

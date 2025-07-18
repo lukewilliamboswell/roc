@@ -53,7 +53,7 @@ export function createTypeHintTooltip(wasmInterface: WasmInterface | null) {
         pos,
         above: true,
         create(_view: EditorView) {
-          const dom = createTooltipDOM(wordInfo.word, typeInfo);
+          const dom = createTooltipDOM(typeInfo);
           return { dom };
         },
       };
@@ -116,7 +116,7 @@ function getWordAtPosition(view: EditorView, pos: number): WordInfo | null {
 /**
  * Creates the DOM element for the type hint tooltip
  */
-function createTooltipDOM(word: string, typeInfo: TypeInfo): HTMLElement {
+function createTooltipDOM(typeInfo: TypeInfo): HTMLElement {
   const element = document.createElement("span");
 
   // Show only the type information - no styling since CodeMirror handles the tooltip container
@@ -186,7 +186,7 @@ export async function showTypeHintAtPosition(
   if (!typeInfo) return;
 
   // Create and show tooltip
-  const tooltip = createTooltipDOM(wordInfo.word, typeInfo);
+  const tooltip = createTooltipDOM(typeInfo);
   document.body.appendChild(tooltip);
 
   // Position the tooltip

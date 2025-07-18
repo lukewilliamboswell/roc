@@ -80,6 +80,23 @@ const ResponseStatus = enum {
     }
 };
 
+/// Diagnostic region information for frontend integration
+const DiagnosticRegion = struct {
+    start_line: u32,
+    start_column: u32,
+    end_line: u32,
+    end_column: u32,
+};
+
+/// Diagnostic information for frontend integration
+const DiagnosticSeverity = enum { @"error", warning, info };
+
+const Diagnostic = struct {
+    severity: DiagnosticSeverity,
+    message: []const u8,
+    region: DiagnosticRegion,
+};
+
 /// Compiler stage data
 const CompilerStageData = struct {
     module_env: *ModuleEnv,
@@ -384,6 +401,16 @@ fn writeLoadedResponse(response_buffer: []u8, data: CompilerStageData) usize {
     var stream = std.io.fixedBufferStream(response_buffer);
     var writer = stream.writer();
 
+    // Extract structured diagnostics for frontend
+    var diagnostics = std.ArrayList(Diagnostic).init(allocator);
+    defer diagnostics.deinit();
+
+    // Extract diagnostics from all stages
+    extractDiagnosticsFromReports(&diagnostics, data.tokenize_reports, .@"error") catch return 0;
+    extractDiagnosticsFromReports(&diagnostics, data.parse_reports, .@"error") catch return 0;
+    extractDiagnosticsFromReports(&diagnostics, data.can_reports, .@"error") catch return 0;
+    extractDiagnosticsFromReports(&diagnostics, data.type_reports, .@"error") catch return 0;
+
     // Count total diagnostics
     var total_errors: u32 = 0;
     var total_warnings: u32 = 0;
@@ -400,6 +427,14 @@ fn writeLoadedResponse(response_buffer: []u8, data: CompilerStageData) usize {
 
     // Write summary
     writer.print("\"summary\":{{\"errors\":{},\"warnings\":{}}},", .{ total_errors, total_warnings }) catch return 0;
+
+    // Write structured diagnostics array
+    writer.writeAll("\"list\":[") catch return 0;
+    for (diagnostics.items, 0..) |diagnostic, i| {
+        if (i > 0) writer.writeAll(",") catch return 0;
+        writeDiagnosticJson(writer, diagnostic) catch return 0;
+    }
+    writer.writeAll("],") catch return 0;
 
     // Write HTML diagnostics
     writer.writeAll("\"html\":\"") catch return 0;
@@ -780,6 +815,49 @@ fn countDiagnostics(reports: []reporting.Report) struct { errors: u32, warnings:
     }
 
     return .{ .errors = errors, .warnings = warnings };
+}
+
+fn extractDiagnosticsFromReports(
+    diagnostics: *std.ArrayList(Diagnostic),
+    reports: std.ArrayList(reporting.Report),
+    severity: DiagnosticSeverity,
+) !void {
+    var count: usize = 0;
+    const max_diagnostics = 100;
+
+    for (reports.items) |*report| {
+        if (count >= max_diagnostics) break;
+
+        // Extract region info from the report
+        const region_info = report.getRegionInfo() orelse continue;
+
+        // Get the title as the message
+        const message = report.title;
+
+        try diagnostics.append(Diagnostic{
+            .severity = severity,
+            .message = message,
+            .region = DiagnosticRegion{
+                .start_line = region_info.start_line_idx,
+                .start_column = region_info.start_col_idx,
+                .end_line = region_info.end_line_idx,
+                .end_column = region_info.end_col_idx,
+            },
+        });
+
+        count += 1;
+    }
+}
+
+fn writeDiagnosticJson(writer: anytype, diagnostic: Diagnostic) !void {
+    try writer.print("{{\"severity\":\"{s}\",\"message\":\"", .{@tagName(diagnostic.severity)});
+    try writeJsonString(writer, diagnostic.message);
+    try writer.print("\",\"region\":{{\"start_line\":{d},\"start_column\":{d},\"end_line\":{d},\"end_column\":{d}}}}}", .{
+        diagnostic.region.start_line,
+        diagnostic.region.start_column,
+        diagnostic.region.end_line,
+        diagnostic.region.end_column,
+    });
 }
 
 /// Write a string with JSON escaping

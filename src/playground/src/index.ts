@@ -2,6 +2,7 @@ import {
   createEditorView,
   setDocumentContent,
   getDocumentContent,
+  updateDiagnosticsInView,
 } from "./editor/cm6-setup";
 import { createTypeHintTooltip } from "./editor/type-hints";
 import { initializeWasm } from "./wasm/roc-wasm";
@@ -164,6 +165,11 @@ class RocPlayground {
         lastDiagnostics = this.parseDiagnostics(result);
         this.updateDiagnosticSummary();
 
+        // Update editor with diagnostics
+        if (codeMirrorEditor) {
+          updateDiagnosticsInView(codeMirrorEditor, lastDiagnostics);
+        }
+
         // Store the full result for other views
         this.lastCompileResult = result;
       } else {
@@ -176,6 +182,12 @@ class RocPlayground {
           },
         ];
         this.updateDiagnosticSummary();
+
+        // Update editor with error diagnostic
+        if (codeMirrorEditor) {
+          updateDiagnosticsInView(codeMirrorEditor, lastDiagnostics);
+        }
+
         this.lastCompileResult = null;
       }
 
@@ -700,8 +712,31 @@ class RocPlayground {
   }
 
   parseDiagnostics(result: any): Diagnostic[] {
-    // Parse diagnostics from WASM result
+    console.log("Raw result for diagnostic parsing:", result);
     const diagnostics: Diagnostic[] = [];
+
+    // Handle new structured diagnostic format
+    if (
+      result.diagnostics &&
+      result.diagnostics.list &&
+      Array.isArray(result.diagnostics.list)
+    ) {
+      console.log(
+        "Found structured diagnostics list:",
+        result.diagnostics.list,
+      );
+      for (const diag of result.diagnostics.list) {
+        const parsedDiag = {
+          severity: diag.severity,
+          message: diag.message,
+          location: `${diag.region.start_line}:${diag.region.start_column}-${diag.region.end_line}:${diag.region.end_column}`,
+        };
+        console.log("Parsed diagnostic:", parsedDiag);
+        diagnostics.push(parsedDiag);
+      }
+    } else {
+      console.log("No structured diagnostics found in result");
+    }
 
     if (result.diagnostics && result.diagnostics.summary) {
       const summary = result.diagnostics.summary;
@@ -723,7 +758,7 @@ class RocPlayground {
       }
     }
 
-    // If no specific errors, return empty array (no problems)
+    console.log("Total diagnostics parsed:", diagnostics.length);
     return diagnostics;
   }
 
