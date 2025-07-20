@@ -635,21 +635,21 @@ pub const Store = struct {
                         _ = func;
                         break :flat_type Layout{
                             .tag = .closure,
-                            .data = .{ .closure = {} },
+                            .data = .{ .closure = .{ .env_size = 0 } },
                         };
                     },
                     .fn_effectful => |func| {
                         _ = func;
                         break :flat_type Layout{
                             .tag = .closure,
-                            .data = .{ .closure = {} },
+                            .data = .{ .closure = .{ .env_size = 0 } },
                         };
                     },
                     .fn_unbound => |func| {
                         _ = func;
                         break :flat_type Layout{
                             .tag = .closure,
-                            .data = .{ .closure = {} },
+                            .data = .{ .closure = .{ .env_size = 0 } },
                         };
                     },
                     .record => |record_type| {

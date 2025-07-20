@@ -715,3 +715,378 @@ test "lambda memory management" {
         try testing.expect(result.layout.tag == .scalar);
     }
 }
+
+test "lambda variable capture - basic single variable" {
+    // Test a closure that captures a single variable from outer scope
+    const src =
+        \\x = 42
+        \\f = |y| x + y
+        \\f(10)
+    ;
+
+    const resources = parseAndCanonicalizeExpr(test_allocator, src) catch |err| {
+        std.debug.print("PARSE ERROR for basic capture: {any}\n", .{err});
+        return err;
+    };
+    defer cleanupParseAndCanonical(test_allocator, resources);
+
+    // Create evaluation environment
+    var eval_stack = try stack.Stack.initCapacity(test_allocator, 1024);
+    defer eval_stack.deinit();
+
+    var layout_cache = try layout_store.Store.init(resources.module_env, &resources.module_env.types);
+    defer layout_cache.deinit();
+
+    var interpreter = try eval.Interpreter.init(test_allocator, resources.cir, &eval_stack, &layout_cache, &resources.module_env.types);
+    defer interpreter.deinit();
+
+    const result = interpreter.eval(resources.expr_idx) catch |err| {
+        std.debug.print("EVAL ERROR for basic capture: {any}\n", .{err});
+        return err;
+    };
+
+    // Extract result - should be 42 + 10 = 52
+    const int_val = switch (result.layout.data.scalar.data.int) {
+        .i128 => @as(i64, @intCast(@as(*i128, @ptrCast(@alignCast(result.ptr))).*)),
+        .i64 => @as(*i64, @ptrCast(@alignCast(result.ptr))).*,
+        .i32 => @as(i64, @as(*i32, @ptrCast(@alignCast(result.ptr))).*),
+        else => {
+            std.debug.print("Unexpected integer type in capture test\n", .{});
+            return error.UnsupportedType;
+        },
+    };
+
+    try testing.expectEqual(@as(i64, 52), int_val);
+}
+
+test "lambda variable capture - multiple variables" {
+    // Test a closure that captures multiple variables from outer scope
+    const src =
+        \\a = 10
+        \\b = 20
+        \\c = 5
+        \\f = |x| a + b + c + x
+        \\f(7)
+    ;
+
+    const resources = parseAndCanonicalizeExpr(test_allocator, src) catch |err| {
+        std.debug.print("PARSE ERROR for multi capture: {any}\n", .{err});
+        return err;
+    };
+    defer cleanupParseAndCanonical(test_allocator, resources);
+
+    var eval_stack = try stack.Stack.initCapacity(test_allocator, 1024);
+    defer eval_stack.deinit();
+
+    var layout_cache = try layout_store.Store.init(resources.module_env, &resources.module_env.types);
+    defer layout_cache.deinit();
+
+    var interpreter = try eval.Interpreter.init(test_allocator, resources.cir, &eval_stack, &layout_cache, &resources.module_env.types);
+    defer interpreter.deinit();
+
+    const result = interpreter.eval(resources.expr_idx) catch |err| {
+        std.debug.print("EVAL ERROR for multi capture: {any}\n", .{err});
+        return err;
+    };
+
+    // Extract result - should be 10 + 20 + 5 + 7 = 42
+    const int_val = switch (result.layout.data.scalar.data.int) {
+        .i128 => @as(i64, @intCast(@as(*i128, @ptrCast(@alignCast(result.ptr))).*)),
+        .i64 => @as(*i64, @ptrCast(@alignCast(result.ptr))).*,
+        .i32 => @as(i64, @as(*i32, @ptrCast(@alignCast(result.ptr))).*),
+        else => return error.UnsupportedType,
+    };
+
+    try testing.expectEqual(@as(i64, 42), int_val);
+}
+
+test "lambda variable capture - nested closures" {
+    // Test nested closures where inner closure captures from multiple scopes
+    const src =
+        \\outer_var = 100
+        \\outer_fn = |middle_var|
+        \\    inner_fn = |inner_var| outer_var + middle_var + inner_var
+        \\    inner_fn
+        \\result_fn = outer_fn(20)
+        \\result_fn(3)
+    ;
+
+    const resources = parseAndCanonicalizeExpr(test_allocator, src) catch |err| {
+        std.debug.print("PARSE ERROR for nested capture: {any}\n", .{err});
+        return err;
+    };
+    defer cleanupParseAndCanonical(test_allocator, resources);
+
+    var eval_stack = try stack.Stack.initCapacity(test_allocator, 2048); // Larger stack for nested calls
+    defer eval_stack.deinit();
+
+    var layout_cache = try layout_store.Store.init(resources.module_env, &resources.module_env.types);
+    defer layout_cache.deinit();
+
+    var interpreter = try eval.Interpreter.init(test_allocator, resources.cir, &eval_stack, &layout_cache, &resources.module_env.types);
+    defer interpreter.deinit();
+
+    const result = interpreter.eval(resources.expr_idx) catch |err| {
+        std.debug.print("EVAL ERROR for nested capture: {any}\n", .{err});
+        return err;
+    };
+
+    // Extract result - should be 100 + 20 + 3 = 123
+    const int_val = switch (result.layout.data.scalar.data.int) {
+        .i128 => @as(i64, @intCast(@as(*i128, @ptrCast(@alignCast(result.ptr))).*)),
+        .i64 => @as(*i64, @ptrCast(@alignCast(result.ptr))).*,
+        .i32 => @as(i64, @as(*i32, @ptrCast(@alignCast(result.ptr))).*),
+        else => return error.UnsupportedType,
+    };
+
+    try testing.expectEqual(@as(i64, 123), int_val);
+}
+
+test "lambda capture analysis - simple closure should use SimpleClosure" {
+    // Test that lambdas without captures use the simple closure path
+    const src = "(|x| x + 1)(42)";
+
+    const resources = parseAndCanonicalizeExpr(test_allocator, src) catch return error.TestError;
+    defer cleanupParseAndCanonical(test_allocator, resources);
+
+    var eval_stack = try stack.Stack.initCapacity(test_allocator, 1024);
+    defer eval_stack.deinit();
+
+    var layout_cache = try layout_store.Store.init(resources.module_env, &resources.module_env.types);
+    defer layout_cache.deinit();
+
+    var interpreter = try eval.Interpreter.init(test_allocator, resources.cir, &eval_stack, &layout_cache, &resources.module_env.types);
+    defer interpreter.deinit();
+
+    const result = try interpreter.eval(resources.expr_idx);
+
+    // Verify result is correct
+    const int_val = switch (result.layout.data.scalar.data.int) {
+        .i128 => @as(i64, @intCast(@as(*i128, @ptrCast(@alignCast(result.ptr))).*)),
+        .i64 => @as(*i64, @ptrCast(@alignCast(result.ptr))).*,
+        .i32 => @as(i64, @as(*i32, @ptrCast(@alignCast(result.ptr))).*),
+        else => return error.UnsupportedType,
+    };
+
+    try testing.expectEqual(@as(i64, 43), int_val);
+}
+
+test "lambda capture - conditional expressions with captures" {
+    // Test captured variables used in conditional expressions
+    const src =
+        \\threshold = 25
+        \\check_value = |x| if x > threshold x else 0
+        \\check_value(30)
+    ;
+
+    const resources = parseAndCanonicalizeExpr(test_allocator, src) catch return error.TestError;
+    defer cleanupParseAndCanonical(test_allocator, resources);
+
+    var eval_stack = try stack.Stack.initCapacity(test_allocator, 1024);
+    defer eval_stack.deinit();
+
+    var layout_cache = try layout_store.Store.init(resources.module_env, &resources.module_env.types);
+    defer layout_cache.deinit();
+
+    var interpreter = try eval.Interpreter.init(test_allocator, resources.cir, &eval_stack, &layout_cache, &resources.module_env.types);
+    defer interpreter.deinit();
+
+    const result = try interpreter.eval(resources.expr_idx);
+
+    // Extract result - should be 30 (since 30 > 25)
+    const int_val = switch (result.layout.data.scalar.data.int) {
+        .i128 => @as(i64, @intCast(@as(*i128, @ptrCast(@alignCast(result.ptr))).*)),
+        .i64 => @as(*i64, @ptrCast(@alignCast(result.ptr))).*,
+        .i32 => @as(i64, @as(*i32, @ptrCast(@alignCast(result.ptr))).*),
+        else => return error.UnsupportedType,
+    };
+
+    try testing.expectEqual(@as(i64, 30), int_val);
+}
+
+fn inspectExpressionRecursively(cir: *const CIR, expr_idx: CIR.Expr.Idx, depth: u32) void {
+    const indents = [_][]const u8{
+        "",
+        "  ",
+        "    ",
+        "      ",
+        "        ",
+        "          ",
+        "            ",
+        "              ",
+        "                ",
+        "                  ",
+        "                    ",
+    };
+    const indent = indents[@min(depth, indents.len - 1)];
+    const expr = cir.store.getExpr(expr_idx);
+
+    std.debug.print("{s}[{}] {}\n", .{ indent, @intFromEnum(expr_idx), expr });
+
+    switch (expr) {
+        .e_call => |call| {
+            const call_args = cir.store.sliceExpr(call.args);
+            std.debug.print("{s}  Call with {} args:\n", .{ indent, call_args.len });
+            for (call_args, 0..) |arg_expr, i| {
+                std.debug.print("{s}    Arg[{}]:\n", .{ indent, i });
+                inspectExpressionRecursively(cir, arg_expr, depth + 2);
+            }
+        },
+        .e_lambda => |lambda| {
+            std.debug.print("{s}  Lambda - args span: {}, body:\n", .{ indent, lambda.args });
+            inspectExpressionRecursively(cir, lambda.body, depth + 1);
+
+            // Run capture analysis
+            std.debug.print("{s}  Running capture analysis:\n", .{indent});
+            var capture_analysis = eval.CaptureAnalysis.analyzeLambdaBody(
+                test_allocator,
+                cir,
+                lambda.body,
+                lambda.args,
+            ) catch {
+                std.debug.print("{s}    Capture analysis failed\n", .{indent});
+                return;
+            };
+            defer capture_analysis.captured_vars.deinit();
+
+            std.debug.print("{s}    Found {} captured variables\n", .{ indent, capture_analysis.captured_vars.items.len });
+            for (capture_analysis.captured_vars.items, 0..) |var_pattern, j| {
+                std.debug.print("{s}      Captured[{}]: pattern idx {}\n", .{ indent, j, @intFromEnum(var_pattern) });
+            }
+        },
+        .e_binop => |binop| {
+            std.debug.print("{s}  Binop - {}\n", .{ indent, binop.op });
+            std.debug.print("{s}    LHS:\n", .{indent});
+            inspectExpressionRecursively(cir, binop.lhs, depth + 1);
+            std.debug.print("{s}    RHS:\n", .{indent});
+            inspectExpressionRecursively(cir, binop.rhs, depth + 1);
+        },
+        .e_lookup_local => |lookup| {
+            std.debug.print("{s}  Local lookup - pattern idx {}\n", .{ indent, @intFromEnum(lookup.pattern_idx) });
+        },
+        .e_block => |block| {
+            std.debug.print("{s}  Block with {} statements:\n", .{ indent, block.stmts.span.len });
+            const statements = cir.store.sliceStatements(block.stmts);
+            for (statements, 0..) |stmt_idx, i| {
+                std.debug.print("{s}    Stmt[{}]:\n", .{ indent, i });
+                const stmt = cir.store.getStatement(stmt_idx);
+                std.debug.print("{s}      {}\n", .{ indent, stmt });
+            }
+            std.debug.print("{s}    Final expr:\n", .{indent});
+            inspectExpressionRecursively(cir, block.final_expr, depth + 1);
+        },
+        .e_int, .e_frac_f64 => {
+            // Leaf nodes, no further recursion needed
+        },
+        else => {
+            std.debug.print("{s}  (Other expression type)\n", .{indent});
+        },
+    }
+}
+
+test "capture debug - simple lambda" {
+    std.debug.print("\n=== CAPTURE DEBUG: Simple Lambda ===\n", .{});
+    const src = "(|x| x + 1)(5)";
+    std.debug.print("Source: {s}\n", .{src});
+
+    const resources = parseAndCanonicalizeExpr(test_allocator, src) catch |err| {
+        std.debug.print("Parse failed: {}\n", .{err});
+        return;
+    };
+    defer cleanupParseAndCanonical(test_allocator, resources);
+
+    std.debug.print("AST Structure:\n", .{});
+    inspectExpressionRecursively(resources.cir, resources.expr_idx, 0);
+    std.debug.print("=== END CAPTURE DEBUG ===\n\n", .{});
+}
+
+test "capture debug - nested lambda" {
+    std.debug.print("\n=== CAPTURE DEBUG: Nested Lambda ===\n", .{});
+    const src = "(|x| (|y| x + y))(42)";
+    std.debug.print("Source: {s}\n", .{src});
+
+    const resources = parseAndCanonicalizeExpr(test_allocator, src) catch |err| {
+        std.debug.print("Parse failed: {}\n", .{err});
+        return;
+    };
+    defer cleanupParseAndCanonical(test_allocator, resources);
+
+    std.debug.print("AST Structure:\n", .{});
+    inspectExpressionRecursively(resources.cir, resources.expr_idx, 0);
+    std.debug.print("=== END CAPTURE DEBUG ===\n\n", .{});
+}
+
+test "debug - understand capture analysis behavior" {
+    // Simple test to understand how our capture analysis works
+    const src = "(|x| x + 1)(5)";
+
+    const resources = parseAndCanonicalizeExpr(test_allocator, src) catch return error.TestError;
+    defer cleanupParseAndCanonical(test_allocator, resources);
+
+    // Let's manually run capture analysis on any lambda we find
+    std.debug.print("\n=== DEBUG: Analyzing expression structure ===\n", .{});
+
+    // Try to find lambda expressions in the AST and run capture analysis
+    const expr = resources.cir.store.getExpr(resources.expr_idx);
+    std.debug.print("Root expression type: {}\n", .{expr});
+
+    // Look for e_call expressions which might contain lambdas
+    switch (expr) {
+        .e_call => |call| {
+            const call_args = resources.cir.store.sliceExpr(call.args);
+            std.debug.print("Call has {} expressions\n", .{call_args.len});
+            for (call_args, 0..) |arg_expr, i| {
+                const arg = resources.cir.store.getExpr(arg_expr);
+                std.debug.print("  Arg[{}]: {}\n", .{ i, arg });
+                if (arg == .e_lambda) {
+                    std.debug.print("  Found lambda! Running capture analysis...\n", .{});
+
+                    var capture_analysis = eval.CaptureAnalysis.analyzeLambdaBody(
+                        test_allocator,
+                        resources.cir,
+                        arg.e_lambda.body,
+                        arg.e_lambda.args,
+                    ) catch continue;
+                    defer capture_analysis.captured_vars.deinit();
+
+                    std.debug.print("  Capture analysis result: {} captured vars, {} total env size\n", .{
+                        capture_analysis.captured_vars.items.len,
+                        capture_analysis.total_env_size,
+                    });
+
+                    for (capture_analysis.captured_vars.items, 0..) |var_pattern, j| {
+                        std.debug.print("    Captured[{}]: pattern {}\n", .{ j, var_pattern });
+                    }
+                }
+            }
+        },
+        else => {},
+    }
+
+    std.debug.print("=== END DEBUG ===\n", .{});
+}
+
+test "debug - check block expression parsing" {
+    // Test what happens with multi-statement expressions
+    const src =
+        \\{
+        \\    x = 42
+        \\    f = |y| x + y
+        \\    f(10)
+        \\}
+    ;
+
+    std.debug.print("\n=== DEBUG: Block expression parsing ===\n", .{});
+    std.debug.print("Source: {s}\n", .{src});
+
+    const resources = parseAndCanonicalizeExpr(test_allocator, src) catch |err| {
+        std.debug.print("Parse failed: {}\n", .{err});
+        return;
+    };
+    defer cleanupParseAndCanonical(test_allocator, resources);
+
+    const expr = resources.cir.store.getExpr(resources.expr_idx);
+    std.debug.print("Root expression type: {}\n", .{expr});
+
+    std.debug.print("=== END DEBUG ===\n", .{});
+}

@@ -104,6 +104,12 @@ pub const Idx = enum(@Type(.{
     _,
 };
 
+/// Closure layout - stores environment size
+pub const ClosureLayout = packed struct {
+    /// Size of the captured environment in bytes
+    env_size: u16,
+};
+
 /// The union portion of the Layout packed tagged union (the tag being LayoutTag).
 ///
 /// The largest variant must fit in 28 bits to leave room for the u4 tag
@@ -115,7 +121,7 @@ pub const LayoutUnion = packed union {
     list_of_zst: void,
     record: RecordLayout,
     tuple: TupleLayout,
-    closure: void,
+    closure: ClosureLayout,
 };
 
 /// Record field layout
