@@ -222,7 +222,8 @@ pub const CaptureAnalysis = struct {
         lambda_params: CIR.Pattern.Span,
     ) !CaptureAnalysis {
         var analyzer = CaptureAnalyzer.init(allocator, cir, lambda_params);
-        defer analyzer.deinit();
+        // Only deinit current_bindings, transfer ownership of captured_vars
+        defer analyzer.current_bindings.deinit();
 
         try analyzer.analyzeExpression(body_expr_idx);
 
@@ -230,6 +231,10 @@ pub const CaptureAnalysis = struct {
             .captured_vars = analyzer.captured_vars,
             .total_env_size = analyzer.total_size,
         };
+    }
+
+    pub fn deinit(self: *CaptureAnalysis) void {
+        self.captured_vars.deinit();
     }
 };
 
@@ -253,7 +258,7 @@ pub const CaptureAnalyzer = struct {
 
     fn deinit(self: *CaptureAnalyzer) void {
         self.current_bindings.deinit();
-        self.captured_vars.deinit();
+        // Note: captured_vars ownership is transferred to CaptureAnalysis
     }
 
     fn analyzeExpression(self: *CaptureAnalyzer, expr_idx: CIR.Expr.Idx) !void {
@@ -353,7 +358,15 @@ fn createClosureWithCaptures(
     const total_size = closure_size + env_size;
 
     // Allocate closure and environment as a single block
-    const closure_alignment = @as(std.mem.Alignment, @enumFromInt(@alignOf(Closure)));
+    const natural_alignment = @alignOf(Closure);
+    const max_alignment = collections.max_roc_alignment.toByteUnits();
+    const safe_alignment = @min(natural_alignment, max_alignment);
+    const closure_alignment = std.mem.Alignment.fromByteUnits(@intCast(safe_alignment));
+
+    if (DEBUG_ENABLED) {
+        std.debug.print("🔧 CLOSURE ALIGNMENT: natural={}, max_allowed={}, using={}\n", .{ natural_alignment, max_alignment, closure_alignment.toByteUnits() });
+    }
+
     const closure_ptr = self.stack_memory.alloca(@intCast(total_size), closure_alignment) catch |err| switch (err) {
         error.StackOverflow => return error.StackOverflow,
     };
@@ -374,6 +387,11 @@ fn createClosureWithCaptures(
             env_ptr,
             capture_analysis.captured_vars.items,
         );
+
+        // Debug trace environment initialization
+        if (DEBUG_ENABLED and closure.captured_env != null) {
+            self.debugInspectCaptureEnvironment(closure.captured_env.?, "INITIALIZED");
+        }
     }
 
     return closure;
@@ -385,6 +403,9 @@ fn initializeCapturedEnvironment(
     env_ptr: [*]u8,
     captured_vars: []const CIR.Pattern.Idx,
 ) !*CapturedEnvironment {
+    if (DEBUG_ENABLED) {
+        std.debug.print("🏗️  INIT CAPTURE ENV: {} variables to capture\n", .{captured_vars.len});
+    }
     // Cast memory to environment structure
     const env = @as(*CapturedEnvironment, @ptrCast(@alignCast(env_ptr)));
 
@@ -417,11 +438,18 @@ fn initializeCapturedEnvironment(
 
         if (found_value == null) {
             // This should not happen if capture analysis is correct
+            if (DEBUG_ENABLED) {
+                std.debug.print("❌ CAPTURE ERROR: pattern {} not found in parameter bindings\n", .{@intFromEnum(pattern_idx)});
+            }
             return error.CaptureError;
         }
 
         // Calculate size and copy value data
         const value_layout = found_layout.?;
+
+        if (DEBUG_ENABLED) {
+            std.debug.print("  📦 CAPTURING[{}]: pattern={}, size={} bytes\n", .{ i, @intFromEnum(pattern_idx), self.layout_cache.layoutSize(value_layout) });
+        }
         const value_size = self.layout_cache.layoutSize(value_layout);
         const value_ptr = env_ptr + value_data_offset;
 
@@ -447,7 +475,21 @@ fn lookupVariable(
     pattern_idx: CIR.Pattern.Idx,
     env: ?*CapturedEnvironment,
 ) ?CapturedBinding {
-    return self.searchCapturedEnvironment(pattern_idx, env);
+    if (DEBUG_ENABLED) {
+        std.debug.print("🔍 LOOKUP VAR: pattern={}, has_env={}\n", .{ @intFromEnum(pattern_idx), env != null });
+    }
+
+    const result = self.searchCapturedEnvironment(pattern_idx, env);
+
+    if (DEBUG_ENABLED) {
+        if (result) |binding| {
+            std.debug.print("✅ VAR FOUND: pattern={}, layout={s}\n", .{ @intFromEnum(binding.pattern_idx), @tagName(binding.layout.tag) });
+        } else {
+            std.debug.print("❌ VAR NOT FOUND: pattern={}\n", .{@intFromEnum(pattern_idx)});
+        }
+    }
+
+    return result;
 }
 
 /// Search for a variable in the captured environment chain
@@ -456,18 +498,37 @@ fn searchCapturedEnvironment(
     pattern_idx: CIR.Pattern.Idx,
     env: ?*CapturedEnvironment,
 ) ?CapturedBinding {
-    if (env == null) return null;
+    if (env == null) {
+        if (DEBUG_ENABLED) {
+            std.debug.print("  🔍 SEARCH: no environment to search\n", .{});
+        }
+        return null;
+    }
 
     const current_env = env.?;
 
+    if (DEBUG_ENABLED) {
+        std.debug.print("  🔍 SEARCH ENV: {} bindings, parent={}\n", .{ current_env.bindings.len, current_env.parent_env != null });
+    }
+
     // Search in current environment
-    for (current_env.bindings) |binding| {
+    for (current_env.bindings, 0..) |binding, i| {
+        if (DEBUG_ENABLED) {
+            std.debug.print("    [{:2}] checking pattern {} vs target {}\n", .{ i, @intFromEnum(binding.pattern_idx), @intFromEnum(pattern_idx) });
+        }
+
         if (binding.pattern_idx == pattern_idx) {
+            if (DEBUG_ENABLED) {
+                std.debug.print("    ✅ MATCH found at index {}\n", .{i});
+            }
             return binding;
         }
     }
 
     // Search in parent environment recursively
+    if (DEBUG_ENABLED and current_env.parent_env != null) {
+        std.debug.print("  🔄 SEARCH PARENT: continuing search\n", .{});
+    }
     return self.searchCapturedEnvironment(pattern_idx, current_env.parent_env);
 }
 
@@ -954,6 +1015,9 @@ pub const Interpreter = struct {
             },
 
             .e_lambda => |lambda_expr| {
+                // Trace capture analysis start
+                self.debugTraceCapture("ANALYSIS_START", expr_idx);
+
                 // Perform capture analysis
                 var capture_analysis = CaptureAnalysis.analyzeLambdaBody(
                     self.allocator,
@@ -963,7 +1027,7 @@ pub const Interpreter = struct {
                 ) catch |err| switch (err) {
                     error.OutOfMemory => return error.OutOfMemory,
                 };
-                defer capture_analysis.captured_vars.deinit();
+                defer capture_analysis.deinit();
 
                 // Calculate environment size
                 const env_size = calculateEnvironmentSize(
@@ -974,23 +1038,27 @@ pub const Interpreter = struct {
                     else => return error.LayoutError,
                 };
 
-                // Track capture analysis results for debugging
+                // Trace capture analysis results
+                self.debugTraceCaptureResult(capture_analysis.captured_vars.items.len, env_size);
                 if (DEBUG_ENABLED) {
-                    std.debug.print("DEBUG: LAMBDA CAPTURE ANALYSIS: captured_vars={}, env_size={}\n", .{ capture_analysis.captured_vars.items.len, env_size });
+                    for (capture_analysis.captured_vars.items, 0..) |pattern_idx, i| {
+                        self.debugInspectCapturedVar(pattern_idx, i);
+                    }
                 }
 
                 if (capture_analysis.captured_vars.items.len > 0) {
                     // Create enhanced closure with captures
+                    self.debugTraceCapture("ENHANCED_CLOSURE_CREATE", expr_idx);
                     capture_analysis.total_env_size = env_size;
                     const enhanced_closure = createClosureWithCaptures(self, .{ .args = lambda_expr.args, .body = lambda_expr.body }, capture_analysis) catch |err| switch (err) {
                         error.StackOverflow => return error.StackOverflow,
                         error.CaptureError => return error.LayoutError,
                     };
 
-                    // Track closure creation for debugging
-                    if (DEBUG_ENABLED) {
-                        const stack_pos = @intFromPtr(enhanced_closure) - @intFromPtr(self.stack_memory.start);
-                        std.debug.print("DEBUG: PUSH enhanced closure: size={} env_size={} at pos={}\n", .{ @sizeOf(Closure), env_size, stack_pos });
+                    // Debug trace enhanced closure creation
+                    self.debugTraceEnhancedClosure(enhanced_closure, env_size);
+                    if (enhanced_closure.captured_env) |env| {
+                        self.debugInspectCaptureEnvironment(env, "CREATED");
                     }
 
                     // Create and push closure layout with environment size
@@ -1001,6 +1069,7 @@ pub const Interpreter = struct {
                     try self.layout_stack.append(closure_layout);
                 } else {
                     // Create simple closure (no captures needed)
+                    self.debugTraceCapture("SIMPLE_CLOSURE_CREATE", expr_idx);
                     const closure_size = @sizeOf(SimpleClosure);
                     const closure_alignment = @as(std.mem.Alignment, @enumFromInt(@alignOf(SimpleClosure)));
 
@@ -1012,7 +1081,7 @@ pub const Interpreter = struct {
                     // Track closure creation for debugging
                     if (DEBUG_ENABLED) {
                         const stack_pos = @intFromPtr(closure_ptr) - @intFromPtr(self.stack_memory.start);
-                        std.debug.print("DEBUG: PUSH simple closure: size={} at pos={}\n", .{ closure_size, stack_pos });
+                        std.debug.print("DEBUG: 🎯 SIMPLE CLOSURE: size={} at pos={}\n", .{ closure_size, stack_pos });
                     }
 
                     // Initialize closure
@@ -1863,6 +1932,40 @@ pub const Interpreter = struct {
         }
         if (span_len > 100) {
             std.debug.print("DEBUG:  Suspicious span length: {}\n", .{span_len});
+        }
+    }
+
+    fn debugTraceCapture(self: *const Interpreter, phase: []const u8, expr_idx: CIR.Expr.Idx) void {
+        _ = self;
+        if (!DEBUG_ENABLED) return;
+        std.debug.print("🔍 CAPTURE {s}: expr={}\n", .{ phase, @intFromEnum(expr_idx) });
+    }
+
+    fn debugTraceCaptureResult(self: *const Interpreter, captured_count: usize, env_size: usize) void {
+        _ = self;
+        if (!DEBUG_ENABLED) return;
+        std.debug.print("📊 CAPTURE ANALYSIS: found {} variables, env_size={} bytes\n", .{ captured_count, env_size });
+    }
+
+    fn debugInspectCapturedVar(self: *const Interpreter, pattern_idx: CIR.Pattern.Idx, index: usize) void {
+        _ = self;
+        if (!DEBUG_ENABLED) return;
+        std.debug.print("  📌 Captured[{}]: pattern_idx={}\n", .{ index, @intFromEnum(pattern_idx) });
+    }
+
+    fn debugTraceEnhancedClosure(self: *const Interpreter, closure: *const Closure, env_size: usize) void {
+        if (!DEBUG_ENABLED) return;
+        const stack_pos = @intFromPtr(closure) - @intFromPtr(self.stack_memory.start);
+        std.debug.print("🏗️  ENHANCED CLOSURE: size={}, env_size={}, pos={}, has_env={}\n", .{ @sizeOf(Closure), env_size, stack_pos, closure.captured_env != null });
+    }
+
+    fn debugInspectCaptureEnvironment(self: *const Interpreter, env: *const CapturedEnvironment, label: []const u8) void {
+        _ = self;
+        if (!DEBUG_ENABLED) return;
+        std.debug.print("🗂️  CAPTURE ENV {s}: {} bindings, parent={}\n", .{ label, env.bindings.len, env.parent_env != null });
+
+        for (env.bindings, 0..) |binding, i| {
+            std.debug.print("    [{:2}] pattern={}, layout={s}, addr={}\n", .{ i, @intFromEnum(binding.pattern_idx), @tagName(binding.layout.tag), @intFromPtr(binding.value_data) });
         }
     }
 };
