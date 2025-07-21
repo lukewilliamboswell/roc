@@ -103,6 +103,8 @@ const WorkKind = enum {
 
     /// Allocate space for return value (landing pad)
     alloc_return_space,
+    /// Push call frame marker with function position
+    push_call_frame,
     /// Orchestrate function call
     call_function,
     /// Bind arguments to parameters
@@ -350,6 +352,81 @@ pub const Closure = struct {
             .args_pattern_span = .{ .span = .{ .start = pattern_start, .len = pattern_len } },
             .captured_env = captured_env,
         };
+    }
+};
+
+/// Call frame marker that stores function position and metadata during calls
+/// This eliminates the need to calculate closure positions dynamically
+pub const CallFrame = struct {
+    function_pos: u32, // Stack position where the function closure is stored
+    function_layout: layout.Layout, // Layout of the function closure
+    return_layout_idx: u32, // Index in layout_stack of the return value layout
+    arg_count: u32, // Number of arguments in this call
+
+    /// Write call frame to memory in a serialized format
+    pub fn write(self: *const CallFrame, memory: []u8) void {
+        var offset: u32 = 0;
+
+        // Write function_pos
+        std.mem.writeInt(u32, memory[offset..][0..4], self.function_pos, .little);
+        offset += 4;
+
+        // Write function_layout (simplified - store tag and basic data)
+        std.mem.writeInt(u32, memory[offset..][0..4], @intFromEnum(self.function_layout.tag), .little);
+        offset += 4;
+
+        // Write return_layout_idx
+        std.mem.writeInt(u32, memory[offset..][0..4], self.return_layout_idx, .little);
+        offset += 4;
+
+        // Write arg_count
+        std.mem.writeInt(u32, memory[offset..][0..4], self.arg_count, .little);
+        offset += 4;
+    }
+
+    /// Read call frame from memory
+    pub fn read(memory: []const u8) CallFrame {
+        var offset: u32 = 0;
+
+        const function_pos = std.mem.readInt(u32, memory[offset..][0..4], .little);
+        offset += 4;
+
+        const layout_tag_raw = std.mem.readInt(u32, memory[offset..][0..4], .little);
+        const layout_tag: layout.LayoutTag = @enumFromInt(layout_tag_raw);
+        offset += 4;
+
+        const return_layout_idx = std.mem.readInt(u32, memory[offset..][0..4], .little);
+        offset += 4;
+
+        const arg_count = std.mem.readInt(u32, memory[offset..][0..4], .little);
+        offset += 4;
+
+        // Create a basic layout - for closure, we need env_size
+        const function_layout = switch (layout_tag) {
+            .closure => layout.Layout{
+                .tag = .closure,
+                .data = .{ .closure = .{ .env_size = 0 } }, // Will be filled properly when needed
+            },
+            else => layout.Layout{
+                .tag = layout_tag,
+                .data = undefined, // Basic layout without specific data
+            },
+        };
+
+        return CallFrame{
+            .function_pos = function_pos,
+            .function_layout = function_layout,
+            .return_layout_idx = return_layout_idx,
+            .arg_count = arg_count,
+        };
+    }
+
+    /// Calculate the size needed to store this call frame
+    pub fn size() u32 {
+        return @sizeOf(u32) + // function_pos
+            @sizeOf(u32) + // function_layout.tag (simplified)
+            @sizeOf(u32) + // return_layout_idx
+            @sizeOf(u32); // arg_count
     }
 };
 
@@ -706,6 +783,7 @@ pub const Interpreter = struct {
                 // Function call work items
 
                 .alloc_return_space => try self.handleAllocReturnSpace(work.expr_idx),
+                .push_call_frame => try self.handlePushCallFrame(work.expr_idx),
                 .call_function => try self.handleCallFunction(work.expr_idx),
                 .bind_parameters => try self.handleBindParameters(work.expr_idx),
                 .eval_function_body => try self.handleEvalFunctionBody(work.expr_idx),
@@ -1089,7 +1167,22 @@ pub const Interpreter = struct {
 
                 // Allocate space for closure on stack (simplified size calculation)
                 const basic_closure_size = @sizeOf(CIR.Expr.Idx) + @sizeOf(CIR.Pattern.Span) + @sizeOf(CapturedEnvironment);
+
+                if (DEBUG_ENABLED) {
+                    self.traceInfo("📍 ALLOCATION DEBUG: About to allocate closure", .{});
+                    self.traceInfo("  stack_memory.used before alloca: {}", .{self.stack_memory.used});
+                    self.traceInfo("  basic_closure_size: {}", .{basic_closure_size});
+                    self.traceInfo("  alignment: 8", .{});
+                }
+
                 const closure_ptr = try self.stack_memory.alloca(basic_closure_size, .@"8");
+
+                if (DEBUG_ENABLED) {
+                    const actual_closure_pos = @intFromPtr(closure_ptr) - @intFromPtr(self.stack_memory.start);
+                    self.traceInfo("  stack_memory.used after alloca: {}", .{self.stack_memory.used});
+                    self.traceInfo("  closure_ptr offset: {}", .{actual_closure_pos});
+                    self.traceInfo("  expected vs actual: expected=?, actual={}", .{actual_closure_pos});
+                }
 
                 // Write closure to memory (simplified)
                 const memory = @as([*]u8, @ptrCast(closure_ptr));
@@ -1392,69 +1485,138 @@ pub const Interpreter = struct {
     }
 
     fn handleCallFunction(self: *Interpreter, call_expr_idx: CIR.Expr.Idx) EvalError!void {
-        self.traceEnter("CALL FUNCTION (expr_idx={})", .{@intFromEnum(call_expr_idx)});
-        defer self.traceExit("CALL FUNCTION completed", .{});
-
-        self.traceStackState("call_function_entry");
+        if (DEBUG_ENABLED) {
+            self.traceEnter("CALL FUNCTION (expr_idx={})", .{@intFromEnum(call_expr_idx)});
+            self.traceStackState("call_function_entry");
+        }
 
         // Get the call expression to find argument count
         const call_expr = self.cir.store.getExpr(call_expr_idx);
         const call = switch (call_expr) {
             .e_call => |c| c,
             else => {
-                self.traceError("Invalid call expression type: {s}", .{@tagName(call_expr)});
+                if (DEBUG_ENABLED) {
+                    self.traceError("Invalid call expression type: {s}", .{@tagName(call_expr)});
+                }
                 return error.LayoutError;
             },
         };
 
-        // LANDING PAD: Allocate closure space now, during call setup
-        // Get function expression to determine closure requirements
-        const all_exprs_for_closure = self.cir.store.sliceExpr(call.args);
-        const function_expr = self.cir.store.getExpr(all_exprs_for_closure[0]);
+        const all_exprs = self.cir.store.sliceExpr(call.args);
+        const arg_count = all_exprs.len - 1; // Subtract 1 for the function itself
 
-        self.traceInfo("CALL FUNCTION: checking expr type for LANDING PAD decision: {s}", .{@tagName(function_expr)});
+        // Verify we have function + arguments on layout stack
+        if (self.layout_stack.items.len < arg_count + 1) {
+            if (DEBUG_ENABLED) {
+                self.traceError("Insufficient layout items: have {}, need {}", .{ self.layout_stack.items.len, arg_count + 1 });
+            }
+            return error.InvalidStackState;
+        }
 
-        self.traceInfo("FUNCTION EXPR TYPE: {s} for call_expr={}", .{ @tagName(function_expr), @intFromEnum(call_expr_idx) });
+        // Schedule call sequence work items (executed in reverse order due to LIFO stack):
+        // 1. Cleanup function (executed last)
+        try self.work_stack.append(WorkItem{ .kind = .cleanup_function, .expr_idx = call_expr_idx });
+
+        // 2. Copy result to return space
+        try self.work_stack.append(WorkItem{ .kind = .copy_result_to_return_space, .expr_idx = call_expr_idx });
+
+        // 3. Evaluate function body
+        try self.work_stack.append(WorkItem{ .kind = .eval_function_body, .expr_idx = call_expr_idx });
+
+        // 4. Bind parameters (executed second)
+        try self.work_stack.append(WorkItem{ .kind = .bind_parameters, .expr_idx = call_expr_idx });
+
+        // 5. Push call frame (executed first)
+        try self.work_stack.append(WorkItem{ .kind = .push_call_frame, .expr_idx = call_expr_idx });
 
         if (DEBUG_ENABLED) {
-            self.traceInfo("CALL FUNCTION: expr type = {s}", .{@tagName(function_expr)});
+            self.traceSuccess("CALL FUNCTION: scheduled {} work items for {} args", .{ 5, arg_count });
         }
+    }
+
+    /// Push call frame marker to stack with function position and call metadata
+    /// This eliminates the need for complex position calculations during parameter binding
+    fn handlePushCallFrame(self: *Interpreter, call_expr_idx: CIR.Expr.Idx) EvalError!void {
+        if (DEBUG_ENABLED) {
+            self.traceEnter("PUSH CALL FRAME (expr_idx={})", .{@intFromEnum(call_expr_idx)});
+        }
+
+        // Get call information
+        const call_expr = self.cir.store.getExpr(call_expr_idx);
+        const call = switch (call_expr) {
+            .e_call => |c| c,
+            else => return error.LayoutError,
+        };
 
         const all_exprs = self.cir.store.sliceExpr(call.args);
         const arg_count = all_exprs.len - 1; // Subtract 1 for the function itself
 
-        // Check that we have enough items on the layout stack
-        if (self.layout_stack.items.len < arg_count + 1) {
-            self.traceError("Insufficient layout items: have {}, need {}", .{ self.layout_stack.items.len, arg_count + 1 });
-            return error.InvalidStackState;
-        }
-
-        // Layout stack validation
-        if (DEBUG_ENABLED and self.layout_stack.items.len != arg_count + 1) {
-            self.traceInfo("Layout stack mismatch in call_function_validation: expected={}, actual={}\n", .{ arg_count + 1, self.layout_stack.items.len });
-        }
-
-        // Access the function layout (it's at the bottom of our function call portion)
+        // Find function on layout stack - it's right before the arguments
         const function_layout_idx = self.layout_stack.items.len - arg_count - 1;
         const function_layout = self.layout_stack.items[function_layout_idx];
 
         // Verify it's a closure
         if (function_layout.tag != .closure) {
-            self.traceError("Expected closure but got: {s}", .{@tagName(function_layout.tag)});
-            return error.Crash; // "Not a function" error
+            if (DEBUG_ENABLED) {
+                self.traceError("Expected closure but got: {s}", .{@tagName(function_layout.tag)});
+            }
+            return error.LayoutError;
         }
 
-        // Check if function has captures and add capture record as hidden argument
-        self.traceInfo("📞 ABOUT TO HANDLE CAPTURE ARGUMENTS for expr={}\n", .{@intFromEnum(call_expr_idx)});
+        // Calculate function position by walking forward from stack start
+        var pos: u32 = 0;
 
-        try self.handleCaptureArguments(call_expr_idx, function_layout_idx);
+        if (DEBUG_ENABLED) {
+            self.traceInfo("Calculating function position by walking forward from stack start", .{});
+        }
 
-        self.traceInfo("📞 FINISHED HANDLING CAPTURE ARGUMENTS for expr={}\n", .{@intFromEnum(call_expr_idx)});
+        // Walk forward to the function position
+        for (self.layout_stack.items[0..function_layout_idx], 0..) |layout_item, i| {
+            const size = self.layout_cache.layoutSize(layout_item);
+            const alignment = layout_item.alignment(target.TargetUsize.native);
 
-        self.tracePrint("⚪ 📍 PHASE: call_ready_for_binding (expr_idx={})", .{@intFromEnum(call_expr_idx)});
+            // Align position
+            pos = std.mem.alignForward(u32, pos, @intCast(alignment.toByteUnits()));
 
-        // The function and arguments are now ready for parameter binding
-        // Nothing else to do here - the next work item will handle binding
+            if (DEBUG_ENABLED) {
+                self.traceInfo("  item[{}]: tag={s}, size={}, align={}, pos_before={}, pos_after={}", .{ i, @tagName(layout_item.tag), size, alignment, pos, pos + size });
+            }
+
+            pos += size;
+        }
+
+        // Align to 8-byte boundary like alloca(.@"8") does during lambda creation
+        pos = std.mem.alignForward(u32, pos, 8);
+        const function_pos = pos;
+
+        if (DEBUG_ENABLED) {
+            self.traceInfo("  🎯 FINAL function_pos={} (function at layout_idx={}) after 8-byte alignment", .{ function_pos, function_layout_idx });
+        }
+
+        // Create call frame
+        const call_frame = CallFrame{
+            .function_pos = function_pos,
+            .function_layout = function_layout,
+            .return_layout_idx = @intCast(function_layout_idx - 1), // Return layout is before function
+            .arg_count = @intCast(arg_count),
+        };
+
+        // Allocate space and write call frame to stack
+        const frame_size = CallFrame.size();
+        const frame_ptr = try self.stack_memory.alloca(frame_size, .@"8");
+        const frame_memory = @as([*]u8, @ptrCast(frame_ptr))[0..frame_size];
+        call_frame.write(frame_memory);
+
+        // Add call frame layout to layout stack
+        const frame_layout = layout.Layout{
+            .tag = .scalar, // Simple marker layout
+            .data = .{ .scalar = .{ .tag = .int, .data = .{ .int = .u32 } } },
+        };
+        try self.layout_stack.append(frame_layout);
+
+        if (DEBUG_ENABLED) {
+            self.traceSuccess("PUSH CALL FRAME: function_pos={}, arg_count={}, frame_size={}", .{ function_pos, arg_count, frame_size });
+        }
     }
 
     /// Handle capture arguments for functions that capture variables from outer scopes.
@@ -1609,85 +1771,65 @@ pub const Interpreter = struct {
     /// - Pattern destructuring (tuples, records)
     /// - Optimized parameter lookup (hash maps)
     fn handleBindParameters(self: *Interpreter, call_expr_idx: CIR.Expr.Idx) EvalError!void {
-        self.traceEnter("handleBindParameters(expr_idx={})", .{@intFromEnum(call_expr_idx)});
-        defer self.traceExit("handleBindParameters", .{});
+        if (DEBUG_ENABLED) {
+            self.traceEnter("handleBindParameters(expr_idx={})", .{@intFromEnum(call_expr_idx)});
+            self.traceStackState("bind_parameters_start");
+        }
 
-        // Get the call expression to determine argument count
-        const call_expr = self.cir.store.getExpr(call_expr_idx);
-        const call = switch (call_expr) {
-            .e_call => |c| c,
-            else => {
-                self.traceError("Invalid call expression in bind_parameters: {s}", .{@tagName(call_expr)});
-                return error.LayoutError;
-            },
-        };
+        // Read call frame from top of stack (it was pushed by handlePushCallFrame)
+        const frame_size = CallFrame.size();
 
-        const all_exprs = self.cir.store.sliceExpr(call.args);
-        const arg_count = all_exprs.len - 1; // Subtract 1 for the function itself
-
-        if (self.layout_stack.items.len < arg_count + 1) {
-            self.traceError("Layout stack underflow: have {}, need {}", .{ self.layout_stack.items.len, arg_count + 1 });
+        // Bounds check to prevent integer underflow
+        if (self.stack_memory.used < frame_size) {
+            if (DEBUG_ENABLED) {
+                self.traceError("Stack underflow: used={}, frame_size={}", .{ self.stack_memory.used, frame_size });
+            }
             return error.InvalidStackState;
         }
 
-        // Layout stack validation
-        if (DEBUG_ENABLED and self.layout_stack.items.len != arg_count + 1) {
-            self.traceInfo("Layout stack mismatch in bind_parameters_entry: expected={}, actual={}\n", .{ arg_count + 1, self.layout_stack.items.len });
-        }
-
-        self.traceStackState("bind_parameters_start");
-        self.traceInfo("Argument count: {}", .{arg_count});
-
-        // Calculate function position on stack using layout positions
-        // Stack layout: [return_space, function, arg1, arg2, ...]
-
-        // Function position is calculated by summing sizes of all items that come after it
-        // Layout stack is ordered with function at index: len - 1 - arg_count
-        const function_layout_idx = self.layout_stack.items.len - 1 - arg_count;
-
-        // Get the function layout
-        const function_layout = self.layout_stack.items[function_layout_idx];
-
-        // Calculate the closure position dynamically
-        const function_stack_pos = self.calculateClosurePosition(@intCast(arg_count));
+        const frame_pos = self.stack_memory.used - frame_size;
+        const frame_memory_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + frame_pos;
+        const frame_memory = frame_memory_ptr[0..frame_size];
+        const call_frame = CallFrame.read(frame_memory);
 
         if (DEBUG_ENABLED) {
-            self.traceInfo("Found closure at position {}", .{function_stack_pos});
-            self.traceInfo("⚪ 📍 PHASE: function_position_located (expr_idx={})", .{@intFromEnum(call_expr_idx)});
+            self.traceInfo("Read call frame: function_pos={}, arg_count={}", .{ call_frame.function_pos, call_frame.arg_count });
+
+            // DEBUG: Compare what's at calculated position vs expected position
+            const calculated_pos = call_frame.function_pos;
+            const expected_pos: u32 = 32; // From lambda creation trace
+
+            self.traceInfo("🔍 POSITION DEBUG: calculated={}, expected={}", .{ calculated_pos, expected_pos });
+
+            // Read memory at calculated position
+            const calc_memory_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + calculated_pos;
+            const calc_bytes = calc_memory_ptr[0..8];
+            self.traceInfo("  calculated_pos[{}] bytes: {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2}", .{ calculated_pos, calc_bytes[0], calc_bytes[1], calc_bytes[2], calc_bytes[3], calc_bytes[4], calc_bytes[5], calc_bytes[6], calc_bytes[7] });
+
+            // Read memory at expected position
+            const exp_memory_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + expected_pos;
+            const exp_bytes = exp_memory_ptr[0..8];
+            self.traceInfo("  expected_pos[{}] bytes: {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2}", .{ expected_pos, exp_bytes[0], exp_bytes[1], exp_bytes[2], exp_bytes[3], exp_bytes[4], exp_bytes[5], exp_bytes[6], exp_bytes[7] });
+
+            // Try reading body_expr_idx from both positions
+            const calc_body = std.mem.readInt(u32, calc_bytes[0..4], .little);
+            const exp_body = std.mem.readInt(u32, exp_bytes[0..4], .little);
+            self.traceInfo("  body_expr_idx: calculated={}, expected={}", .{ calc_body, exp_body });
         }
 
-        // Get the function closure from the stack
-        if (function_layout.tag != .closure) {
-            return error.LayoutError; // Function must be a closure
-        }
-
-        // Read the closure data directly from memory (matching the write format in lambda creation)
-        const closure_memory_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos;
+        // Read closure from the position stored in the call frame
+        const closure_memory_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + call_frame.function_pos;
         var offset: u32 = 0;
 
-        if (DEBUG_ENABLED) {
-            self.traceInfo("🔍 READING CLOSURE FROM MEMORY at position {}", .{function_stack_pos});
-            self.traceInfo("Memory bytes: {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2}", .{ closure_memory_ptr[0], closure_memory_ptr[1], closure_memory_ptr[2], closure_memory_ptr[3], closure_memory_ptr[4], closure_memory_ptr[5], closure_memory_ptr[6], closure_memory_ptr[7] });
-        }
-
-        // Read body_expr_idx
+        // Read closure data (matching lambda creation format)
         const body_expr_raw = std.mem.readInt(u32, closure_memory_ptr[offset..][0..4], .little);
         const closure_body_expr_idx: CIR.Expr.Idx = @enumFromInt(body_expr_raw);
         offset += 4;
 
-        if (DEBUG_ENABLED) {
-            self.traceInfo("Read body_expr_idx: raw={}, enum={}", .{ body_expr_raw, @intFromEnum(closure_body_expr_idx) });
-        }
-
-        // Read args_pattern_span
         const pattern_start = std.mem.readInt(u32, closure_memory_ptr[offset..][0..4], .little);
         offset += 4;
         const pattern_len = std.mem.readInt(u32, closure_memory_ptr[offset..][0..4], .little);
         offset += 4;
-
-        if (DEBUG_ENABLED) {
-            self.traceInfo("Read pattern_span: start={}, len={}", .{ pattern_start, pattern_len });
-        }
 
         const closure_args_pattern_span = CIR.Pattern.Span{ .span = .{ .start = pattern_start, .len = pattern_len } };
 
@@ -1695,92 +1837,70 @@ pub const Interpreter = struct {
             self.traceInfo("Found closure: body={}, args_len={}", .{
                 @intFromEnum(closure_body_expr_idx), closure_args_pattern_span.span.len,
             });
-            // Create temporary closure for tracing
-            const temp_closure = Closure{
-                .body_expr_idx = closure_body_expr_idx,
-                .args_pattern_span = closure_args_pattern_span,
-                .captured_env = CapturedEnvironment{ .bindings = &.{}, .parent_env = null, .deferred_init = false },
-            };
-            self.traceClosure(&temp_closure, function_stack_pos);
         }
-
-        if (DEBUG_ENABLED) {
-            self.traceInfo("📍 STACK POSITION CALCULATION:\n", .{});
-            self.traceInfo("function_layout_idx={}, arg_count={}\n", .{ function_layout_idx, arg_count });
-            self.traceInfo("layout_stack.len={}\n", .{self.layout_stack.items.len});
-            self.traceInfo("calculated function_stack_pos={}\n", .{function_stack_pos});
-            self.traceInfo("🔍 VALIDATING CLOSURE BODY: body_expr_idx={}\n", .{@intFromEnum(closure_body_expr_idx)});
-            self.traceInfo("🎯 PARAMETER BINDING: closure with {} args\n", .{closure_args_pattern_span.span.len});
-        }
-
-        const parameter_patterns = self.cir.store.slicePatterns(closure_args_pattern_span);
 
         // Verify arity
-        if (closure_args_pattern_span.span.len != arg_count) {
+        if (closure_args_pattern_span.span.len != call_frame.arg_count) {
             if (DEBUG_ENABLED) {
-                self.traceError("🚨 ARITY MISMATCH DETAILS:", .{});
-                self.traceError("  Expected (from closure): {}", .{closure_args_pattern_span.span.len});
-                self.traceError("  Actual (from call): {}", .{arg_count});
-                self.traceError("  Closure position: {}", .{function_stack_pos});
-                self.traceError("  Function layout env_size: {}", .{function_layout.data.closure.env_size});
-                self.traceError("  Body expr: {}", .{@intFromEnum(closure_body_expr_idx)});
+                self.traceError("ARITY MISMATCH: expected={}, actual={}", .{
+                    closure_args_pattern_span.span.len, call_frame.arg_count,
+                });
             }
             return error.ArityMismatch;
         }
 
-        // Bind regular parameters (ignore capture record for now)
+        const parameter_patterns = self.cir.store.slicePatterns(closure_args_pattern_span);
 
-        // Multi-parameter binding: handle any number of parameters
-        // Arguments are on the stack in order, with the last argument at the top
+        // Create parameter bindings by walking back from call frame position
+        // Skip the call frame itself, then arguments are right before it
+        var current_stack_pos = frame_pos;
+        const arg_count = call_frame.arg_count;
 
-        // Calculate starting position for arguments by working backwards from stack top
-        var current_stack_pos = self.stack_memory.used;
-
-        // Create bindings for each parameter in reverse order (since stack grows upward)
         for (0..arg_count) |i| {
             const arg_idx = arg_count - 1 - i; // Process arguments in reverse order
-            const arg_layout = self.layout_stack.items[self.layout_stack.items.len - 1 - i];
+
+            // Find argument layout (arguments are at end of layout stack, before call frame)
+            const arg_layout_idx = self.layout_stack.items.len - 2 - i; // -1 for call frame, -i for this arg
+            const arg_layout = self.layout_stack.items[arg_layout_idx];
             const arg_size = self.layout_cache.layoutSize(arg_layout);
 
-            // Move to the position of this argument
+            // Move to position of this argument
             current_stack_pos -= arg_size;
 
-            // Use the actual parameter pattern from the lambda
+            // Create parameter binding
             const parameter_pattern_idx = parameter_patterns[arg_idx];
-
             const binding = ParameterBinding{
                 .pattern_idx = parameter_pattern_idx,
                 .value_ptr = @as(*anyopaque, @ptrCast(@as([*]u8, @ptrCast(self.stack_memory.start)) + current_stack_pos)),
                 .layout = arg_layout,
             };
 
-            // Trace parameter binding
-            self.traceInfo("BIND param[{}] pattern={} at pos={} ({s})\n", .{ arg_idx, @intFromEnum(parameter_pattern_idx), current_stack_pos, @tagName(arg_layout.tag) });
-
             try self.parameter_bindings.append(binding);
+
+            if (DEBUG_ENABLED) {
+                self.traceInfo("PARAMETER BINDING[{}]: pattern={}, arg_size={}, stack_pos={}", .{ arg_idx, @intFromEnum(parameter_pattern_idx), arg_size, current_stack_pos });
+            }
+        }
+
+        if (DEBUG_ENABLED) {
+            self.traceSuccess("Parameter binding complete: {} bindings created", .{arg_count});
         }
 
         // Push new execution context with current parameter bindings
         var new_context = try ExecutionContext.init(self.allocator, self.current_context);
 
         // Copy current parameter bindings to the new context
-        try new_context.parameter_bindings.appendSlice(self.parameter_bindings.items);
+        for (self.parameter_bindings.items) |binding| {
+            try new_context.parameter_bindings.append(binding);
+        }
 
-        // Add context to stack and make it current
+        // Make this the current context
         try self.execution_contexts.append(new_context);
         self.current_context = &self.execution_contexts.items[self.execution_contexts.items.len - 1];
 
-        // Final state verification and summary
-        self.traceInfo("BIND SUMMARY: {} parameters bound, stack_used={}\n", .{ arg_count, self.stack_memory.used });
-        self.traceInfo("CONTEXT STACK: {} contexts deep\n", .{self.execution_contexts.items.len});
-        self.traceInfo("bind_parameters_complete: stack={d:.1}B/{d:.1}KB ({d:.1}%), layouts={}, bindings={}, work={}\n", .{
-            @as(f64, @floatFromInt(self.stack_memory.used)),
-            @as(f64, @floatFromInt(self.stack_memory.capacity)) / 1024.0,
-            @as(f64, @floatFromInt(self.stack_memory.used)) / @as(f64, @floatFromInt(self.stack_memory.capacity)) * 100.0,
-            self.layout_stack.items.len,
-            self.parameter_bindings.items.len,
-            self.work_stack.items.len,
-        });
+        if (DEBUG_ENABLED) {
+            self.traceSuccess("Execution context created with {} parameter bindings", .{self.parameter_bindings.items.len});
+        }
     }
 
     fn handleEvalFunctionBody(self: *Interpreter, call_expr_idx: CIR.Expr.Idx) EvalError!void {
@@ -2276,94 +2396,6 @@ pub const Interpreter = struct {
                 has_captures,
             }) catch {};
         }
-    }
-
-    /// Calculate closure position on stack consistently
-    fn calculateClosurePosition(self: *Interpreter, arg_count: u32) u32 {
-        // Start at the current top of the memory stack
-        var pos = self.stack_memory.used;
-
-        const layout_items = self.layout_stack.items;
-
-        if (DEBUG_ENABLED) {
-            self.traceInfo("🧮 CLOSURE POSITION CALCULATION:", .{});
-            self.traceInfo("  Initial stack_pos (stack_memory.used) = {}", .{pos});
-            self.traceInfo("  arg_count = {}", .{arg_count});
-            self.traceInfo("  layout_stack.len = {}", .{layout_items.len});
-            self.traceInfo("  Layout stack contents:", .{});
-            for (layout_items, 0..) |item, i| {
-                const item_size = self.layout_cache.layoutSize(item);
-                self.traceInfo("    [{}] tag={s}, size={}", .{ i, @tagName(item.tag), item_size });
-            }
-        }
-
-        // 1. Walk back past the return space
-        const return_layout = layout_items[layout_items.len - 1];
-        const return_size = self.layout_cache.layoutSize(return_layout);
-        const return_align = return_layout.alignment(target.TargetUsize.native);
-
-        if (DEBUG_ENABLED) {
-            self.traceInfo("  STEP 1: Walking back past return space", .{});
-            self.traceInfo("    pos before: {}", .{pos});
-            self.traceInfo("    return_layout: tag={s}, size={}, align={}", .{ @tagName(return_layout.tag), return_size, return_align });
-        }
-
-        pos -= return_size;
-        pos = std.mem.alignBackward(u32, pos, @intCast(return_align.toByteUnits()));
-
-        if (DEBUG_ENABLED) {
-            self.traceInfo("    pos after return: {}", .{pos});
-        }
-
-        // 2. Walk back past each argument
-        if (DEBUG_ENABLED) {
-            self.traceInfo("  STEP 2: Walking back past {} arguments", .{arg_count});
-        }
-
-        var i: u32 = 0;
-        while (i < arg_count) : (i += 1) {
-            const arg_idx = layout_items.len - 2 - i;
-            const arg_layout = layout_items[arg_idx];
-            const arg_size = self.layout_cache.layoutSize(arg_layout);
-            const arg_align = arg_layout.alignment(target.TargetUsize.native);
-
-            if (DEBUG_ENABLED) {
-                self.traceInfo("    arg[{}] at layout_idx[{}]: tag={s}, size={}, align={}", .{ i, arg_idx, @tagName(arg_layout.tag), arg_size, arg_align });
-                self.traceInfo("      pos before: {}", .{pos});
-            }
-
-            pos -= arg_size;
-            pos = std.mem.alignBackward(u32, pos, @intCast(arg_align.toByteUnits()));
-
-            if (DEBUG_ENABLED) {
-                self.traceInfo("      pos after: {}", .{pos});
-            }
-        }
-
-        // 3. Now we're at the end of the function closure
-        // Get its layout to find its size - function is right before the arguments
-        const function_layout_idx = layout_items.len - 1 - arg_count;
-        const function_layout = layout_items[function_layout_idx];
-        const function_size = self.layout_cache.layoutSize(function_layout);
-        const function_align = function_layout.alignment(target.TargetUsize.native);
-
-        if (DEBUG_ENABLED) {
-            self.traceInfo("  STEP 3: Walking back past function closure", .{});
-            self.traceInfo("    function_layout_idx: {}", .{function_layout_idx});
-            self.traceInfo("    function_layout: tag={s}, size={}, align={}", .{ @tagName(function_layout.tag), function_size, function_align });
-            self.traceInfo("    pos before function: {}", .{pos});
-        }
-
-        // Subtract its size to find the start
-        pos -= function_size;
-        pos = std.mem.alignBackward(u32, pos, @intCast(function_align.toByteUnits()));
-
-        if (DEBUG_ENABLED) {
-            self.traceInfo("    pos after function (FINAL): {}", .{pos});
-            self.traceInfo("  🎯 SUMMARY: started at {}, ended at {}, diff = {}", .{ self.stack_memory.used, pos, self.stack_memory.used - pos });
-        }
-
-        return pos;
     }
 
     /// Verify that the stack memory usage matches the layout stack
