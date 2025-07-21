@@ -425,6 +425,23 @@ fn searchCapturedEnvironment(
 
 // Debug configuration
 const DEBUG_ENABLED = build_options.trace_eval;
+const TEST_FILTER = "basic single variable"; // Filter for specific test debugging
+
+// Verify debug flag is working at compile time
+comptime {
+    if (DEBUG_ENABLED) {
+        @compileLog("🔧 TRACE_EVAL DEBUG ENABLED");
+    }
+}
+
+/// Helper function for filtered debug output - only prints if test name matches filter
+fn debugFiltered(comptime format: []const u8, args: anytype, test_context: []const u8) void {
+    if (!DEBUG_ENABLED) return;
+
+    if (std.mem.indexOf(u8, test_context, TEST_FILTER) != null) {
+        std.debug.print("TRACE[{}]: " ++ format ++ "\n", .{TEST_FILTER} ++ args);
+    }
+}
 
 /// Binds a function parameter pattern to an argument value during function calls.
 ///
@@ -954,18 +971,27 @@ pub const Interpreter = struct {
                 // NEW APPROACH: Use capture information from canonicalization
                 const has_captures = lambda_expr.captures.captured_vars.len > 0;
 
-                if (DEBUG_ENABLED) {
-                    if (has_captures) {
-                        std.debug.print("DEBUG: 🎯 LAMBDA WITH CAPTURES: {} variables\n", .{lambda_expr.captures.captured_vars.len});
-                    } else {
-                        std.debug.print("DEBUG: 🎯 SIMPLE LAMBDA: no captures\n", .{});
-                    }
+                // FORCE DEBUG: Always show lambda creation details
+                if (has_captures) {
+                    std.debug.print("DEBUG: 🎯 LAMBDA WITH CAPTURES: {} variables\n", .{lambda_expr.captures.captured_vars.len});
+                    debugFiltered("🎯 LAMBDA WITH CAPTURES: {} variables", .{lambda_expr.captures.captured_vars.len}, "basic single variable");
+                } else {
+                    std.debug.print("DEBUG: 🎯 SIMPLE LAMBDA: no captures\n", .{});
+                    debugFiltered("🎯 SIMPLE LAMBDA: no captures", .{}, "basic single variable");
                 }
+
+                // Additional debug info
+                std.debug.print("DEBUG: 🔍 LAMBDA DETAILS: body_expr={}, args_span.len=?, has_captures={}\n", .{ @intFromEnum(lambda_expr.body), has_captures });
 
                 if (has_captures) {
                     // Use full Closure struct for lambdas with captures
                     const closure_size = @sizeOf(Closure);
-                    const closure_alignment = @as(std.mem.Alignment, @enumFromInt(@alignOf(Closure)));
+                    const closure_alignment: std.mem.Alignment = .@"8"; // Use safe 8-byte alignment
+
+                    if (DEBUG_ENABLED) {
+                        std.debug.print("DEBUG: CLOSURE ALIGNMENT CHECK: @alignOf(Closure)={}, using_alignment={}, max_roc_alignment.toByteUnits()={}\n", .{ @alignOf(Closure), closure_alignment.toByteUnits(), collections.max_roc_alignment.toByteUnits() });
+                        debugFiltered("CLOSURE ALIGNMENT: requested={}, max_allowed={}", .{ closure_alignment.toByteUnits(), collections.max_roc_alignment.toByteUnits() }, "basic single variable");
+                    }
 
                     // Allocate closure on stack
                     const closure_ptr = self.stack_memory.alloca(closure_size, closure_alignment) catch |err| switch (err) {
@@ -985,7 +1011,7 @@ pub const Interpreter = struct {
                 } else {
                     // Use SimpleClosure for lambdas without captures
                     const closure_size = @sizeOf(SimpleClosure);
-                    const closure_alignment = @as(std.mem.Alignment, @enumFromInt(@alignOf(SimpleClosure)));
+                    const closure_alignment: std.mem.Alignment = .@"8"; // Use safe 8-byte alignment
 
                     // Allocate closure on stack
                     const closure_ptr = self.stack_memory.alloca(closure_size, closure_alignment) catch |err| switch (err) {
@@ -1003,9 +1029,9 @@ pub const Interpreter = struct {
                 // Create and push closure layout with capture info for later use
                 const env_size: u16 = if (has_captures) @intCast(lambda_expr.captures.captured_vars.len) else 0;
 
-                if (DEBUG_ENABLED) {
-                    std.debug.print("DEBUG: 📐 LAMBDA LAYOUT CREATION: has_captures={}, captured_vars.len={}, env_size={}\n", .{ has_captures, lambda_expr.captures.captured_vars.len, env_size });
-                }
+                // FORCE DEBUG: Always show layout creation details
+                std.debug.print("DEBUG: 📐 LAMBDA LAYOUT CREATION: has_captures={}, captured_vars.len={}, env_size={}\n", .{ has_captures, lambda_expr.captures.captured_vars.len, env_size });
+                debugFiltered("📐 LAMBDA LAYOUT CREATION: has_captures={}, captured_vars.len={}, env_size={}", .{ has_captures, lambda_expr.captures.captured_vars.len, env_size }, "basic single variable");
 
                 const closure_layout = layout.Layout{
                     .tag = .closure,
@@ -1013,9 +1039,9 @@ pub const Interpreter = struct {
                 };
                 try self.layout_stack.append(closure_layout);
 
-                if (DEBUG_ENABLED) {
-                    std.debug.print("DEBUG: 📐 LAYOUT PUSHED: tag={s}, env_size={}\n", .{ @tagName(closure_layout.tag), closure_layout.data.closure.env_size });
-                }
+                // FORCE DEBUG: Always show layout push details
+                std.debug.print("DEBUG: 📐 LAYOUT PUSHED: tag={s}, env_size={}\n", .{ @tagName(closure_layout.tag), closure_layout.data.closure.env_size });
+                debugFiltered("📐 LAYOUT PUSHED: tag={s}, env_size={}", .{ @tagName(closure_layout.tag), closure_layout.data.closure.env_size }, "basic single variable");
             },
         }
     }
@@ -1357,17 +1383,20 @@ pub const Interpreter = struct {
 
         if (DEBUG_ENABLED) {
             std.debug.print("DEBUG: 🔍 CAPTURE CHECK: tag={s}, env_size={}\n", .{ @tagName(function_layout.tag), if (function_layout.tag == .closure) function_layout.data.closure.env_size else 0 });
+            debugFiltered("🔍 CAPTURE CHECK: tag={s}, env_size={}", .{ @tagName(function_layout.tag), if (function_layout.tag == .closure) function_layout.data.closure.env_size else 0 }, "basic single variable");
         }
 
         if (function_layout.tag != .closure or function_layout.data.closure.env_size == 0) {
             if (DEBUG_ENABLED) {
                 std.debug.print("DEBUG: 🚫 EARLY RETURN: Not a closure with captures\n", .{});
+                debugFiltered("🚫 EARLY RETURN: Not a closure with captures", .{}, "basic single variable");
             }
             return; // Not a closure with captures
         }
 
         if (DEBUG_ENABLED) {
             std.debug.print("DEBUG: 🎯 ADDING CAPTURE RECORD: env_size={}, call_expr={}\n", .{ function_layout.data.closure.env_size, @intFromEnum(call_expr_idx) });
+            debugFiltered("🎯 ADDING CAPTURE RECORD: env_size={}, call_expr={}", .{ function_layout.data.closure.env_size, @intFromEnum(call_expr_idx) }, "basic single variable");
         }
 
         // Get the call expression to find the function and get capture info
@@ -1630,13 +1659,12 @@ pub const Interpreter = struct {
         const expected_args = if (has_captures) parameter_patterns.len + 1 else parameter_patterns.len;
 
         if (expected_args != arg_count) {
-            if (DEBUG_ENABLED) {
-                std.debug.print("DEBUG: 🚨 ARITY MISMATCH DETAILS:\n", .{});
-                std.debug.print("   Expected: {} (pattern_params={}, has_captures={})\n", .{ expected_args, parameter_patterns.len, has_captures });
-                std.debug.print("   Actual:   {}\n", .{arg_count});
-                std.debug.print("   Function layout env_size: {}\n", .{function_layout.data.closure.env_size});
-                std.debug.print("   Function body expr: {}\n", .{@intFromEnum(closure_body_expr_idx)});
-            }
+            // FORCE DEBUG: Always show arity mismatch details
+            std.debug.print("DEBUG: 🚨 ARITY MISMATCH DETAILS:\n", .{});
+            std.debug.print("   Expected: {} (pattern_params={}, has_captures={})\n", .{ expected_args, parameter_patterns.len, has_captures });
+            std.debug.print("   Actual:   {}\n", .{arg_count});
+            std.debug.print("   Function layout env_size: {}\n", .{function_layout.data.closure.env_size});
+            std.debug.print("   Function body expr: {}\n", .{@intFromEnum(closure_body_expr_idx)});
             return error.ArityMismatch;
         }
 
@@ -1771,6 +1799,7 @@ pub const Interpreter = struct {
         if (DEBUG_ENABLED) {
             std.debug.print("DEBUG: Body result layout = {}, size = {}\n", .{ body_result_layout.tag, body_result_size });
             std.debug.print("DEBUG: Body result at stack position = {}\n", .{self.stack_memory.used - body_result_size});
+            debugFiltered("📋 COPY RESULT: layout.tag={s}, env_size={}", .{ @tagName(body_result_layout.tag), if (body_result_layout.tag == .closure) body_result_layout.data.closure.env_size else 0 }, "basic single variable");
         }
 
         // Find the return space - it should be at the bottom of our call frame
@@ -1905,6 +1934,7 @@ pub const Interpreter = struct {
         if (DEBUG_ENABLED) {
             std.debug.print("DEBUG: === CLEANUP FUNCTION ===\n", .{});
             std.debug.print("DEBUG: Before cleanup: stack.used = {}, layout_stack.len = {}\n", .{ self.stack_memory.used, self.layout_stack.items.len });
+            debugFiltered("🧹 CLEANUP START: stack.used={}, layout_stack.len={}", .{ self.stack_memory.used, self.layout_stack.items.len }, "basic single variable");
         }
 
         // Get call information
@@ -1981,13 +2011,20 @@ pub const Interpreter = struct {
 
         // Remove function and argument layouts (but keep return layout)
         for (0..layouts_to_remove) |_| {
-            _ = self.layout_stack.pop() orelse return error.InvalidStackState;
+            const popped_layout = self.layout_stack.pop() orelse return error.InvalidStackState;
+            if (DEBUG_ENABLED) {
+                debugFiltered("🧹 LAYOUT POPPED: tag={s}, env_size={}", .{ @tagName(popped_layout.tag), if (popped_layout.tag == .closure) popped_layout.data.closure.env_size else 0 }, "basic single variable");
+            }
         }
 
         // The return layout should now be at the top of layout stack
         if (DEBUG_ENABLED) {
             std.debug.print("DEBUG: After layout cleanup: layout_stack.len = {}\n", .{self.layout_stack.items.len});
             std.debug.print("DEBUG: === END CLEANUP FUNCTION ===\n", .{});
+            if (self.layout_stack.items.len > 0) {
+                const top_layout = self.layout_stack.items[self.layout_stack.items.len - 1];
+                debugFiltered("🧹 CLEANUP END: top_layout.tag={s}, env_size={}", .{ @tagName(top_layout.tag), if (top_layout.tag == .closure) top_layout.data.closure.env_size else 0 }, "basic single variable");
+            }
         }
     }
 

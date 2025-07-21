@@ -720,11 +720,15 @@ test "lambda variable capture - basic single variable" {
     // Test a closure that captures a single variable from outer scope
     const src = "((|x| |y| x + y)(42))(10)";
 
+    std.debug.print("\n🧪 DEBUG: Starting basic capture test with: {s}\n", .{src});
+
     const resources = parseAndCanonicalizeExpr(test_allocator, src) catch |err| {
         std.debug.print("PARSE ERROR for basic capture: {any}\n", .{err});
         return err;
     };
     defer cleanupParseAndCanonical(test_allocator, resources);
+
+    std.debug.print("🧪 DEBUG: Parse and canonicalize successful\n", .{});
 
     // Create evaluation environment
     var eval_stack = try stack.Stack.initCapacity(test_allocator, 1024);
@@ -736,13 +740,27 @@ test "lambda variable capture - basic single variable" {
     var interpreter = try eval.Interpreter.init(test_allocator, resources.cir, &eval_stack, &layout_cache, &resources.module_env.types);
     defer interpreter.deinit();
 
+    std.debug.print("🧪 DEBUG: Starting evaluation...\n", .{});
+    std.debug.print("🧪 DEBUG: Work stack initial size: {}\n", .{interpreter.work_stack.items.len});
+    std.debug.print("🧪 DEBUG: Layout stack initial size: {}\n", .{interpreter.layout_stack.items.len});
+
     const result = interpreter.eval(resources.expr_idx) catch |err| {
-        std.debug.print("EVAL ERROR for basic capture: {any}\n", .{err});
+        std.debug.print("💥 EVAL ERROR for basic capture: {any}\n", .{err});
+        std.debug.print("🔍 DEBUG: Work stack final size: {}\n", .{interpreter.work_stack.items.len});
+        std.debug.print("🔍 DEBUG: Layout stack final size: {}\n", .{interpreter.layout_stack.items.len});
+        std.debug.print("🔍 DEBUG: Stack memory used: {}\n", .{interpreter.stack_memory.used});
         return err;
     };
 
     // Extract result - should be 42 + 10 = 52
-    std.debug.print("DEBUG: Integer type in capture test: {}\n", .{result.layout.data.scalar.data.int});
+    std.debug.print("✅ DEBUG: Evaluation successful!\n", .{});
+    std.debug.print("🔍 DEBUG: Result layout tag: {}\n", .{result.layout.tag});
+    if (result.layout.tag == .scalar) {
+        std.debug.print("🔍 DEBUG: Scalar type: {}\n", .{result.layout.data.scalar.tag});
+        if (result.layout.data.scalar.tag == .int) {
+            std.debug.print("🔍 DEBUG: Integer type: {}\n", .{result.layout.data.scalar.data.int});
+        }
+    }
     std.debug.print("DEBUG: Raw result value: {}\n", .{@as(*u8, @ptrCast(@alignCast(result.ptr))).*});
     std.debug.print("DEBUG: Expected 42 + 10 = 52, but got: {}\n", .{@as(*u8, @ptrCast(@alignCast(result.ptr))).*});
     const int_val = switch (result.layout.data.scalar.data.int) {
