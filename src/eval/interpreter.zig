@@ -1139,24 +1139,26 @@ pub const Interpreter = struct {
                 }
 
                 // Create layout for this closure
-                const env_size = lambda_expr.captures.captured_vars.len;
+                // Calculate actual byte size of captured environment
+                // For now, use a simplified size calculation (each capture takes 32 bytes)
+                const env_byte_size = lambda_expr.captures.captured_vars.len * 32;
                 const closure_layout = layout.Layout{
                     .tag = .closure,
-                    .data = .{ .closure = .{ .env_size = @intCast(env_size) } },
+                    .data = .{ .closure = .{ .env_size = @intCast(env_byte_size) } },
                 };
 
                 // Push layout first
                 try self.layout_stack.append(closure_layout);
 
                 if (DEBUG_ENABLED) {
-                    self.traceInfo("PUSHED CLOSURE LAYOUT during lambda creation: expr_idx={}, env_size={}, layout_stack.len={}", .{ @intFromEnum(expr_idx), env_size, self.layout_stack.items.len });
+                    self.traceInfo("PUSHED CLOSURE LAYOUT during lambda creation: expr_idx={}, env_size={} bytes, layout_stack.len={}", .{ @intFromEnum(expr_idx), env_byte_size, self.layout_stack.items.len });
                 }
 
                 // Create captured environment (simplified)
                 const captured_env = CapturedEnvironment{
                     .bindings = &.{}, // Empty for now
                     .parent_env = null,
-                    .deferred_init = env_size > 0,
+                    .deferred_init = lambda_expr.captures.captured_vars.len > 0,
                 };
 
                 // Create closure object
@@ -1166,8 +1168,9 @@ pub const Interpreter = struct {
                     .captured_env = captured_env,
                 };
 
-                // Allocate space for closure on stack (simplified size calculation)
-                const basic_closure_size = @sizeOf(CIR.Expr.Idx) + @sizeOf(CIR.Pattern.Span) + @sizeOf(CapturedEnvironment);
+                // Allocate space for closure on stack
+                // Size = 12 bytes header (4 + 4 + 4) + environment bytes
+                const basic_closure_size = 12 + env_byte_size;
 
                 if (DEBUG_ENABLED) {
                     self.traceInfo("📍 ALLOCATION DEBUG: About to allocate closure", .{});
@@ -1176,7 +1179,7 @@ pub const Interpreter = struct {
                     self.traceInfo("  alignment: 8", .{});
                 }
 
-                const closure_ptr = try self.stack_memory.alloca(basic_closure_size, .@"8");
+                const closure_ptr = try self.stack_memory.alloca(@intCast(basic_closure_size), .@"8");
 
                 if (DEBUG_ENABLED) {
                     const actual_closure_pos = @intFromPtr(closure_ptr) - @intFromPtr(self.stack_memory.start);
@@ -1868,6 +1871,11 @@ pub const Interpreter = struct {
         } else {
             if (DEBUG_ENABLED) {
                 self.traceInfo("Indirect closure call - calculating closure position", .{});
+                self.traceInfo("Layout stack contents (len={}):", .{self.layout_stack.items.len});
+                for (self.layout_stack.items, 0..) |lay, i| {
+                    self.traceInfo("  [{}]: tag={s}, size={}", .{ i, @tagName(lay.tag), self.layout_cache.layoutSize(lay) });
+                }
+                self.traceInfo("Calculating function_layout_idx = {} - {} - 1 = {}", .{ self.layout_stack.items.len, arg_count, self.layout_stack.items.len - arg_count - 1 });
             }
 
             // For indirect calls, the closure is on the stack before the arguments
@@ -1877,25 +1885,36 @@ pub const Interpreter = struct {
             const function_layout_idx = self.layout_stack.items.len - arg_count - 1;
             function_layout = self.layout_stack.items[function_layout_idx];
 
-            // Calculate position by walking forward from stack start
-            var pos: u32 = 0;
-            for (self.layout_stack.items[0..function_layout_idx], 0..) |layout_item, i| {
-                const size = self.layout_cache.layoutSize(layout_item);
-                const alignment = layout_item.alignment(target.TargetUsize.native);
+            // Special case: If this is a call to a closure returned from a previous function,
+            // the cleanup process has moved it to position 0
+            if (function_layout_idx == 1 and self.layout_stack.items[0].tag == .scalar) {
+                // This is calling a returned closure - it's at position 0
+                function_pos = 0;
 
-                // Align position
-                pos = std.mem.alignForward(u32, pos, @intCast(alignment.toByteUnits()));
+                if (DEBUG_ENABLED) {
+                    self.traceInfo("Detected call to returned closure - using position 0", .{});
+                }
+            } else {
+                // Calculate position by walking forward from stack start
+                var pos: u32 = 0;
+                for (self.layout_stack.items[0..function_layout_idx], 0..) |layout_item, i| {
+                    const size = self.layout_cache.layoutSize(layout_item);
+                    const alignment = layout_item.alignment(target.TargetUsize.native);
 
-                if (DEBUG_ENABLED and i < 5) { // Only log first few for brevity
-                    self.traceInfo("  item[{}]: size={}, align={}, pos={}", .{ i, size, alignment, pos });
+                    // Align position
+                    pos = std.mem.alignForward(u32, pos, @intCast(alignment.toByteUnits()));
+
+                    if (DEBUG_ENABLED and i < 5) { // Only log first few for brevity
+                        self.traceInfo("  item[{}]: size={}, align={}, pos={}", .{ i, size, alignment, pos });
+                    }
+
+                    pos += size;
                 }
 
-                pos += size;
+                // Align to 8-byte boundary for closure position
+                pos = std.mem.alignForward(u32, pos, 8);
+                function_pos = pos;
             }
-
-            // Align to 8-byte boundary for closure position
-            pos = std.mem.alignForward(u32, pos, 8);
-            function_pos = pos;
 
             // Bounds check for calculated position
             const closure_size = self.layout_cache.layoutSize(function_layout);
@@ -1913,6 +1932,14 @@ pub const Interpreter = struct {
 
         // Read closure from the calculated/retrieved position
         const closure_memory_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + function_pos;
+
+        if (DEBUG_ENABLED) {
+            self.traceInfo("Reading closure from position {}, first 16 bytes:", .{function_pos});
+            const dump_size = @min(16, self.stack_memory.used - function_pos);
+            for (0..dump_size) |i| {
+                self.traceInfo("  [{}]: {x:0>2}", .{ function_pos + i, closure_memory_ptr[i] });
+            }
+        }
 
         // Read just the closure header (12 bytes minimum)
         // The full size including environment is in the layout
@@ -2093,11 +2120,34 @@ pub const Interpreter = struct {
             self.traceInfo("POPPING RESULT LAYOUT: tag=closure, env_size={}, remaining_stack_depth={}", .{ body_result_layout.data.closure.env_size, self.layout_stack.items.len });
         }
 
+        self.traceInfo("Body result layout = {}, size = {}", .{ body_result_layout.tag, body_result_size });
+
+        // Debug: Show actual stack state before calculating position
+        if (DEBUG_ENABLED) {
+            self.traceInfo("DEBUG: Stack state before body result position calc:", .{});
+            self.traceInfo("  stack.used = {}", .{self.stack_memory.used});
+            self.traceInfo("  body_result_size from layout = {}", .{body_result_size});
+
+            // Dump last 64 bytes of stack to see what's there
+            const dump_start = if (self.stack_memory.used > 64) self.stack_memory.used - 64 else 0;
+            self.traceInfo("  Stack dump from position {} to {}:", .{ dump_start, self.stack_memory.used });
+            const stack_ptr = @as([*]u8, @ptrCast(self.stack_memory.start));
+            var pos = dump_start;
+            while (pos < self.stack_memory.used) : (pos += 16) {
+                self.tracePrint("    [{}]: ", .{pos});
+                const end = @min(pos + 16, self.stack_memory.used);
+                for (pos..end) |i| {
+                    self.tracePrint("{x:0>2} ", .{stack_ptr[i]});
+                }
+                self.tracePrint("\n", .{});
+            }
+        }
+
         // Calculate position of body result
         const body_result_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + self.stack_memory.used - body_result_size;
 
         self.traceInfo("Body result layout = {}, size = {}", .{ body_result_layout.tag, body_result_size });
-        self.traceInfo("Body result at stack position = {}", .{self.stack_memory.used - body_result_size});
+        self.traceInfo("Body result at stack position = {} (calculated as {} - {})", .{ self.stack_memory.used - body_result_size, self.stack_memory.used, body_result_size });
 
         // Find the return space - it should be at the bottom of our call frame
         // We need to find how many items are in our call frame to calculate the return space position
@@ -2331,7 +2381,24 @@ pub const Interpreter = struct {
         // Move return value from current position to position 0
         const source_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + return_value_current_pos;
         const dest_ptr = @as([*]u8, @ptrCast(self.stack_memory.start));
+
+        if (DEBUG_ENABLED) {
+            self.traceInfo("Source data before move (first 16 bytes):", .{});
+            const dump_size = @min(16, return_size);
+            for (0..dump_size) |i| {
+                self.traceInfo("  [{}]: {x:0>2}", .{ return_value_current_pos + i, source_ptr[i] });
+            }
+        }
+
         std.mem.copyForwards(u8, dest_ptr[0..return_size], source_ptr[0..return_size]);
+
+        if (DEBUG_ENABLED) {
+            self.traceInfo("Destination data after move (first 16 bytes):", .{});
+            const dump_size = @min(16, return_size);
+            for (0..dump_size) |i| {
+                self.traceInfo("  [{}]: {x:0>2}", .{ i, dest_ptr[i] });
+            }
+        }
 
         // Update stack to contain only the return value
         self.stack_memory.used = @as(u32, @intCast(return_size));

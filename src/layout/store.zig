@@ -216,7 +216,7 @@ pub const Store = struct {
             .list, .list_of_zst => target_usize.size(), // TODO: get this from RocStr.zig and RocList.zig
             .record => self.record_data.get(@enumFromInt(layout.data.record.idx.int_idx)).size,
             .tuple => self.tuple_data.get(@enumFromInt(layout.data.tuple.idx.int_idx)).size,
-            .closure => 12, // SimpleClosure
+            .closure => 12 + layout.data.closure.env_size, // Base closure size (12) + captured environment bytes
         };
     }
 
