@@ -468,7 +468,7 @@ pub fn getExpr(store: *const NodeStore, expr: CIR.Expr.Idx) CIR.Expr {
             const capture_info_idx_plus_one = extra_data[3];
 
             // Reconstruct capture information
-            const captures = if (capture_info_idx_plus_one > 0)
+            const captures = if (capture_info_idx_plus_one > 0 and capture_info_idx_plus_one <= store.capture_infos.items.len)
                 store.capture_infos.items[capture_info_idx_plus_one - 1]
             else
                 CIR.Expr.CaptureInfo.empty;

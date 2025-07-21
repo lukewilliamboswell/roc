@@ -974,23 +974,8 @@ fn inspectExpressionRecursively(cir: *const CIR, expr_idx: CIR.Expr.Idx, depth: 
             std.debug.print("{s}  Lambda - args span: {}, body:\n", .{ indent, lambda.args });
             inspectExpressionRecursively(cir, lambda.body, depth + 1);
 
-            // Run capture analysis
-            std.debug.print("{s}  Running capture analysis:\n", .{indent});
-            var capture_analysis = eval.CaptureAnalysis.analyzeLambdaBody(
-                test_allocator,
-                cir,
-                lambda.body,
-                lambda.args,
-            ) catch {
-                std.debug.print("{s}    Capture analysis failed\n", .{indent});
-                return;
-            };
-            defer capture_analysis.deinit();
-
-            std.debug.print("{s}    Found {} captured variables\n", .{ indent, capture_analysis.captured_vars.items.len });
-            for (capture_analysis.captured_vars.items, 0..) |var_pattern, j| {
-                std.debug.print("{s}      Captured[{}]: pattern idx {}\n", .{ indent, j, @intFromEnum(var_pattern) });
-            }
+            // Note: Capture analysis now happens during canonicalization
+            std.debug.print("{s}  Capture information available in canonicalized lambda.captures\n", .{indent});
         },
         .e_binop => |binop| {
             std.debug.print("{s}  Binop - {}\n", .{ indent, binop.op });
@@ -1077,24 +1062,8 @@ test "debug - understand capture analysis behavior" {
                 const arg = resources.cir.store.getExpr(arg_expr);
                 std.debug.print("  Arg[{}]: {}\n", .{ i, arg });
                 if (arg == .e_lambda) {
-                    std.debug.print("  Found lambda! Running capture analysis...\n", .{});
-
-                    var capture_analysis = eval.CaptureAnalysis.analyzeLambdaBody(
-                        test_allocator,
-                        resources.cir,
-                        arg.e_lambda.body,
-                        arg.e_lambda.args,
-                    ) catch continue;
-                    defer capture_analysis.deinit();
-
-                    std.debug.print("  Capture analysis result: {} captured vars, {} total env size\n", .{
-                        capture_analysis.captured_vars.items.len,
-                        capture_analysis.total_env_size,
-                    });
-
-                    for (capture_analysis.captured_vars.items, 0..) |var_pattern, j| {
-                        std.debug.print("    Captured[{}]: pattern {}\n", .{ j, var_pattern });
-                    }
+                    std.debug.print("  Found lambda! Capture info in arg.e_lambda.captures\n", .{});
+                    std.debug.print("    Captures: {}\n", .{arg.e_lambda.captures.captured_vars.len});
                 }
             }
         },

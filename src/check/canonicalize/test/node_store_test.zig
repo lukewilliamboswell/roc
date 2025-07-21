@@ -261,6 +261,7 @@ test "NodeStore round trip - Expressions" {
         .e_lambda = .{
             .args = CIR.Pattern.Span{ .span = base.DataSpan.init(17, 2) },
             .body = @enumFromInt(600),
+            .captures = CIR.Expr.CaptureInfo.empty,
         },
     });
     try expressions.append(CIR.Expr{
