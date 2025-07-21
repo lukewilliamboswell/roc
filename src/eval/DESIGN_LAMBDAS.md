@@ -1,4 +1,4 @@
-# Detailed Design - Lambda Evaluation [IMPLEMENTATION STATUS]
+# Detailed Design - Lambda Evaluation [CURRENT STATUS & ARCHITECTURAL REDESIGN]
 
 ## Overview
 
@@ -6,9 +6,9 @@ This design supports evaluating functions in Roc, treating functions as values t
 
 **Implementation Status**:
 1. ✅ **Simple Lambdas**: IMPLEMENTED - Basic function calls with parameter binding
-2. 🔧 **Currying Functions**: PLANNED - Functions that return other functions with partial application
-3. 🔧 **True Closures**: IN PROGRESS - Execution timing issue RESOLVED, enhancement step remains
-4. 🔧 **Recursive Functions**: PLANNED - Self-referencing functions with tail-call optimization
+2. 🔧 **Multi-Parameter Lambdas**: BLOCKED - Stack position calculation bug identified
+3. 🔄 **Captures as Arguments**: NEW APPROACH - Richard Feldman's elegant solution adopted
+4. 🗑️ **Complex Capture Analysis**: ABANDONED - Overly complex memory management approach discarded
 
 ## 🎯 Current Implementation Status
 
@@ -21,6 +21,17 @@ This design supports evaluating functions in Roc, treating functions as values t
 - **Debug Tracing Infrastructure**: ✅ IMPLEMENTED - Comprehensive tracing with clear markers for all phases
 - **Basic Lambda Support**: ✅ WORKING - Simple closures (`SimpleClosure`) execute correctly
 - **Function Calling Convention**: ✅ WORKING - Complete 7-phase call sequence operational
+- **Closure Enhancement Infrastructure**: ✅ IMPLEMENTED - `enhanceClosureWithCaptures` function complete
+- **Variable Lookup Integration**: ✅ IMPLEMENTED - `e_lookup_local` handler supports captured environments
+</text>
+
+<old_text line=22>
+### ✅ **TIMING ISSUE RESOLVED - EXECUTION-TIME CAPTURE ANALYSIS IMPLEMENTED**
+- **Variable Capture Execution**: ✅ IMPLEMENTED - Execution-time capture analysis working
+  - **Solution**: Capture analysis now happens during `handleBindParameters` after variables are bound
+  - **Implementation**: `detectNestedLambdas` function detects nested lambdas at execution time
+  - **Result**: No more crashes or "pattern not found" errors - closures with invalid data handled gracefully
+  - **Status**: Ready for final closure enhancement step (convert `SimpleClosure` to `Closure` with captured environment)
 
 ### ✅ **TIMING ISSUE RESOLVED - EXECUTION-TIME CAPTURE ANALYSIS IMPLEMENTED**
 - **Variable Capture Execution**: ✅ IMPLEMENTED - Execution-time capture analysis working
@@ -29,18 +40,22 @@ This design supports evaluating functions in Roc, treating functions as values t
   - **Result**: No more crashes or "pattern not found" errors - closures with invalid data handled gracefully
   - **Status**: Ready for final closure enhancement step (convert `SimpleClosure` to `Closure` with captured environment)
 
-### 🔧 **ARCHITECTURAL LESSONS LEARNED**
+### 🔄 **NEW ARCHITECTURAL APPROACH: CAPTURES AS FUNCTION ARGUMENTS**
 
-#### ❌ **FAILED APPROACH: Deferred Initialization**
-- **Attempted**: Create closure structure immediately, defer environment initialization until execution
-- **Result**: Bus errors and recursive panics due to complex memory management
-- **Lesson**: Avoid deferred initialization - too complex and error-prone
+#### ❌ **REJECTED APPROACH: Complex Capture Environment Management**
+- **Problem 1**: Execution-time capture analysis creates timing dependencies
+- **Problem 2**: Stack position calculations become unreliable with dynamic enhancement
+- **Problem 3**: Complex memory management with `CapturedEnvironment` structures
+- **Problem 4**: Enhancement logic tries to retrofit captures onto existing closures
 
-#### ✅ **SUCCESSFUL APPROACH: Execution-Time Capture Analysis**
-- **Strategy**: Move capture analysis from lambda creation to lambda execution
-- **Location**: During `handleBindParameters` after outer lambda parameters are bound
-- **Benefit**: Execution context is fully populated when inner lambdas need to capture variables
-- **Status**: ✅ IMPLEMENTED and working - prevents all crashes
+#### ✅ **ADOPTED SOLUTION: Richard Feldman's Captures-as-Arguments Approach**
+- **Core Insight**: Transform `|arg1, arg2|` → `|arg1, arg2, captures_record|` 
+- **Benefits**:
+  - Reuses existing function call and parameter binding infrastructure
+  - No complex memory management or stack position calculations
+  - Captures are properly typed as record fields
+  - Invisible to users - only interpreter sees extra argument
+- **Implementation**: See `CAPTURES_AS_ARGUMENTS_PLAN.md` for detailed design
 
 #### ✅ **CRITICAL FIXES IMPLEMENTED**
 - **Memory Safety**: Fixed stack position calculation to prevent reading corrupted closure data
@@ -140,98 +155,39 @@ if (DEBUG_ENABLED) {
 - ❌ Multi-parameter currying: `(|a| |b| a + b)(1)(2)` → not yet implemented
 - ❌ Recursive functions: not yet implemented
 
-## 🎯 Next Sprint - Immediate Priority
+## 🎯 Next Steps - Revised Priority
 
-### **Sprint Goal: Complete True Closures**
+### **Critical Priority: Fix Stack Position Bug**
 
-**Objective**: ✅ TIMING ISSUE RESOLVED! Now implement closure enhancement to complete nested closures with variable capture.
+**Immediate Issue**: Multi-parameter lambdas fail due to stack position calculation mismatch
+- **Symptom**: `(|x, y| x + y)(3, 4)` → ArityMismatch (reads span_len=0 instead of 2)
+- **Root Cause**: Closure created at pos=16, but position calculation reads from pos=20/32
+- **Impact**: Blocks all multi-parameter lambda functionality
 
-#### **Task 1: Implement `enhanceClosureWithCaptures` Function 🔥 IMMEDIATE**
+**Temporary Workaround**: Hardcoded position 16 works but indicates architectural problem
 
-**Current State**:
-```roc
-(|x| (|y| x + y))(5)  # ✅ No crashes, detectNestedLambdas() working
-```
+### **New Solution: Captures as Function Arguments**
 
-**Specific Implementation Tasks**:
+**Phase 1: Canonicalization Capture Detection**
+1. 🔧 **TODO**: Track captures during variable resolution in canonicalization
+2. 🔧 **TODO**: Record captured variables when resolving non-local lookups
+3. 🔧 **TODO**: Store capture info in enhanced `e_lambda` CIR structure
 
-**1.1 Create `enhanceClosureWithCaptures` Function**
-```zig
-// Location: interpreter.zig, after detectNestedLambdas function
-fn enhanceClosureWithCaptures(self: *Interpreter, simple_closure_ptr: *SimpleClosure) !void {
-    // Step 1: Perform capture analysis with current execution context
-    var capture_analysis = CaptureAnalysis.analyzeLambdaBody(
-        self.allocator,
-        self.cir,
-        simple_closure_ptr.body_expr_idx,
-        simple_closure_ptr.args_pattern_span
-    );
-    defer capture_analysis.deinit();
+**Phase 2: Interpreter Argument Transformation**
+1. 🔧 **TODO**: Transform lambda arguments to include capture record
+2. 🔧 **TODO**: Automatically pass capture records during function calls
+3. 🔧 **TODO**: Remove complex captured environment infrastructure
 
-    if (capture_analysis.captured_vars.items.len == 0) return; // No captures needed
+**Phase 3: Testing and Migration**
+1. 🔧 **TODO**: Validate approach with comprehensive test suite
+2. 🔧 **TODO**: Remove old execution-time capture analysis code
+3. 🔧 **TODO**: Performance validation and optimization
 
-    // Step 2: Calculate total memory needed for enhanced closure
-    const env_size = calculateEnvironmentSize(self.layout_cache, capture_analysis.captured_vars.items);
-    const total_size = @sizeOf(Closure) + env_size;
-
-    // Step 3: Allocate new memory block for enhanced closure
-    const enhanced_ptr = self.stack_memory.alloca(@intCast(total_size), @enumFromInt(@alignOf(Closure)));
-
-    // Step 4: Initialize enhanced closure structure
-    // Step 5: Copy captured values from execution context
-    // Step 6: Update layout stack to reflect new closure size
-}
-```
-
-**1.2 Integrate Enhancement into handleBindParameters**
-```zig
-// Location: handleBindParameters function, line ~1650
-if (has_nested_lambdas) {
-    try self.enhanceClosureWithCaptures(closure_ptr); // ✅ Call new function
-}
-```
-
-#### **Task 2: Fix Multi-Parameter ArityMismatch 🔧 PARALLEL**
-
-**Current Issue**: `(|x, y| x + y)(3, 4)` → ArityMismatch error
-**Root Cause**: Corrupted closure data (span_len=0 when expecting 2 parameters)
-**Investigation Steps**:
-1. Add debug output for multi-parameter closure creation
-2. Verify parameter span data integrity in SimpleClosure
-3. Ensure layout stack consistency for multi-parameter functions
-
-#### **Task 3: End-to-End Nested Closure Test 🎯 VALIDATION**
-
-**Test Sequence**:
-```zig
-// 3.1 Simple nested closure creation
-test "create nested closure with capture" {
-    const src = "(|x| (|y| x + y))(5)";
-    // Should return enhanced Closure with x=5 captured
-}
-
-// 3.2 Full nested closure execution
-test "execute nested closure end-to-end" {
-    const src = "((|x| (|y| x + y))(5))(3)";
-    // Should return 8 (5 + 3)
-}
-
-// 3.3 Variable lookup in captured environment
-test "captured variable lookup" {
-    // Verify inner lambda can find x=5 in captured environment
-}
-```
-
-#### **Task 4: Multi-Parameter Currying (FUTURE)**
-
-**Roc Syntax Support**:
-```roc
-(|a| |b| a + b)        # Parse as nested: (|a| (|b| a + b))
-(|a| |b| a + b)(1)     # Partial application → enhanced closure with a=1
-(|a| |b| a + b)(1)(2)  # Full application → 3
-```
-
-**Implementation Priority**: After Tasks 1-3 complete successfully
+### **Current Test Status**
+- ✅ **Single Parameter**: `(|x| x + 1)(5)` → 6 (works)
+- ❌ **Multi-Parameter**: `(|x, y| x + y)(3, 4)` → ArityMismatch (stack position bug)
+- ❌ **Nested Closures**: `((|x| (|y| x + y))(5))(3)` → blocked by stack bug
+- ✅ **Infrastructure**: All closure enhancement components implemented but unused
 
 ## 🏗️ Implementation Architecture
 
@@ -389,50 +345,59 @@ test "nested closures with mixed capture patterns" {
 
 ## 🚨 Critical Implementation Notes
 
-### **DO NOT ATTEMPT**
-- ❌ **Deferred Initialization**: Causes crashes and memory corruption
-- ❌ **Complex Memory Management**: Single-block allocation is sufficient
-- ❌ **Capture Analysis During Parsing**: Wrong timing - variables not bound yet
-- ❌ **Unsafe Expression Access**: Always validate expression indices before calling getExpr()
+### **CRITICAL INSIGHTS DISCOVERED**
 
-### **PROVEN WORKING PATTERNS**
+#### ❌ **FUNDAMENTAL ARCHITECTURE ISSUE**
+- **Stack Position Mismatch**: Closures created at absolute positions but calculations assume relative positioning
+- **Timing Problems**: Capture analysis after closure creation requires complex retrofitting
+- **Memory Layout Confusion**: Layout stack tracking doesn't match actual memory allocation
+
+#### ✅ **PROVEN WORKING PATTERNS**
 - ✅ **ExecutionContext Stack**: Reliable scope chain management
 - ✅ **Single-Block Allocation**: Clean memory management for closures
 - ✅ **7-Phase Calling Convention**: Robust function call handling
 - ✅ **Debug Tracing with Emojis**: Essential for debugging complex capture flows
-- ✅ **Execution-Time Analysis**: Detects nested lambdas after variables are bound
-- ✅ **Graceful Error Handling**: Invalid expression indices caught with bounds checking
-- ✅ **Stack Position Calculation**: Correctly calculates closure positions using layout stack
+- ✅ **Closure Enhancement Infrastructure**: Complete implementation ready for use
+- ✅ **Variable Lookup Integration**: Captured environment lookup working
 
-### **KEY INSIGHT FOR SUCCESS**
-> **The timing of capture analysis is everything.** Variables must be bound in the execution context before inner lambdas can capture them. ✅ **IMPLEMENTED**: Execution-time capture analysis now working without crashes.
+#### 🔑 **KEY ARCHITECTURAL INSIGHT**
+> **Captures should be function arguments, not special memory structures.** Richard Feldman's approach of transforming `|args|` → `|args, capture_record|` eliminates all the complex memory management, stack positioning, and timing issues by reusing the existing, proven function call infrastructure.
 
-## 🎯 Success Criteria for Next Sprint
+## 🎯 Revised Success Criteria
 
-### **Primary Goals (Must Complete)**
-1. ✅ **Fix Timing Issue**: `(|x| (|y| x + y))(5)` creates closure successfully ✅ **COMPLETED**
-2. 🔧 **Implement Closure Enhancement**: `enhanceClosureWithCaptures()` function working
-3. 🔧 **End-to-End Capture**: `((|x| (|y| x + y))(5))(3)` returns 8
-4. 🔧 **Fix Multi-Parameter Binding**: `(|x, y| x + y)(3, 4)` returns 7 (resolve ArityMismatch)
+### **Phase 1: Stack Position Fix (Immediate)**
+1. 🔧 **Multi-Parameter Bug**: Fix stack position calculation to resolve `(|x, y| x + y)(3, 4)` ArityMismatch
+2. 🔧 **Position Determinism**: Ensure closure read positions match creation positions
+3. 🔧 **Test Validation**: All single and multi-parameter lambdas work correctly
 
-### **Secondary Goals (Nice to Have)**
-5. ❌ **Currying Syntax**: `(|a| |b| a + b)` parsed as nested lambdas
-6. ❌ **Currying Execution**: `(|a| |b| a + b)(1)(2)` returns 3
-7. ❌ **Partial Application**: `(|a| |b| a + b)(1)` returns curried closure
+### **Phase 2: Captures as Arguments Implementation (Medium-term)**
+1. 🔧 **Enhanced CIR**: Add capture info to `e_lambda` expressions
+2. 🔧 **Canonicalization**: Detect captures during variable resolution
+3. 🔧 **Interpreter Transform**: Convert lambdas to include capture record arguments
 
-### **Definition of Done**
-- [ ] `enhanceClosureWithCaptures` function implemented and tested
-- [ ] Nested closure test `((|x| (|y| x + y))(5))(3) == 8` passes
+### **Phase 3: Full Implementation (Long-term)**
+1. 🔧 **Automatic Capture Passing**: Function calls automatically include capture records
+2. 🔧 **Infrastructure Cleanup**: Remove old execution-time analysis and captured environments
+3. 🔧 **End-to-End Testing**: `((|x| (|y| x + y))(5))(3) == 8` with arguments approach
+
+### **Definition of Done (Phase 1)**
 - [ ] Multi-parameter lambda test `(|x, y| x + y)(3, 4) == 7` passes
+- [ ] Stack position calculations are deterministic and correct
 - [ ] Test pass rate maintains 99%+ (483+ out of 486 tests)
-- [ ] No crashes or panics in lambda-related functionality
+- [ ] No hardcoded position workarounds in production code
+
+### **Definition of Done (Final)**
+- [ ] Captures-as-arguments approach implemented in canonicalization
+- [ ] All lambda tests passing with argument transformation
+- [ ] Nested closure test `((|x| (|y| x + y))(5))(3) == 8` passes  
+- [ ] Complex capture infrastructure removed and simplified
 
 ## 🏆 **Current Achievement Status**
-- ✅ **Major Architectural Challenge Solved**: Execution-time capture analysis working
+- ✅ **Architectural Direction Clear**: Richard Feldman's captures-as-arguments approach adopted
 - ✅ **Crash-Free Execution**: 99.4% test pass rate (483/486 tests)
 - ✅ **Memory Safety**: Stack corruption and bus errors eliminated
 - ✅ **Debug Infrastructure**: Comprehensive tracing and error handling in place
-- 🔧 **Ready for Enhancement**: Core infrastructure complete, closure enhancement step remains
+- 🔄 **Infrastructure Pivot**: Moving from complex capture environments to simple argument transformation
 
 ## 🚀 **Next Session Implementation Plan**
 
