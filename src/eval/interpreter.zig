@@ -1067,46 +1067,43 @@ pub const Interpreter = struct {
                 // Stack layout: [return_space, function, arg1, arg2, ...]
 
                 // 1. First, clean up after function call completes
-                try self.work_stack.append(.{
-                    .kind = .cleanup_function,
-                    .expr_idx = expr_idx,
-                });
-
-                // 2. Then evaluate the function body (writes result to return space)
-                try self.work_stack.append(.{
-                    .kind = .eval_function_body,
-                    .expr_idx = expr_idx,
-                });
-
-                // 3. Then bind parameters to arguments
-                try self.work_stack.append(.{
-                    .kind = .bind_parameters,
-                    .expr_idx = expr_idx,
-                });
-
-                // 4. Then orchestrate the call (after function and args are evaluated)
+                // Push work items to execute the call (in reverse order due to stack)
+                // 1. Orchestrate the call (after function and args are evaluated)
+                // handleCallFunction will schedule all the necessary work items
+                if (DEBUG_ENABLED) {
+                    self.traceInfo("SCHEDULING (e_call): call_function for expr_idx={}", .{@intFromEnum(expr_idx)});
+                }
                 try self.work_stack.append(.{
                     .kind = .call_function,
                     .expr_idx = expr_idx,
                 });
 
-                // 5. Evaluate arguments in reverse order (right to left)
+                // 2. Evaluate arguments in reverse order (right to left)
                 var i = arg_exprs.len;
                 while (i > 0) {
                     i -= 1;
+                    if (DEBUG_ENABLED) {
+                        self.traceInfo("SCHEDULING (e_call): eval_expr for arg[{}] expr_idx={}", .{ i, @intFromEnum(arg_exprs[i]) });
+                    }
                     try self.work_stack.append(.{
                         .kind = .eval_expr,
                         .expr_idx = arg_exprs[i],
                     });
                 }
 
-                // 6. Then evaluate the function expression
+                // 3. Then evaluate the function expression
+                if (DEBUG_ENABLED) {
+                    self.traceInfo("SCHEDULING (e_call): eval_expr for function expr_idx={}", .{@intFromEnum(function_expr)});
+                }
                 try self.work_stack.append(.{
                     .kind = .eval_expr,
                     .expr_idx = function_expr,
                 });
 
-                // 7. Finally, allocate return value space (landing pad) first
+                // 4. Finally, allocate return value space (landing pad) first
+                if (DEBUG_ENABLED) {
+                    self.traceInfo("SCHEDULING (e_call): alloc_return_space for expr_idx={}", .{@intFromEnum(expr_idx)});
+                }
                 try self.work_stack.append(.{
                     .kind = .alloc_return_space,
                     .expr_idx = expr_idx,
@@ -1150,6 +1147,10 @@ pub const Interpreter = struct {
 
                 // Push layout first
                 try self.layout_stack.append(closure_layout);
+
+                if (DEBUG_ENABLED) {
+                    self.traceInfo("PUSHED CLOSURE LAYOUT during lambda creation: expr_idx={}, env_size={}, layout_stack.len={}", .{ @intFromEnum(expr_idx), env_size, self.layout_stack.items.len });
+                }
 
                 // Create captured environment (simplified)
                 const captured_env = CapturedEnvironment{
@@ -1248,18 +1249,18 @@ pub const Interpreter = struct {
         const left_ptr = rhs_ptr - left_size;
 
         // Debug: Stack position calculations
-        self.traceInfo("completeBinop stack analysis\n", .{});
-        self.traceInfo("stack.used = {}, right_size = {}, left_size = {}\n", .{ self.stack_memory.used, right_size, left_size });
-        self.traceInfo("rhs_ptr offset = {}, left_ptr offset = {}\n", .{ self.stack_memory.used - right_size, self.stack_memory.used - right_size - left_size });
+        self.tracePrint("completeBinop stack analysis\n", .{});
+        self.traceInfo("stack.used = {}, right_size = {}, left_size = {}", .{ self.stack_memory.used, right_size, left_size });
+        self.traceInfo("rhs_ptr offset = {}, left_ptr offset = {}", .{ self.stack_memory.used - right_size, self.stack_memory.used - right_size - left_size });
 
         // Read the values
         const lhs_val = readIntFromMemory(@as([*]u8, @ptrCast(left_ptr)), lhs_scalar.data.int);
         const rhs_val = readIntFromMemory(@as([*]u8, @ptrCast(rhs_ptr)), rhs_scalar.data.int);
 
         // Debug: Values read from memory
-        self.traceInfo("Read values - left = {}, right = {}\n", .{ lhs_val, rhs_val });
-        self.traceInfo("Left layout: tag={}, precision={}\n", .{ left_layout.tag, lhs_scalar.data.int });
-        self.traceInfo("Right layout: tag={}, precision={}\n", .{ right_layout.tag, rhs_scalar.data.int });
+        self.traceInfo("Read values - left = {}, right = {}", .{ lhs_val, rhs_val });
+        self.traceInfo("Left layout: tag={}, precision={}", .{ left_layout.tag, lhs_scalar.data.int });
+        self.traceInfo("Right layout: tag={}, precision={}", .{ right_layout.tag, rhs_scalar.data.int });
 
         // Pop the operands from the stack
         self.stack_memory.used -= @as(u32, @intCast(left_size + right_size));
@@ -1292,13 +1293,13 @@ pub const Interpreter = struct {
         switch (kind) {
             .binop_add => {
                 const result_val: i128 = lhs_val + rhs_val;
-                self.traceInfo("Addition operation: {} + {} = {}\n", .{ lhs_val, rhs_val, result_val });
+                self.traceInfo("Addition operation: {} + {} = {}", .{ lhs_val, rhs_val, result_val });
                 writeIntToMemory(@as([*]u8, @ptrCast(result_ptr)), result_val, lhs_scalar.data.int);
 
                 {
                     // Debug: Verify what was written to memory
                     const verification = readIntFromMemory(@as([*]u8, @ptrCast(result_ptr)), lhs_scalar.data.int);
-                    self.traceInfo("Verification read from result memory = {}\n", .{verification});
+                    self.traceInfo("Verification read from result memory = {}", .{verification});
                 }
             },
             .binop_sub => {
@@ -1366,7 +1367,7 @@ pub const Interpreter = struct {
         const operand_ptr = @as(*anyopaque, @ptrFromInt(@intFromPtr(self.stack_memory.start) + self.stack_memory.used - operand_size));
         const operand_val = readIntFromMemory(@as([*]u8, @ptrCast(operand_ptr)), operand_scalar.data.int);
 
-        self.traceInfo("Unary minus operation: -{} = {}\n", .{ operand_val, -operand_val });
+        self.traceInfo("Unary minus operation: -{} = {}", .{ operand_val, -operand_val });
 
         // Negate the value and write it back to the same location
         const result_val: i128 = -operand_val;
@@ -1505,6 +1506,15 @@ pub const Interpreter = struct {
         const all_exprs = self.cir.store.sliceExpr(call.args);
         const arg_count = all_exprs.len - 1; // Subtract 1 for the function itself
 
+        // Check if we're calling a lambda directly or a closure value
+        const callee_expr = all_exprs[0]; // First expression is the function
+        const callee = self.cir.store.getExpr(callee_expr);
+        const is_direct_lambda_call = (callee == .e_lambda);
+
+        if (DEBUG_ENABLED) {
+            self.traceInfo("Call type: {s} (callee is {s})", .{ if (is_direct_lambda_call) "direct lambda" else "indirect closure value", @tagName(std.meta.activeTag(callee)) });
+        }
+
         // Verify we have function + arguments on layout stack
         if (self.layout_stack.items.len < arg_count + 1) {
             if (DEBUG_ENABLED) {
@@ -1515,22 +1525,40 @@ pub const Interpreter = struct {
 
         // Schedule call sequence work items (executed in reverse order due to LIFO stack):
         // 1. Cleanup function (executed last)
+        if (DEBUG_ENABLED) {
+            self.traceInfo("SCHEDULING (handleCallFunction): cleanup_function for expr_idx={}", .{@intFromEnum(call_expr_idx)});
+        }
         try self.work_stack.append(WorkItem{ .kind = .cleanup_function, .expr_idx = call_expr_idx });
 
         // 2. Copy result to return space
+        if (DEBUG_ENABLED) {
+            self.traceInfo("SCHEDULING (handleCallFunction): copy_result_to_return_space for expr_idx={}", .{@intFromEnum(call_expr_idx)});
+        }
         try self.work_stack.append(WorkItem{ .kind = .copy_result_to_return_space, .expr_idx = call_expr_idx });
 
         // 3. Evaluate function body
+        if (DEBUG_ENABLED) {
+            self.traceInfo("SCHEDULING (handleCallFunction): eval_function_body for expr_idx={}", .{@intFromEnum(call_expr_idx)});
+        }
         try self.work_stack.append(WorkItem{ .kind = .eval_function_body, .expr_idx = call_expr_idx });
 
         // 4. Bind parameters (executed second)
+        if (DEBUG_ENABLED) {
+            self.traceInfo("SCHEDULING (handleCallFunction): bind_parameters for expr_idx={}", .{@intFromEnum(call_expr_idx)});
+        }
         try self.work_stack.append(WorkItem{ .kind = .bind_parameters, .expr_idx = call_expr_idx });
 
-        // 5. Push call frame (executed first)
-        try self.work_stack.append(WorkItem{ .kind = .push_call_frame, .expr_idx = call_expr_idx });
+        // 5. Push call frame only for direct lambda calls
+        if (is_direct_lambda_call) {
+            if (DEBUG_ENABLED) {
+                self.traceInfo("SCHEDULING (handleCallFunction): push_call_frame for expr_idx={}", .{@intFromEnum(call_expr_idx)});
+            }
+            try self.work_stack.append(WorkItem{ .kind = .push_call_frame, .expr_idx = call_expr_idx });
+        }
 
         if (DEBUG_ENABLED) {
-            self.traceSuccess("CALL FUNCTION: scheduled {} work items for {} args", .{ 5, arg_count });
+            self.traceInfo("LAYOUT STACK in handleCallFunction(expr_idx={}): len={}", .{ @intFromEnum(call_expr_idx), self.layout_stack.items.len });
+            self.traceSuccess("CALL FUNCTION(expr_idx={}): scheduled {} work items for {} args", .{ @intFromEnum(call_expr_idx), if (is_direct_lambda_call) @as(u32, 5) else @as(u32, 4), arg_count });
         }
     }
 
@@ -1615,7 +1643,25 @@ pub const Interpreter = struct {
         try self.layout_stack.append(frame_layout);
 
         if (DEBUG_ENABLED) {
-            self.traceSuccess("PUSH CALL FRAME: function_pos={}, arg_count={}, frame_size={}", .{ function_pos, arg_count, frame_size });
+            self.traceInfo("PUSHED CALL FRAME LAYOUT: expr_idx={}, layout_stack.len={}", .{ @intFromEnum(call_expr_idx), self.layout_stack.items.len });
+        }
+
+        if (DEBUG_ENABLED) {
+            self.traceInfo("LAYOUT STACK after pushing call frame(expr_idx={}): len={}", .{ @intFromEnum(call_expr_idx), self.layout_stack.items.len });
+            for (self.layout_stack.items, 0..) |lay, i| {
+                self.traceInfo("  [{}]: tag={s}", .{ i, @tagName(lay.tag) });
+            }
+            self.traceSuccess("PUSH CALL FRAME(expr_idx={}): function_pos={}, arg_count={}, frame_size={}", .{ @intFromEnum(call_expr_idx), function_pos, arg_count, frame_size });
+        }
+
+        self.tracePrint("=== COPY RESULT TO RETURN SPACE ===\n", .{});
+        self.traceInfo("Initial stack.used = {}", .{self.stack_memory.used});
+        self.traceInfo("Layout stack size = {}", .{self.layout_stack.items.len});
+        if (DEBUG_ENABLED) {
+            self.traceInfo("LAYOUT STACK contents at copy start:", .{});
+            for (self.layout_stack.items, 0..) |lay, i| {
+                self.traceInfo("  [{}]: tag={s}", .{ i, @tagName(lay.tag) });
+            }
         }
     }
 
@@ -1664,7 +1710,7 @@ pub const Interpreter = struct {
             else => {
                 // This is calling a closure (not direct lambda)
                 // We need to get capture info from the closure on the stack
-                self.traceInfo("🎯 CLOSURE CALL WITH CAPTURES: env_size={}\n", .{function_layout.data.closure.env_size});
+                self.traceInfo("🎯 CLOSURE CALL WITH CAPTURES: env_size={}", .{function_layout.data.closure.env_size});
 
                 // For now, create a simple capture record based on env_size
                 // TODO: Store actual capture info with closure for proper implementation
@@ -1689,7 +1735,7 @@ pub const Interpreter = struct {
                 };
                 try self.layout_stack.append(capture_layout);
 
-                self.traceInfo("✅ CLOSURE CAPTURE RECORD PUSHED: {} vars\n", .{num_captures});
+                self.traceInfo("✅ CLOSURE CAPTURE RECORD PUSHED: {} vars", .{num_captures});
 
                 return;
             },
@@ -1724,7 +1770,7 @@ pub const Interpreter = struct {
         };
         try self.layout_stack.append(capture_layout);
 
-        self.traceInfo("✅ CAPTURE RECORD PUSHED: {} vars\n", .{lambda_captures.captured_vars.len});
+        self.traceInfo("✅ CAPTURE RECORD PUSHED: {} vars", .{lambda_captures.captured_vars.len});
     }
 
     /// Look up the current value of a captured variable from parameter bindings
@@ -1776,49 +1822,100 @@ pub const Interpreter = struct {
             self.traceStackState("bind_parameters_start");
         }
 
-        // Read call frame from top of stack (it was pushed by handlePushCallFrame)
-        const frame_size = CallFrame.size();
+        // Get call information to determine if this is a direct lambda call
+        const call_expr = self.cir.store.getExpr(call_expr_idx);
+        const call = switch (call_expr) {
+            .e_call => |c| c,
+            else => return error.LayoutError,
+        };
 
-        // Bounds check to prevent integer underflow
-        if (self.stack_memory.used < frame_size) {
+        const all_exprs = self.cir.store.sliceExpr(call.args);
+        const arg_count = all_exprs.len - 1; // Subtract 1 for the function itself
+        const callee_expr = all_exprs[0]; // First expression is the function
+        const callee = self.cir.store.getExpr(callee_expr);
+        const is_direct_lambda_call = (callee == .e_lambda);
+
+        var function_pos: u32 = 0;
+        var function_layout: layout.Layout = undefined;
+
+        if (is_direct_lambda_call) {
             if (DEBUG_ENABLED) {
-                self.traceError("Stack underflow: used={}, frame_size={}", .{ self.stack_memory.used, frame_size });
+                self.traceInfo("Direct lambda call - reading call frame", .{});
             }
-            return error.InvalidStackState;
+
+            // Read call frame from top of stack (it was pushed by handlePushCallFrame)
+            const frame_size = CallFrame.size();
+
+            // Bounds check to prevent integer underflow
+            if (self.stack_memory.used < frame_size) {
+                if (DEBUG_ENABLED) {
+                    self.traceError("Stack underflow: used={}, frame_size={}", .{ self.stack_memory.used, frame_size });
+                }
+                return error.InvalidStackState;
+            }
+
+            const frame_pos = self.stack_memory.used - frame_size;
+            const frame_memory_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + frame_pos;
+            const frame_memory = frame_memory_ptr[0..frame_size];
+            const call_frame = CallFrame.read(frame_memory);
+
+            function_pos = call_frame.function_pos;
+            function_layout = call_frame.function_layout;
+
+            if (DEBUG_ENABLED) {
+                self.traceInfo("Read call frame: function_pos={}, arg_count={}", .{ function_pos, call_frame.arg_count });
+            }
+        } else {
+            if (DEBUG_ENABLED) {
+                self.traceInfo("Indirect closure call - calculating closure position", .{});
+            }
+
+            // For indirect calls, the closure is on the stack before the arguments
+            // Stack layout: [return_space] [closure] [arg1] [arg2] ... [argN]
+
+            // Find the closure layout in the layout stack
+            const function_layout_idx = self.layout_stack.items.len - arg_count - 1;
+            function_layout = self.layout_stack.items[function_layout_idx];
+
+            // Calculate position by walking forward from stack start
+            var pos: u32 = 0;
+            for (self.layout_stack.items[0..function_layout_idx], 0..) |layout_item, i| {
+                const size = self.layout_cache.layoutSize(layout_item);
+                const alignment = layout_item.alignment(target.TargetUsize.native);
+
+                // Align position
+                pos = std.mem.alignForward(u32, pos, @intCast(alignment.toByteUnits()));
+
+                if (DEBUG_ENABLED and i < 5) { // Only log first few for brevity
+                    self.traceInfo("  item[{}]: size={}, align={}, pos={}", .{ i, size, alignment, pos });
+                }
+
+                pos += size;
+            }
+
+            // Align to 8-byte boundary for closure position
+            pos = std.mem.alignForward(u32, pos, 8);
+            function_pos = pos;
+
+            // Bounds check for calculated position
+            const closure_size = self.layout_cache.layoutSize(function_layout);
+            if (function_pos + closure_size > self.stack_memory.used) {
+                if (DEBUG_ENABLED) {
+                    self.traceError("Closure position out of bounds: pos={}, size={}, stack.used={}", .{ function_pos, closure_size, self.stack_memory.used });
+                }
+                return error.InvalidStackState;
+            }
+
+            if (DEBUG_ENABLED) {
+                self.traceInfo("Calculated closure position: {}", .{function_pos});
+            }
         }
 
-        const frame_pos = self.stack_memory.used - frame_size;
-        const frame_memory_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + frame_pos;
-        const frame_memory = frame_memory_ptr[0..frame_size];
-        const call_frame = CallFrame.read(frame_memory);
+        // Read closure from the calculated/retrieved position
+        const closure_memory_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + function_pos;
 
-        if (DEBUG_ENABLED) {
-            self.traceInfo("Read call frame: function_pos={}, arg_count={}", .{ call_frame.function_pos, call_frame.arg_count });
-
-            // DEBUG: Compare what's at calculated position vs expected position
-            const calculated_pos = call_frame.function_pos;
-            const expected_pos: u32 = 32; // From lambda creation trace
-
-            self.traceInfo("🔍 POSITION DEBUG: calculated={}, expected={}", .{ calculated_pos, expected_pos });
-
-            // Read memory at calculated position
-            const calc_memory_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + calculated_pos;
-            const calc_bytes = calc_memory_ptr[0..8];
-            self.traceInfo("  calculated_pos[{}] bytes: {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2}", .{ calculated_pos, calc_bytes[0], calc_bytes[1], calc_bytes[2], calc_bytes[3], calc_bytes[4], calc_bytes[5], calc_bytes[6], calc_bytes[7] });
-
-            // Read memory at expected position
-            const exp_memory_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + expected_pos;
-            const exp_bytes = exp_memory_ptr[0..8];
-            self.traceInfo("  expected_pos[{}] bytes: {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2}", .{ expected_pos, exp_bytes[0], exp_bytes[1], exp_bytes[2], exp_bytes[3], exp_bytes[4], exp_bytes[5], exp_bytes[6], exp_bytes[7] });
-
-            // Try reading body_expr_idx from both positions
-            const calc_body = std.mem.readInt(u32, calc_bytes[0..4], .little);
-            const exp_body = std.mem.readInt(u32, exp_bytes[0..4], .little);
-            self.traceInfo("  body_expr_idx: calculated={}, expected={}", .{ calc_body, exp_body });
-        }
-
-        // Read closure from the position stored in the call frame
-        const closure_memory_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + call_frame.function_pos;
+        // Read just the closure header (12 bytes minimum)
+        // The full size including environment is in the layout
         var offset: u32 = 0;
 
         // Read closure data (matching lambda creation format)
@@ -1840,10 +1937,10 @@ pub const Interpreter = struct {
         }
 
         // Verify arity
-        if (closure_args_pattern_span.span.len != call_frame.arg_count) {
+        if (closure_args_pattern_span.span.len != arg_count) {
             if (DEBUG_ENABLED) {
                 self.traceError("ARITY MISMATCH: expected={}, actual={}", .{
-                    closure_args_pattern_span.span.len, call_frame.arg_count,
+                    closure_args_pattern_span.span.len, arg_count,
                 });
             }
             return error.ArityMismatch;
@@ -1851,55 +1948,66 @@ pub const Interpreter = struct {
 
         const parameter_patterns = self.cir.store.slicePatterns(closure_args_pattern_span);
 
-        // Create parameter bindings by walking back from call frame position
-        // Skip the call frame itself, then arguments are right before it
-        var current_stack_pos = frame_pos;
-        const arg_count = call_frame.arg_count;
+        // Create parameter bindings
+        // First, create new execution context
+        const new_context = try ExecutionContext.init(self.allocator, self.current_context);
+        try self.execution_contexts.append(new_context);
+        self.current_context = &self.execution_contexts.items[self.execution_contexts.items.len - 1];
 
-        for (0..arg_count) |i| {
-            const arg_idx = arg_count - 1 - i; // Process arguments in reverse order
+        // Calculate argument starting position based on call type
+        var arg_start_pos: u32 = 0;
 
-            // Find argument layout (arguments are at end of layout stack, before call frame)
-            const arg_layout_idx = self.layout_stack.items.len - 2 - i; // -1 for call frame, -i for this arg
+        if (is_direct_lambda_call) {
+            // For direct calls, arguments are after the function and call frame
+            // Stack layout: [return_space] [function] [call_frame] [args...]
+            const frame_size = CallFrame.size();
+            arg_start_pos = function_pos + @sizeOf(Closure) + frame_size;
+        } else {
+            // For indirect calls, arguments start right after the function
+            // Stack layout: [return_space] [function] [args...]
+            arg_start_pos = function_pos + @sizeOf(Closure);
+        }
+
+        // Align to match how arguments were pushed
+        arg_start_pos = std.mem.alignForward(u32, arg_start_pos, 8);
+
+        // Bind parameters
+        var current_pos = arg_start_pos;
+        for (parameter_patterns, 0..) |pattern_idx, i| {
+
+            // Find argument layout
+            // For direct calls: layout stack has [return, function, call_frame, args...]
+            // For indirect calls: layout stack has [return, function, args...]
+            const arg_layout_idx = self.layout_stack.items.len - arg_count + i - 1;
             const arg_layout = self.layout_stack.items[arg_layout_idx];
             const arg_size = self.layout_cache.layoutSize(arg_layout);
 
-            // Move to position of this argument
-            current_stack_pos -= arg_size;
-
             // Create parameter binding
-            const parameter_pattern_idx = parameter_patterns[arg_idx];
             const binding = ParameterBinding{
-                .pattern_idx = parameter_pattern_idx,
-                .value_ptr = @as(*anyopaque, @ptrCast(@as([*]u8, @ptrCast(self.stack_memory.start)) + current_stack_pos)),
+                .pattern_idx = pattern_idx,
+                .value_ptr = @as(*anyopaque, @ptrCast(@as([*]u8, @ptrCast(self.stack_memory.start)) + current_pos)),
                 .layout = arg_layout,
             };
 
             try self.parameter_bindings.append(binding);
+            try self.current_context.?.parameter_bindings.append(binding);
 
             if (DEBUG_ENABLED) {
-                self.traceInfo("PARAMETER BINDING[{}]: pattern={}, arg_size={}, stack_pos={}", .{ arg_idx, @intFromEnum(parameter_pattern_idx), arg_size, current_stack_pos });
+                self.traceInfo("PARAMETER BINDING[{}]: pattern={}, arg_size={}, stack_pos={}", .{ i, @intFromEnum(pattern_idx), arg_size, current_pos });
             }
+
+            // Move to next argument position
+            current_pos += arg_size;
+            current_pos = std.mem.alignForward(u32, current_pos, 8);
         }
 
         if (DEBUG_ENABLED) {
             self.traceSuccess("Parameter binding complete: {} bindings created", .{arg_count});
         }
 
-        // Push new execution context with current parameter bindings
-        var new_context = try ExecutionContext.init(self.allocator, self.current_context);
-
-        // Copy current parameter bindings to the new context
-        for (self.parameter_bindings.items) |binding| {
-            try new_context.parameter_bindings.append(binding);
-        }
-
-        // Make this the current context
-        try self.execution_contexts.append(new_context);
-        self.current_context = &self.execution_contexts.items[self.execution_contexts.items.len - 1];
-
+        // Function body evaluation is already scheduled by handleCallFunction
         if (DEBUG_ENABLED) {
-            self.traceSuccess("Execution context created with {} parameter bindings", .{self.parameter_bindings.items.len});
+            self.traceSuccess("Execution context created with {} parameter bindings", .{self.current_context.?.parameter_bindings.items.len});
         }
     }
 
@@ -1931,13 +2039,11 @@ pub const Interpreter = struct {
             else => return error.Crash, // Called non-lambda
         };
 
-        // Add work to copy result to return space after body evaluation
-        try self.work_stack.append(.{
-            .kind = .copy_result_to_return_space,
-            .expr_idx = call_expr_idx,
-        });
-
         // Push work to evaluate the lambda's body expression
+        // Note: copy_result_to_return_space is already scheduled by handleCallFunction
+        if (DEBUG_ENABLED) {
+            self.traceInfo("SCHEDULING (handleEvalFunctionBody): eval_expr for lambda body expr_idx={}", .{@intFromEnum(lambda_body)});
+        }
         try self.work_stack.append(.{
             .kind = .eval_expr,
             .expr_idx = lambda_body,
@@ -1968,9 +2074,15 @@ pub const Interpreter = struct {
         // At this point the stack has: [return_space, function, args..., body_result]
         // We need to copy body_result to return_space and clean up body_result
 
-        self.traceInfo("=== COPY RESULT TO RETURN SPACE ===\n", .{});
-        self.traceInfo("Initial stack.used = {}\n", .{self.stack_memory.used});
-        self.traceInfo("Layout stack size = {}\n", .{self.layout_stack.items.len});
+        self.tracePrint("=== COPY RESULT TO RETURN SPACE(expr_idx={}) ===\n", .{@intFromEnum(call_expr_idx)});
+        self.traceInfo("Initial stack.used = {}", .{self.stack_memory.used});
+        self.traceInfo("Layout stack size = {}", .{self.layout_stack.items.len});
+        if (DEBUG_ENABLED) {
+            self.traceInfo("LAYOUT STACK contents at copy start(expr_idx={}):", .{@intFromEnum(call_expr_idx)});
+            for (self.layout_stack.items, 0..) |lay, i| {
+                self.traceInfo("  [{}]: tag={s}", .{ i, @tagName(lay.tag) });
+            }
+        }
 
         // The body result is at the top of the stack
         const body_result_layout = self.layout_stack.pop() orelse return error.InvalidStackState;
@@ -1984,8 +2096,8 @@ pub const Interpreter = struct {
         // Calculate position of body result
         const body_result_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + self.stack_memory.used - body_result_size;
 
-        self.traceInfo("Body result layout = {}, size = {}\n", .{ body_result_layout.tag, body_result_size });
-        self.traceInfo("Body result at stack position = {}\n", .{self.stack_memory.used - body_result_size});
+        self.traceInfo("Body result layout = {}, size = {}", .{ body_result_layout.tag, body_result_size });
+        self.traceInfo("Body result at stack position = {}", .{self.stack_memory.used - body_result_size});
 
         // Find the return space - it should be at the bottom of our call frame
         // We need to find how many items are in our call frame to calculate the return space position
@@ -2033,16 +2145,16 @@ pub const Interpreter = struct {
         const return_space_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + stack_pos;
 
         if (DEBUG_ENABLED) {
-            self.traceInfo("Final return space position = {}\n", .{stack_pos});
-            self.traceInfo("Copying {} bytes from {} to {}\n", .{ body_result_size, self.stack_memory.used - body_result_size, stack_pos });
+            self.traceInfo("Final return space position = {}", .{stack_pos});
+            self.traceInfo("Copying {} bytes from {} to {}", .{ body_result_size, self.stack_memory.used - body_result_size, stack_pos });
 
             // Verify the copy source data before copying
             const source_bytes = @as([*]u8, @ptrCast(body_result_ptr));
-            self.traceInfo("Source bytes: ", .{});
+            self.tracePrint("Source bytes: ", .{});
             for (0..@min(body_result_size, 16)) |i| {
                 self.traceInfo("{x:0>2} ", .{source_bytes[i]});
             }
-            self.traceInfo("\n", .{});
+            self.tracePrint("\n", .{});
         }
 
         // Copy the result
@@ -2051,21 +2163,21 @@ pub const Interpreter = struct {
         // Verify the copy destination data after copying
         if (DEBUG_ENABLED) {
             const dest_bytes = @as([*]u8, @ptrCast(return_space_ptr));
-            self.traceInfo("Dest bytes after copy: ", .{});
+            self.tracePrint("Dest bytes after copy: ", .{});
             for (0..@min(body_result_size, 16)) |i| {
                 self.traceInfo("{x:0>2} ", .{dest_bytes[i]});
             }
-            self.traceInfo("\n", .{});
+            self.tracePrint("\n", .{});
         }
 
         // Pop the body result from stack
         self.stack_memory.used -= @as(u32, @intCast(body_result_size));
 
         if (DEBUG_ENABLED) {
-            self.traceInfo("After popping body result: stack.used = {}\n", .{self.stack_memory.used});
+            self.traceInfo("After cleanup: stack.used = {}", .{self.stack_memory.used});
 
             // Don't push the layout - the return space layout is already on the stack
-            self.traceInfo("=== END COPY RESULT TO RETURN SPACE ===\n", .{});
+            self.tracePrint("=== END COPY RESULT TO RETURN SPACE(expr_idx={}) ===\n", .{@intFromEnum(call_expr_idx)});
         }
     }
 
@@ -2115,8 +2227,8 @@ pub const Interpreter = struct {
         }
 
         if (DEBUG_ENABLED) {
-            self.traceInfo("=== CLEANUP FUNCTION ===\n", .{});
-            self.traceInfo("Before cleanup: stack.used = {}, layout_stack.len = {}\n", .{ self.stack_memory.used, self.layout_stack.items.len });
+            self.tracePrint("=== CLEANUP FUNCTION(expr_idx={}) ===\n", .{@intFromEnum(call_expr_idx)});
+            self.traceInfo("Before cleanup: stack.used = {}, layout_stack.len = {}", .{ self.stack_memory.used, self.layout_stack.items.len });
         }
 
         // Get call information
@@ -2129,21 +2241,54 @@ pub const Interpreter = struct {
         const all_exprs = self.cir.store.sliceExpr(call.args);
         const arg_count = all_exprs.len - 1; // Subtract 1 for the function itself
 
-        // Layout stack currently has: [return_layout, function_layout, arg_layouts...]
-        if (self.layout_stack.items.len < arg_count + 2) {
+        // Check if this was a direct lambda call
+        const callee_expr = all_exprs[0];
+        const callee = self.cir.store.getExpr(callee_expr);
+        const is_direct_lambda_call = (callee == .e_lambda);
+
+        // Layout stack has different structure for direct vs indirect calls
+        // Direct: [return_layout, function_layout, call_frame_layout, arg_layouts...]
+        // Indirect: [return_layout, function_layout, arg_layouts...]
+        const expected_layouts = if (is_direct_lambda_call) arg_count + 3 else arg_count + 2;
+
+        if (DEBUG_ENABLED) {
+            self.traceInfo("CLEANUP VALIDATION(expr_idx={}): is_direct={}, arg_count={}, expected_layouts={}, actual_layouts={}", .{ @intFromEnum(call_expr_idx), is_direct_lambda_call, arg_count, expected_layouts, self.layout_stack.items.len });
+            self.traceInfo("Layout stack contents:", .{});
+            for (self.layout_stack.items, 0..) |lay, i| {
+                self.traceInfo("  [{}]: tag={s}, size={}", .{ i, @tagName(lay.tag), self.layout_cache.layoutSize(lay) });
+            }
+        }
+
+        if (self.layout_stack.items.len < expected_layouts) {
+            if (DEBUG_ENABLED) {
+                self.traceError("CLEANUP FAILED: Not enough layouts! expected={}, actual={}", .{ expected_layouts, self.layout_stack.items.len });
+            }
             return error.InvalidStackState;
         }
 
         // Get the return layout (at bottom of call frame)
-        const return_layout = self.layout_stack.items[self.layout_stack.items.len - arg_count - 2];
+        const return_layout_idx = if (is_direct_lambda_call)
+            self.layout_stack.items.len - arg_count - 3 // Skip function + call_frame
+        else
+            self.layout_stack.items.len - arg_count - 2; // Skip function only
+        const return_layout = self.layout_stack.items[return_layout_idx];
         const return_size = self.layout_cache.layoutSize(return_layout);
 
-        // Calculate total size of function and arguments to remove
+        // Calculate total size of function, call frame (if present), and arguments to remove
         var cleanup_size: u32 = 0;
 
         // Function size
-        const function_layout = self.layout_stack.items[self.layout_stack.items.len - arg_count - 1];
+        const function_layout_idx = if (is_direct_lambda_call)
+            self.layout_stack.items.len - arg_count - 2 // Skip call frame
+        else
+            self.layout_stack.items.len - arg_count - 1;
+        const function_layout = self.layout_stack.items[function_layout_idx];
         cleanup_size += @as(u32, @intCast(self.layout_cache.layoutSize(function_layout)));
+
+        // Call frame size (if direct lambda call)
+        if (is_direct_lambda_call) {
+            cleanup_size += CallFrame.size();
+        }
 
         // Argument sizes
         for (0..arg_count) |i| {
@@ -2152,11 +2297,13 @@ pub const Interpreter = struct {
         }
 
         if (DEBUG_ENABLED) {
-            self.traceInfo("Return size = {}, cleanup size = {}\n", .{ return_size, cleanup_size });
+            self.traceInfo("Return size = {}, cleanup size = {}", .{ return_size, cleanup_size });
         }
 
         // Calculate where the return value currently is (same as copy operation)
-        // Stack layout after copy: [return_value@landing_pad, function, args...]
+        // Stack layout after copy:
+        // Direct: [return_value@landing_pad, function, call_frame, args...]
+        // Indirect: [return_value@landing_pad, function, args...]
         var current_stack_pos = self.stack_memory.used;
 
         // Skip arguments (working backwards)
@@ -2166,6 +2313,11 @@ pub const Interpreter = struct {
             current_stack_pos -= arg_size;
         }
 
+        // Skip call frame if this was a direct lambda call
+        if (is_direct_lambda_call) {
+            current_stack_pos -= CallFrame.size();
+        }
+
         // Skip function
         current_stack_pos -= self.layout_cache.layoutSize(function_layout);
 
@@ -2173,7 +2325,7 @@ pub const Interpreter = struct {
         const return_value_current_pos = current_stack_pos;
 
         if (DEBUG_ENABLED) {
-            self.traceInfo("Moving return value from {} to 0, size={}\n", .{ return_value_current_pos, return_size });
+            self.traceInfo("Moving return value from {} to 0, size={}", .{ return_value_current_pos, return_size });
         }
 
         // Move return value from current position to position 0
@@ -2185,21 +2337,24 @@ pub const Interpreter = struct {
         self.stack_memory.used = @as(u32, @intCast(return_size));
 
         if (DEBUG_ENABLED) {
-            self.traceInfo("After cleanup: stack.used = {}\n", .{self.stack_memory.used});
+            self.traceInfo("After cleanup: stack.used = {}", .{self.stack_memory.used});
         }
 
         // Clean up layout stack: remove all call-related layouts except return
-        const layouts_to_remove = arg_count + 1; // function + arguments
+        const layouts_to_remove = if (is_direct_lambda_call)
+            arg_count + 2 // function + call_frame + arguments
+        else
+            arg_count + 1; // function + arguments
 
-        // Remove function and argument layouts (but keep return layout)
+        // Remove function, call frame (if present), and argument layouts (but keep return layout)
         for (0..layouts_to_remove) |_| {
             _ = self.layout_stack.pop() orelse return error.InvalidStackState;
         }
 
         // The return layout should now be at the top of layout stack
         if (DEBUG_ENABLED) {
-            self.traceInfo("After layout cleanup: layout_stack.len = {}\n", .{self.layout_stack.items.len});
-            self.traceInfo("=== END CLEANUP FUNCTION ===\n", .{});
+            self.traceInfo("After layout cleanup: layout_stack.len = {}", .{self.layout_stack.items.len});
+            self.tracePrint("=== END CLEANUP FUNCTION(expr_idx={}) ===\n", .{@intFromEnum(call_expr_idx)});
         }
     }
 
@@ -2289,7 +2444,7 @@ pub const Interpreter = struct {
         if (self.trace_writer) |writer| {
             var i: u32 = 0;
             while (i < self.trace_indent) : (i += 1) {
-                writer.print("", .{}) catch {};
+                writer.writeAll("  ") catch {};
             }
         }
     }
