@@ -6,7 +6,7 @@ This design supports evaluating functions in Roc, treating functions as values t
 
 **Implementation Status**:
 1. ✅ **Simple Lambdas**: IMPLEMENTED - Basic function calls with parameter binding
-2. 🔧 **Currying Functions**: PLANNED - Functions that return other functions with partial application  
+2. 🔧 **Currying Functions**: PLANNED - Functions that return other functions with partial application
 3. 🔧 **True Closures**: IN PROGRESS - Execution timing issue RESOLVED, enhancement step remains
 4. 🔧 **Recursive Functions**: PLANNED - Self-referencing functions with tail-call optimization
 
@@ -63,26 +63,7 @@ for (self.layout_stack.items[function_layout_idx + 1 ..]) |item_layout| {
 ```
 **Lesson**: Stack positions must be calculated by traversing the layout stack, not just using sizes.
 
-**2. Expression Index Validation Pattern**
-```zig
-// ❌ DANGEROUS: getExpr() panics on invalid indices
-const expr = cir.store.getExpr(expr_idx);
-
-// ✅ SAFE: Validate bounds and node types first  
-fn detectNestedLambdas(cir: *const CIR, expr_idx: CIR.Expr.Idx) !bool {
-    const expr_idx_int = @intFromEnum(expr_idx);
-    if (expr_idx_int == 0 or expr_idx_int >= cir.store.nodes.len()) {
-        return error.InvalidExpressionIndex;
-    }
-    // Heuristic: Very low indices are likely pattern/statement nodes, not expressions
-    if (expr_idx_int < 10) {
-        return error.SuspiciousExpressionIndex;
-    }
-    const expr = cir.store.getExpr(expr_idx);
-    // ... safe to use expr now
-}
-```
-**Lesson**: Always validate expression indices before calling `getExpr()`. Use bounds checking and heuristics.
+**2. NOT USED**
 
 **3. Memory Layout Compatibility Issue**
 ```zig
@@ -99,7 +80,7 @@ const enhanced_closure = @as(*Closure, @ptrCast(simple_closure_ptr));  // 16 byt
 // ❌ TOO EARLY: Variables not bound yet during lambda creation
 .e_lambda => |lambda_expr| {
     var capture_analysis = analyzeLambdaBody(...);  // x not bound yet for |y| x + y
-    
+
 // ✅ CORRECT TIMING: During parameter binding when execution context exists
 fn handleBindParameters(...) {
     // Parameters are now bound, execution context populated
@@ -138,7 +119,7 @@ if (DEBUG_ENABLED) {
 **7. Test-Driven Stability Approach**
 ```zig
 // Strategy: Fix crashes first, then implement features
-// 1. ✅ Fix bus errors and panics (99.4% tests pass)  
+// 1. ✅ Fix bus errors and panics (99.4% tests pass)
 // 2. 🔧 Then implement closure enhancement features
 // 3. 🔧 Finally add advanced currying features
 ```
@@ -147,13 +128,13 @@ if (DEBUG_ENABLED) {
 ### 🔧 **PLANNED**
 - **Multi-Parameter Currying**: `(|a| |b| a + b)(1)(2)` syntax support
 - **Partial Application**: Automatic currying for under-applied functions
-- **Recursive Functions**: Self-reference injection and tail-call optimization  
+- **Recursive Functions**: Self-reference injection and tail-call optimization
 - **Multi-Level Nesting**: Deeply nested closures with complex scope chains
 
 ### 📊 **Test Coverage Status**
 - ✅ Simple lambdas: `(|x| x + 1)(5)` → 6
 - 🔧 Multi-parameter: `(|x, y| x + y)(3, 4)` → ArityMismatch (minor binding issue to fix)
-- ✅ Crash prevention: `(|x| (|y| x + y))(5)` → no crashes, graceful error handling  
+- ✅ Crash prevention: `(|x| (|y| x + y))(5)` → no crashes, graceful error handling
 - ✅ Nested lambda detection: Execution-time capture analysis detects nested lambdas correctly
 - 🔧 End-to-end capture: `((|x| (|y| x + y))(5))(3)` → needs closure enhancement implementation
 - ❌ Multi-parameter currying: `(|a| |b| a + b)(1)(2)` → not yet implemented
@@ -167,7 +148,7 @@ if (DEBUG_ENABLED) {
 
 #### **Task 1: Implement `enhanceClosureWithCaptures` Function 🔥 IMMEDIATE**
 
-**Current State**: 
+**Current State**:
 ```roc
 (|x| (|y| x + y))(5)  # ✅ No crashes, detectNestedLambdas() working
 ```
@@ -180,22 +161,22 @@ if (DEBUG_ENABLED) {
 fn enhanceClosureWithCaptures(self: *Interpreter, simple_closure_ptr: *SimpleClosure) !void {
     // Step 1: Perform capture analysis with current execution context
     var capture_analysis = CaptureAnalysis.analyzeLambdaBody(
-        self.allocator, 
-        self.cir, 
-        simple_closure_ptr.body_expr_idx, 
+        self.allocator,
+        self.cir,
+        simple_closure_ptr.body_expr_idx,
         simple_closure_ptr.args_pattern_span
     );
     defer capture_analysis.deinit();
-    
+
     if (capture_analysis.captured_vars.items.len == 0) return; // No captures needed
-    
+
     // Step 2: Calculate total memory needed for enhanced closure
     const env_size = calculateEnvironmentSize(self.layout_cache, capture_analysis.captured_vars.items);
     const total_size = @sizeOf(Closure) + env_size;
-    
+
     // Step 3: Allocate new memory block for enhanced closure
     const enhanced_ptr = self.stack_memory.alloca(@intCast(total_size), @enumFromInt(@alignOf(Closure)));
-    
+
     // Step 4: Initialize enhanced closure structure
     // Step 5: Copy captured values from execution context
     // Step 6: Update layout stack to reflect new closure size
@@ -229,7 +210,7 @@ test "create nested closure with capture" {
     // Should return enhanced Closure with x=5 captured
 }
 
-// 3.2 Full nested closure execution  
+// 3.2 Full nested closure execution
 test "execute nested closure end-to-end" {
     const src = "((|x| (|y| x + y))(5))(3)";
     // Should return 8 (5 + 3)
@@ -260,7 +241,7 @@ test "captured variable lookup" {
 const ExecutionContext = struct {
     parameter_bindings: std.ArrayList(ParameterBinding),
     parent_context: ?*ExecutionContext,
-    
+
     fn findBinding(self: *const ExecutionContext, pattern_idx: CIR.Pattern.Idx) ?ParameterBinding {
         // Search current context
         for (self.parameter_bindings.items) |binding| {
@@ -293,7 +274,7 @@ fn enhanceClosureWithCaptures(self: *Interpreter, closure: *SimpleClosure) !void
         self.allocator, self.cir, closure.body_expr_idx, closure.args_pattern_span
     );
     defer capture_analysis.deinit();
-    
+
     if (capture_analysis.captured_vars.items.len > 0) {
         // Convert SimpleClosure to enhanced Closure at execution time
         // Allocate new memory block with captured environment
@@ -314,7 +295,7 @@ pub const Closure = struct {
 const CapturedEnvironment = struct {
     bindings: []CapturedBinding,
     parent_env: ?*CapturedEnvironment,    // for nested scope chains
-    
+
     fn findCapturedVariable(self: *const CapturedEnvironment, pattern_idx: CIR.Pattern.Idx) ?*CapturedBinding {
         // Search current environment
         for (self.bindings) |*binding| {
@@ -353,7 +334,7 @@ test "multi-parameter currying syntax" {
         "(|a| |b| a + b)",           // equivalent to (|a| (|b| a + b))
         "(|a| (|b| a + b))",         // explicit nesting
     };
-    
+
     for (sources) |src| {
         const result = try interpreter.eval(parseExpr(src));
         try testing.expect(result.layout.tag == .closure);
@@ -366,7 +347,7 @@ test "multi-parameter currying application" {
         .{ .src = "(|a| |b| a + b)(1)(2)", .expected = 3 },           // full application
         .{ .src = "(|a| |b| |c| a + b + c)(1)(2)(3)", .expected = 6 }, // three-level currying
     };
-    
+
     for (test_cases) |case| {
         const result = try interpreter.eval(parseExpr(case.src));
         try testing.expectEqual(case.expected, extractInt(result));
@@ -374,11 +355,11 @@ test "multi-parameter currying application" {
 }
 
 test "partial application currying" {
-    const src = "(|a| |b| a + b)(10)";  
+    const src = "(|a| |b| a + b)(10)";
     // Should return closure equivalent to (|b| 10 + b)
     const partial = try interpreter.eval(parseExpr(src));
     try testing.expect(partial.layout.tag == .closure);
-    
+
     // Apply remaining argument
     const final_src = "((|a| |b| a + b)(10))(5)";
     const result = try interpreter.eval(parseExpr(final_src));
@@ -395,10 +376,10 @@ test "deeply nested closures with multiple captures" {
 }
 
 test "nested closures with mixed capture patterns" {
-    const src = 
+    const src =
         \\(|x, y|
         \\    inner1 = |z| x + z
-        \\    inner2 = |w| y + w  
+        \\    inner2 = |w| y + w
         \\    |a| inner1(a) + inner2(a)
         \\)(10, 20)
     ;
@@ -416,7 +397,7 @@ test "nested closures with mixed capture patterns" {
 
 ### **PROVEN WORKING PATTERNS**
 - ✅ **ExecutionContext Stack**: Reliable scope chain management
-- ✅ **Single-Block Allocation**: Clean memory management for closures  
+- ✅ **Single-Block Allocation**: Clean memory management for closures
 - ✅ **7-Phase Calling Convention**: Robust function call handling
 - ✅ **Debug Tracing with Emojis**: Essential for debugging complex capture flows
 - ✅ **Execution-Time Analysis**: Detects nested lambdas after variables are bound
@@ -442,7 +423,7 @@ test "nested closures with mixed capture patterns" {
 ### **Definition of Done**
 - [ ] `enhanceClosureWithCaptures` function implemented and tested
 - [ ] Nested closure test `((|x| (|y| x + y))(5))(3) == 8` passes
-- [ ] Multi-parameter lambda test `(|x, y| x + y)(3, 4) == 7` passes  
+- [ ] Multi-parameter lambda test `(|x, y| x + y)(3, 4) == 7` passes
 - [ ] Test pass rate maintains 99%+ (483+ out of 486 tests)
 - [ ] No crashes or panics in lambda-related functionality
 
@@ -457,7 +438,7 @@ test "nested closures with mixed capture patterns" {
 
 **Immediate Action Items**:
 1. **Implement `enhanceClosureWithCaptures` function** - Convert SimpleClosure to Closure with captured environment
-2. **Debug multi-parameter binding issue** - Fix ArityMismatch for `(|x, y| x + y)` cases  
+2. **Debug multi-parameter binding issue** - Fix ArityMismatch for `(|x, y| x + y)` cases
 3. **Test end-to-end nested closure execution** - Verify `((|x| (|y| x + y))(5))(3) == 8`
 
 **Success Metric**: When all 3 items complete, true closures will be functional in Roc! 🚀
