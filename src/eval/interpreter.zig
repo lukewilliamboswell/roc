@@ -524,6 +524,8 @@ pub const Interpreter = struct {
     trace_indent: u32,
     /// Writer interface for trace output (null when no trace active)
     trace_writer: ?std.io.AnyWriter,
+    /// Position of the last allocated closure, used for consistent retrieval
+    last_closure_pos: usize = 0,
     pub fn init(
         allocator: std.mem.Allocator,
         cir: *const CIR,
@@ -546,6 +548,7 @@ pub const Interpreter = struct {
             .trace_name = null,
             .trace_indent = 0,
             .trace_writer = null,
+            .last_closure_pos = 0,
         };
     }
 
@@ -1339,7 +1342,11 @@ pub const Interpreter = struct {
                     .captured_env = null,
                     .layout = closure_layout,
                 };
-                self.traceInfo("Initialized full Closure with embedded layout env_size={}", .{closure.layout.data.closure.env_size});
+                // Reset last_closure_pos for future tracking
+                self.last_closure_pos = 0;
+                // Store the last closure position
+                self.last_closure_pos = @intFromPtr(closure_ptr) - @intFromPtr(self.stack_memory.start);
+                self.traceInfo("Initialized full Closure with embedded layout env_size={}, pos={}", .{ closure.layout.data.closure.env_size, self.last_closure_pos });
                 self.traceClosure("allocated full", closure_ptr, true);
             } else {
                 const closure = @as(*SimpleClosure, @ptrCast(@alignCast(closure_ptr)));
@@ -1348,7 +1355,11 @@ pub const Interpreter = struct {
                     .args_pattern_span = lambda_expr.args,
                     .layout = closure_layout,
                 };
-                self.traceInfo("Initialized SimpleClosure with embedded layout env_size={}", .{closure.layout.data.closure.env_size});
+                // Reset last_closure_pos for future tracking
+                self.last_closure_pos = 0;
+                // Store the last closure position
+                self.last_closure_pos = @intFromPtr(closure_ptr) - @intFromPtr(self.stack_memory.start);
+                self.traceInfo("Initialized SimpleClosure with embedded layout env_size={}, pos={}", .{ closure.layout.data.closure.env_size, self.last_closure_pos });
                 self.traceClosure("allocated simple", closure_ptr, false);
             }
 
@@ -1408,18 +1419,10 @@ pub const Interpreter = struct {
             return;
         }
 
-        // Calculate closure position on stack
-        var stack_pos = self.stack_memory.used;
-        for (0..function_layout_idx) |i| {
-            const layout_idx = self.layout_stack.items.len - 1 - i;
-            const layout_item = self.layout_stack.items[layout_idx];
-            const item_size = self.layout_cache.layoutSize(layout_item);
-            stack_pos -= item_size;
-        }
-
-        // Cast to closure and read embedded layout information
-        const closure_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + stack_pos;
-        self.traceInfo("Reading closure at stack_pos={}, function_layout.env_size={}", .{ stack_pos, function_layout.data.closure.env_size });
+        // Use the last stored closure position
+        const function_stack_pos = self.last_closure_pos;
+        const closure_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos;
+        self.traceInfo("Reading closure at last_closure_pos={}, function_layout.env_size={}", .{ function_stack_pos, function_layout.data.closure.env_size });
 
         const embedded_layout = if (function_layout.data.closure.env_size > 0) blk: {
             const full_closure = @as(*Closure, @ptrCast(@alignCast(closure_ptr)));
@@ -1606,16 +1609,9 @@ pub const Interpreter = struct {
         // Get the function layout
         const function_layout = self.layout_stack.items[function_layout_idx];
 
-        // LANDING PAD APPROACH: Calculate closure position and read embedded layout
-        var stack_pos = self.stack_memory.used;
-        for (0..function_layout_idx) |i| {
-            const layout_idx = self.layout_stack.items.len - 1 - i;
-            const layout_item = self.layout_stack.items[layout_idx];
-            const item_size = self.layout_cache.layoutSize(layout_item);
-            stack_pos -= item_size;
-        }
-
-        const closure_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + stack_pos;
+        // LANDING PAD APPROACH: Use last stored closure position
+        const function_stack_pos = self.last_closure_pos;
+        const closure_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos;
 
         // Read layout information directly from closure
         const embedded_layout = if (function_layout.tag == .closure and function_layout.data.closure.env_size > 0) blk: {
@@ -1627,8 +1623,6 @@ pub const Interpreter = struct {
         };
 
         self.traceInfo("USING EMBEDDED CLOSURE LAYOUT: env_size={}", .{embedded_layout.data.closure.env_size});
-
-        const function_stack_pos = @intFromPtr(closure_ptr) - @intFromPtr(self.stack_memory.start);
         self.tracePrint("LANDING PAD: Using stored closure pointer at position {}", .{function_stack_pos});
 
         if (function_layout.tag == .closure) {
@@ -1698,13 +1692,13 @@ pub const Interpreter = struct {
 
         const parameter_patterns = self.cir.store.slicePatterns(closure_args_pattern_span);
 
-        // For closures with captures, we expect one extra argument (the capture record)
-        const expected_args = if (has_captures) parameter_patterns.len + 1 else parameter_patterns.len;
+        // Use the actual number of parameter patterns as the expected argument count
+        const expected_args = parameter_patterns.len;
 
         if (expected_args != arg_count) {
             // FORCE DEBUG: Always show arity mismatch details
             self.traceInfo("🚨 ARITY MISMATCH DETAILS:\n", .{});
-            self.traceInfo(" Expected: {} (pattern_params={}, has_captures={})\n", .{ expected_args, parameter_patterns.len, has_captures });
+            self.traceInfo(" Expected: {} (parameter_patterns)\n", .{expected_args});
             self.traceInfo(" Actual:   {}\n", .{arg_count});
             self.traceInfo(" Function layout env_size: {}\n", .{function_layout.data.closure.env_size});
             self.traceInfo(" Function body expr: {}\n", .{@intFromEnum(closure_body_expr_idx)});
@@ -2270,6 +2264,30 @@ pub const Interpreter = struct {
                 }) catch {};
             }
         }
+    }
+
+    /// Calculate closure position on stack consistently
+    fn calculateClosurePosition(self: *const Interpreter, function_layout_idx: usize) [*]u8 {
+        var stack_pos = self.stack_memory.used;
+        self.traceInfo("🧮 CLOSURE POSITION CALCULATION:", .{});
+        self.traceInfo("  Initial stack_pos (stack_memory.used) = {}", .{stack_pos});
+        self.traceInfo("  function_layout_idx = {}", .{function_layout_idx});
+        self.traceInfo("  layout_stack.len = {}", .{self.layout_stack.items.len});
+
+        for (0..function_layout_idx) |i| {
+            const layout_idx = self.layout_stack.items.len - 1 - i;
+            const layout_item = self.layout_stack.items[layout_idx];
+            const item_size = self.layout_cache.layoutSize(layout_item);
+            self.traceInfo("  [{}/{}] layout_idx={}, tag={s}, size={}, stack_pos before={}", .{ i, function_layout_idx, layout_idx, @tagName(layout_item.tag), item_size, stack_pos });
+            stack_pos -= item_size;
+            self.traceInfo("       stack_pos after subtraction = {}", .{stack_pos});
+        }
+
+        const final_pos = @as([*]u8, @ptrCast(self.stack_memory.start)) + stack_pos;
+        const calculated_offset = @intFromPtr(final_pos) - @intFromPtr(self.stack_memory.start);
+        self.traceInfo("  🎯 FINAL calculated position = {}", .{calculated_offset});
+
+        return final_pos;
     }
 };
 
