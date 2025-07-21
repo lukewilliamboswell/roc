@@ -16,9 +16,14 @@ Run all interpreter tests:
 zig build test
 ```
 
-Run tests with detailed debugging output:
+Run all tests with detailed debugging output:
 ```bash
 zig build test -Dtrace-eval
+```
+
+Run all tests with detailed debugging filtered for a specific START and END pattern (add those as required):
+```bash
+zig build test -Dtrace-eval 2>&1 | sed -n '/BASIC CAPTURE TEST START/,/BASIC CAPTURE TEST END/p'
 ```
 
 ## Architecture Notes

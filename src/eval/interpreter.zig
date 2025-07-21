@@ -276,9 +276,7 @@ fn initializeCapturedEnvironment(
     env_ptr: [*]u8,
     captured_vars: []const CIR.Pattern.Idx,
 ) !*CapturedEnvironment {
-    if (DEBUG_ENABLED) {
-        std.debug.print("🏗️  INIT CAPTURE ENV: {} variables to capture\n", .{captured_vars.len});
-    }
+    self.traceInfo("INIT CAPTURE ENV: {} variables to capture", .{captured_vars.len});
     // Cast memory to environment structure
     const env = @as(*CapturedEnvironment, @ptrCast(@alignCast(env_ptr)));
 
@@ -318,9 +316,7 @@ fn initializeCapturedEnvironment(
                 if (ctx.findBinding(pattern_idx)) |binding| {
                     found_value = @as(*u8, @ptrCast(binding.value_ptr));
                     found_layout = binding.layout;
-                    if (DEBUG_ENABLED) {
-                        std.debug.print("🔍 FOUND in execution context: pattern={}\n", .{@intFromEnum(pattern_idx)});
-                    }
+                    self.traceInfo("FOUND in execution context: pattern={}", .{@intFromEnum(pattern_idx)});
                     break;
                 }
                 context = ctx.parent_context;
@@ -329,18 +325,14 @@ fn initializeCapturedEnvironment(
 
         if (found_value == null) {
             // This should not happen if capture analysis is correct
-            if (DEBUG_ENABLED) {
-                std.debug.print("❌ CAPTURE ERROR: pattern {} not found in parameter bindings or execution contexts\n", .{@intFromEnum(pattern_idx)});
-            }
+            self.traceError("CAPTURE ERROR: pattern {} not found in parameter bindings or execution contexts", .{@intFromEnum(pattern_idx)});
             return error.CaptureError;
         }
 
         // Calculate size and copy value data
         const value_layout = found_layout.?;
 
-        if (DEBUG_ENABLED) {
-            std.debug.print("  📦 CAPTURING[{}]: pattern={}, size={} bytes\n", .{ i, @intFromEnum(pattern_idx), self.layout_cache.layoutSize(value_layout) });
-        }
+        self.traceInfo("CAPTURING[{}]: pattern={}, size={} bytes", .{ i, @intFromEnum(pattern_idx), self.layout_cache.layoutSize(value_layout) });
         const value_size = self.layout_cache.layoutSize(value_layout);
         const value_ptr = env_ptr + value_data_offset;
 
@@ -366,17 +358,15 @@ fn lookupVariable(
     pattern_idx: CIR.Pattern.Idx,
     env: ?*CapturedEnvironment,
 ) ?CapturedBinding {
-    if (DEBUG_ENABLED) {
-        std.debug.print("🔍 LOOKUP VAR: pattern={}, has_env={}\n", .{ @intFromEnum(pattern_idx), env != null });
-    }
+    self.traceInfo("LOOKUP VAR: pattern={}, has_env={}", .{ @intFromEnum(pattern_idx), env != null });
 
     const result = self.searchCapturedEnvironment(pattern_idx, env);
 
     if (DEBUG_ENABLED) {
         if (result) |binding| {
-            std.debug.print("✅ VAR FOUND: pattern={}, layout={s}\n", .{ @intFromEnum(binding.pattern_idx), @tagName(binding.layout.tag) });
+            self.traceSuccess("VAR FOUND: pattern={}, layout={s}", .{ @intFromEnum(binding.pattern_idx), @tagName(binding.layout.tag) });
         } else {
-            std.debug.print("❌ VAR NOT FOUND: pattern={}\n", .{@intFromEnum(pattern_idx)});
+            self.traceWarn("VAR NOT FOUND: pattern={}", .{@intFromEnum(pattern_idx)});
         }
     }
 
@@ -390,35 +380,27 @@ fn searchCapturedEnvironment(
     env: ?*CapturedEnvironment,
 ) ?CapturedBinding {
     if (env == null) {
-        if (DEBUG_ENABLED) {
-            std.debug.print("  🔍 SEARCH: no environment to search\n", .{});
-        }
+        self.traceInfo("SEARCH: no environment to search", .{});
         return null;
     }
 
     const current_env = env.?;
 
-    if (DEBUG_ENABLED) {
-        std.debug.print("  🔍 SEARCH ENV: {} bindings, parent={}\n", .{ current_env.bindings.len, current_env.parent_env != null });
-    }
+    self.traceInfo("SEARCH ENV: {} bindings, parent={}", .{ current_env.bindings.len, current_env.parent_env != null });
 
     // Search in current environment
     for (current_env.bindings, 0..) |binding, i| {
-        if (DEBUG_ENABLED) {
-            std.debug.print("    [{:2}] checking pattern {} vs target {}\n", .{ i, @intFromEnum(binding.pattern_idx), @intFromEnum(pattern_idx) });
-        }
+        self.traceInfo("  [{:2}] checking pattern {} vs target {}", .{ i, @intFromEnum(binding.pattern_idx), @intFromEnum(pattern_idx) });
 
         if (binding.pattern_idx == pattern_idx) {
-            if (DEBUG_ENABLED) {
-                std.debug.print("    ✅ MATCH found at index {}\n", .{i});
-            }
+            self.traceSuccess("MATCH found at index {}", .{i});
             return binding;
         }
     }
 
     // Search in parent environment recursively
-    if (DEBUG_ENABLED and current_env.parent_env != null) {
-        std.debug.print("  🔄 SEARCH PARENT: continuing search\n", .{});
+    if (current_env.parent_env != null) {
+        self.traceInfo("SEARCH PARENT: continuing search", .{});
     }
     return self.searchCapturedEnvironment(pattern_idx, current_env.parent_env);
 }
@@ -427,19 +409,13 @@ fn searchCapturedEnvironment(
 const DEBUG_ENABLED = build_options.trace_eval;
 const TEST_FILTER = "basic single variable"; // Filter for specific test debugging
 
-// Verify debug flag is working at compile time
-comptime {
-    if (DEBUG_ENABLED) {
-        @compileLog("🔧 TRACE_EVAL DEBUG ENABLED");
-    }
-}
-
 /// Helper function for filtered debug output - only prints if test name matches filter
 fn debugFiltered(comptime format: []const u8, args: anytype, test_context: []const u8) void {
     if (!DEBUG_ENABLED) return;
 
     if (std.mem.indexOf(u8, test_context, TEST_FILTER) != null) {
-        std.debug.print("TRACE[{}]: " ++ format ++ "\n", .{TEST_FILTER} ++ args);
+        std.debug.print("TRACE[{s}]: ", .{TEST_FILTER});
+        std.debug.print(format ++ "\n", args);
     }
 }
 
@@ -542,6 +518,16 @@ pub const Interpreter = struct {
     execution_contexts: std.ArrayList(ExecutionContext),
     /// Current active execution context (top of stack)
     current_context: ?*ExecutionContext,
+    /// Stored closure pointer for landing pad approach
+    current_closure_ptr: ?*anyopaque,
+
+    // Debug tracing state
+    /// Name/identifier for the current trace session
+    trace_name: ?[]const u8,
+    /// Indentation level for nested debug output
+    trace_indent: u32,
+    /// Writer interface for trace output (null when no trace active)
+    trace_writer: ?std.io.AnyWriter,
     pub fn init(
         allocator: std.mem.Allocator,
         cir: *const CIR,
@@ -560,6 +546,10 @@ pub const Interpreter = struct {
             .parameter_bindings = std.ArrayList(ParameterBinding).init(allocator),
             .execution_contexts = std.ArrayList(ExecutionContext).init(allocator),
             .current_context = null,
+            .current_closure_ptr = null,
+            .trace_name = null,
+            .trace_indent = 0,
+            .trace_writer = null,
         };
     }
 
@@ -626,10 +616,10 @@ pub const Interpreter = struct {
         const final_layout = self.layout_stack.pop() orelse return error.InvalidStackState;
 
         // Debug: check what's left on the layout stack
-        if (DEBUG_ENABLED and self.layout_stack.items.len > 0) {
-            std.debug.print("DEBUG: Layout stack not empty! {} items remaining:\n", .{self.layout_stack.items.len});
+        if (self.layout_stack.items.len > 0) {
+            self.traceWarn("Layout stack not empty! {} items remaining:", .{self.layout_stack.items.len});
             for (self.layout_stack.items, 0..) |item_layout, i| {
-                std.debug.print("  [{}]: tag = {}\n", .{ i, item_layout.tag });
+                self.traceInfo("  [{}]: tag = {s}", .{ i, @tagName(item_layout.tag) });
             }
         }
 
@@ -640,9 +630,7 @@ pub const Interpreter = struct {
         // With proper calling convention, after cleanup the result is at the start of the stack
         const result_ptr = @as([*]u8, @ptrCast(self.stack_memory.start));
 
-        if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: Final result at stack pos 0 (calling convention)\n", .{});
-        }
+        self.traceInfo("Final result at stack pos 0 (calling convention)", .{});
 
         return EvalResult{
             .layout = final_layout,
@@ -827,13 +815,11 @@ pub const Interpreter = struct {
                         @memcpy(@as([*]u8, @ptrCast(ptr))[0..binding_size], @as([*]u8, @ptrCast(binding.value_ptr))[0..binding_size]);
 
                         // Debug: check what value we're retrieving
-                        if (DEBUG_ENABLED) {
-                            std.debug.print("DEBUG: Retrieved parameter value from binding (pattern {})\n", .{@intFromEnum(lookup.pattern_idx)});
-                            if (binding.layout.tag == .scalar and binding.layout.data.scalar.tag == .int) {
-                                const precision = binding.layout.data.scalar.data.int;
-                                const retrieved_value = readIntFromMemory(@as([*]u8, @ptrCast(ptr)), precision);
-                                std.debug.print("DEBUG: Retrieved parameter value = {}\n", .{retrieved_value});
-                            }
+                        self.traceInfo("Retrieved parameter value from binding (pattern {})", .{@intFromEnum(lookup.pattern_idx)});
+                        if (binding.layout.tag == .scalar and binding.layout.data.scalar.tag == .int) {
+                            const precision = binding.layout.data.scalar.data.int;
+                            const retrieved_value = readIntFromMemory(@as([*]u8, @ptrCast(ptr)), precision);
+                            self.traceInfo("Retrieved parameter value = {}", .{retrieved_value});
                         }
 
                         try self.layout_stack.append(binding.layout);
@@ -968,70 +954,48 @@ pub const Interpreter = struct {
             },
 
             .e_lambda => |lambda_expr| {
+                self.traceEnter("LAMBDA CREATION (expr_idx={})", .{@intFromEnum(expr_idx)});
+
                 // NEW APPROACH: Use capture information from canonicalization
                 const has_captures = lambda_expr.captures.captured_vars.len > 0;
 
-                // FORCE DEBUG: Always show lambda creation details
+                // Show lambda type and capture details
                 if (has_captures) {
-                    std.debug.print("DEBUG: 🎯 LAMBDA WITH CAPTURES: {} variables\n", .{lambda_expr.captures.captured_vars.len});
-                    debugFiltered("🎯 LAMBDA WITH CAPTURES: {} variables", .{lambda_expr.captures.captured_vars.len}, "basic single variable");
+                    self.traceInfo("Lambda WITH captures: {} variables", .{lambda_expr.captures.captured_vars.len});
                 } else {
-                    std.debug.print("DEBUG: 🎯 SIMPLE LAMBDA: no captures\n", .{});
-                    debugFiltered("🎯 SIMPLE LAMBDA: no captures", .{}, "basic single variable");
+                    self.traceInfo("Simple lambda: no captures", .{});
                 }
 
-                // Additional debug info
-                std.debug.print("DEBUG: 🔍 LAMBDA DETAILS: body_expr={}, args_span.len=?, has_captures={}\n", .{ @intFromEnum(lambda_expr.body), has_captures });
+                self.traceInfo("Body expr_idx={}, has_captures={}", .{ @intFromEnum(lambda_expr.body), has_captures });
 
-                if (has_captures) {
-                    // Use full Closure struct for lambdas with captures
-                    const closure_size = @sizeOf(Closure);
-                    const closure_alignment: std.mem.Alignment = .@"8"; // Use safe 8-byte alignment
-
-                    if (DEBUG_ENABLED) {
-                        std.debug.print("DEBUG: CLOSURE ALIGNMENT CHECK: @alignOf(Closure)={}, using_alignment={}, max_roc_alignment.toByteUnits()={}\n", .{ @alignOf(Closure), closure_alignment.toByteUnits(), collections.max_roc_alignment.toByteUnits() });
-                        debugFiltered("CLOSURE ALIGNMENT: requested={}, max_allowed={}", .{ closure_alignment.toByteUnits(), collections.max_roc_alignment.toByteUnits() }, "basic single variable");
+                // Debug capture detection details
+                if (lambda_expr.captures.captured_vars.len > 0) {
+                    self.tracePrint("Capture analysis: {} variables", .{lambda_expr.captures.captured_vars.len});
+                    for (lambda_expr.captures.captured_vars, 0..) |capture_var, i| {
+                        self.traceInfo("  Capture[{}]: name={s}", .{ i, self.cir.env.idents.getText(capture_var.name) });
                     }
-
-                    // Allocate closure on stack
-                    const closure_ptr = self.stack_memory.alloca(closure_size, closure_alignment) catch |err| switch (err) {
-                        error.StackOverflow => return error.StackOverflow,
-                    };
-
-                    // Initialize closure with capture info
-                    const closure = @as(*Closure, @ptrCast(@alignCast(closure_ptr)));
-                    closure.* = Closure{
-                        .body_expr_idx = lambda_expr.body,
-                        .args_pattern_span = lambda_expr.args,
-                        .captured_env = null, // We'll store capture info differently
-                    };
-
-                    // Store capture information directly in closure for later retrieval
-                    // For now, we'll rely on the original lambda_expr.captures during calls
-                } else {
-                    // Use SimpleClosure for lambdas without captures
-                    const closure_size = @sizeOf(SimpleClosure);
-                    const closure_alignment: std.mem.Alignment = .@"8"; // Use safe 8-byte alignment
-
-                    // Allocate closure on stack
-                    const closure_ptr = self.stack_memory.alloca(closure_size, closure_alignment) catch |err| switch (err) {
-                        error.StackOverflow => return error.StackOverflow,
-                    };
-
-                    // Initialize closure
-                    const closure = @as(*SimpleClosure, @ptrCast(@alignCast(closure_ptr)));
-                    closure.* = SimpleClosure{
-                        .body_expr_idx = lambda_expr.body,
-                        .args_pattern_span = lambda_expr.args,
-                    };
                 }
+
+                // Debug the body expression to see what it contains
+                const body_expr = self.cir.store.getExpr(lambda_expr.body);
+                self.traceInfo("Body expression type: {s}", .{@tagName(body_expr)});
+                if (body_expr == .e_lambda) {
+                    const inner_lambda = body_expr.e_lambda;
+                    self.traceInfo("Inner lambda has {} captures", .{inner_lambda.captures.captured_vars.len});
+                    for (inner_lambda.captures.captured_vars, 0..) |capture_var, i| {
+                        self.traceInfo("  Inner Capture[{}]: name={s}", .{ i, self.cir.env.idents.getText(capture_var.name) });
+                    }
+                }
+
+                // LANDING PAD APPROACH: Don't allocate closure space here
+                // Instead, closure space will be allocated during call setup
+                // Just store the closure information for later use
+                self.tracePrint("Using LANDING PAD approach - deferring closure allocation until call setup", .{});
 
                 // Create and push closure layout with capture info for later use
                 const env_size: u16 = if (has_captures) @intCast(lambda_expr.captures.captured_vars.len) else 0;
 
-                // FORCE DEBUG: Always show layout creation details
-                std.debug.print("DEBUG: 📐 LAMBDA LAYOUT CREATION: has_captures={}, captured_vars.len={}, env_size={}\n", .{ has_captures, lambda_expr.captures.captured_vars.len, env_size });
-                debugFiltered("📐 LAMBDA LAYOUT CREATION: has_captures={}, captured_vars.len={}, env_size={}", .{ has_captures, lambda_expr.captures.captured_vars.len, env_size }, "basic single variable");
+                self.traceInfo("LAMBDA LAYOUT CREATION: has_captures={}, captured_vars.len={}, env_size={}", .{ has_captures, lambda_expr.captures.captured_vars.len, env_size });
 
                 const closure_layout = layout.Layout{
                     .tag = .closure,
@@ -1039,9 +1003,9 @@ pub const Interpreter = struct {
                 };
                 try self.layout_stack.append(closure_layout);
 
-                // FORCE DEBUG: Always show layout push details
-                std.debug.print("DEBUG: 📐 LAYOUT PUSHED: tag={s}, env_size={}\n", .{ @tagName(closure_layout.tag), closure_layout.data.closure.env_size });
-                debugFiltered("📐 LAYOUT PUSHED: tag={s}, env_size={}", .{ @tagName(closure_layout.tag), closure_layout.data.closure.env_size }, "basic single variable");
+                self.traceInfo("LAYOUT PUSHED: expr_idx={}, tag={s}, env_size={}", .{ @intFromEnum(expr_idx), @tagName(closure_layout.tag), closure_layout.data.closure.env_size });
+
+                self.traceExit("LAMBDA CREATION completed for expr_idx={}", .{@intFromEnum(expr_idx)});
             },
         }
     }
@@ -1313,19 +1277,15 @@ pub const Interpreter = struct {
         // Push the return layout to track the return space
         try self.layout_stack.append(return_layout);
 
-        if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: Allocated return space: size={}, layout={}\n", .{ return_size, return_layout.tag });
-        }
+        self.traceLayout("return_space", return_layout);
+        self.traceSuccess("Allocated return space: {} bytes", .{return_size});
     }
 
     fn handleCallFunction(self: *Interpreter, call_expr_idx: CIR.Expr.Idx) EvalError!void {
-        self.debugTraceCall("handleCallFunction", call_expr_idx);
-        defer self.debugTraceCallExit("handleCallFunction");
+        self.traceEnter("CALL FUNCTION (expr_idx={})", .{@intFromEnum(call_expr_idx)});
+        defer self.traceExit("CALL FUNCTION completed", .{});
 
-        // At this point, the stack should have:
-        // Bottom: [function, arg1, arg2, ..., argN] Top
-        self.debugInspectState("call_function_entry");
-        self.debugTracePhase("call_validation", call_expr_idx);
+        self.traceStackState("call_function_entry");
 
         // Get the call expression to find argument count
         const call_expr = self.cir.store.getExpr(call_expr_idx);
@@ -1336,6 +1296,48 @@ pub const Interpreter = struct {
                 return error.LayoutError;
             },
         };
+
+        // LANDING PAD: Allocate closure space now, during call setup
+        // Get function expression to determine closure requirements
+        const all_exprs_for_closure = self.cir.store.sliceExpr(call.args);
+        const function_expr = self.cir.store.getExpr(all_exprs_for_closure[0]);
+        if (function_expr == .e_lambda) {
+            self.tracePrint("LANDING PAD: Allocating closure space for lambda function", .{});
+            const lambda_expr = function_expr.e_lambda;
+            const has_captures = lambda_expr.captures.captured_vars.len > 0;
+
+            // Allocate closure space using the same pattern as return space
+            const closure_size: usize = if (has_captures) @sizeOf(Closure) else @sizeOf(SimpleClosure);
+            const closure_alignment: std.mem.Alignment = .@"8";
+
+            self.traceInfo("Allocating {} bytes for {s} closure", .{ closure_size, if (has_captures) "full" else "simple" });
+
+            const closure_ptr = self.stack_memory.alloca(@intCast(closure_size), closure_alignment) catch |err| switch (err) {
+                error.StackOverflow => return error.StackOverflow,
+            };
+
+            // Initialize the closure at the allocated position
+            if (has_captures) {
+                const closure = @as(*Closure, @ptrCast(@alignCast(closure_ptr)));
+                closure.* = Closure{
+                    .body_expr_idx = lambda_expr.body,
+                    .args_pattern_span = lambda_expr.args,
+                    .captured_env = null,
+                };
+                self.traceClosure("allocated full", closure_ptr, true);
+            } else {
+                const closure = @as(*SimpleClosure, @ptrCast(@alignCast(closure_ptr)));
+                closure.* = SimpleClosure{
+                    .body_expr_idx = lambda_expr.body,
+                    .args_pattern_span = lambda_expr.args,
+                };
+                self.traceClosure("allocated simple", closure_ptr, false);
+            }
+
+            // Store the actual closure pointer for later retrieval
+            self.current_closure_ptr = closure_ptr;
+            self.traceSuccess("LANDING PAD: Closure allocated and stored for retrieval", .{});
+        }
 
         const all_exprs = self.cir.store.sliceExpr(call.args);
         const arg_count = all_exprs.len - 1; // Subtract 1 for the function itself
@@ -1555,8 +1557,8 @@ pub const Interpreter = struct {
         // Validate layout stack consistency
         self.debugValidateLayoutStack(arg_count + 1, "bind_parameters_entry");
 
-        self.debugInspectState("bind_parameters_start");
-        self.debugTracePhase("parameter_binding_calculation", call_expr_idx);
+        self.traceStackState("bind_parameters_start");
+        self.traceInfo("Argument count: {}", .{arg_count});
 
         // Calculate function position on stack using layout positions
         // Stack layout: [return_space, function, arg1, arg2, ...]
@@ -1568,10 +1570,14 @@ pub const Interpreter = struct {
         // Get the function layout
         const function_layout = self.layout_stack.items[function_layout_idx];
 
-        // TEMPORARY FIX: Use the absolute position where closures are actually created
-        // All closures in debug output show they are created at pos=16, regardless of stack layout
-        // TODO: Implement proper stack position tracking that accounts for closure creation time
-        const function_stack_pos: usize = 16;
+        // LANDING PAD APPROACH: Use stored closure pointer instead of calculating position
+        const closure_ptr = self.current_closure_ptr orelse {
+            self.traceError("No closure pointer stored for landing pad", .{});
+            return error.LayoutError;
+        };
+
+        const function_stack_pos = @intFromPtr(closure_ptr) - @intFromPtr(self.stack_memory.start);
+        self.tracePrint("LANDING PAD: Using stored closure pointer at position {}", .{function_stack_pos});
 
         if (function_layout.tag == .closure) {
             self.debugTracePhase("function_position_located", call_expr_idx);
@@ -1590,9 +1596,11 @@ pub const Interpreter = struct {
 
         const closure_body_expr_idx: CIR.Expr.Idx = if (has_captures) blk: {
             const full_closure_ptr = @as(*Closure, @ptrCast(@alignCast(@as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos)));
+            self.traceClosure("reading full", full_closure_ptr, true);
             break :blk full_closure_ptr.body_expr_idx;
         } else blk: {
             const simple_closure_ptr = @as(*SimpleClosure, @ptrCast(@alignCast(@as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos)));
+            self.traceClosure("reading simple", simple_closure_ptr, false);
             break :blk simple_closure_ptr.body_expr_idx;
         };
 
@@ -1623,19 +1631,16 @@ pub const Interpreter = struct {
 
         // Debug: Verify our calculated position
         if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: 🔍 VERIFYING CALCULATED POSITION:\n", .{});
-            std.debug.print("  calculated pos={}: body={}, span_len={}\n", .{ function_stack_pos, @intFromEnum(closure_body_expr_idx), closure_args_pattern_span.span.len });
+            std.debug.print("DEBUG: 🔍 POSITION CHECK: pos={}, body={}, span_len={}\n", .{ function_stack_pos, @intFromEnum(closure_body_expr_idx), closure_args_pattern_span.span.len });
         }
 
-        // Verify closure integrity - handle both types
+        // Verify closure integrity
         if (has_captures) {
             const full_closure_ptr = @as(*Closure, @ptrCast(@alignCast(@as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos)));
-            if (DEBUG_ENABLED) {
-                std.debug.print("🔬 Full Closure parameter_binding: body={} span_len={} addr={}\n", .{ @intFromEnum(full_closure_ptr.body_expr_idx), full_closure_ptr.args_pattern_span.span.len, @intFromPtr(full_closure_ptr) });
-            }
+            self.traceClosure("verified full", full_closure_ptr, true);
         } else {
             const simple_closure_ptr = @as(*SimpleClosure, @ptrCast(@alignCast(@as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos)));
-            self.debugVerifyClosure(simple_closure_ptr, "parameter_binding");
+            self.traceClosure("verified simple", simple_closure_ptr, false);
         }
 
         // EXECUTION-TIME CAPTURE ANALYSIS: Check if closure body contains nested lambdas
@@ -1722,6 +1727,9 @@ pub const Interpreter = struct {
     }
 
     fn handleEvalFunctionBody(self: *Interpreter, call_expr_idx: CIR.Expr.Idx) EvalError!void {
+        self.traceEnter("EVAL FUNCTION BODY (expr_idx={})", .{@intFromEnum(call_expr_idx)});
+        defer self.traceExit("EVAL FUNCTION BODY completed", .{});
+
         // Evaluate the function body and copy the result to the return space (landing pad)
 
         // Get the call expression to access the function
@@ -1911,6 +1919,11 @@ pub const Interpreter = struct {
     /// - Ensures return value is at predictable location (stack base)
     /// - Maintains proper alignment for return value
     fn handleCleanupFunction(self: *Interpreter, call_expr_idx: CIR.Expr.Idx) EvalError!void {
+        self.traceEnter("CLEANUP FUNCTION (expr_idx={})", .{@intFromEnum(call_expr_idx)});
+
+        // Clear the stored closure pointer when cleaning up
+        self.current_closure_ptr = null;
+        self.tracePrint("Cleared stored closure pointer", .{});
         // Remove parameter bindings that were added for this function call
         self.parameter_bindings.clearRetainingCapacity();
 
@@ -2028,10 +2041,9 @@ pub const Interpreter = struct {
         }
     }
 
-    fn debugTraceCall(self: *const Interpreter, function_name: []const u8, expr_idx: CIR.Expr.Idx) void {
-        _ = self;
-        if (!DEBUG_ENABLED) return;
-        std.debug.print("DEBUG: ENTER {s} (expr={})\n", .{ function_name, @intFromEnum(expr_idx) });
+    /// Debug helper for tracing function calls (legacy - use traceEnter instead)
+    fn debugTraceCall(self: *Interpreter, method_name: []const u8, expr_idx: CIR.Expr.Idx) void {
+        self.traceEnter("{s}(expr_idx={})", .{ method_name, @intFromEnum(expr_idx) });
     }
 
     fn debugTraceCallExit(self: *const Interpreter, function_name: []const u8) void {
@@ -2040,12 +2052,218 @@ pub const Interpreter = struct {
         std.debug.print("DEBUG: EXIT  {s}\n", .{function_name});
     }
 
-    fn debugTracePhase(self: *const Interpreter, phase_name: []const u8, expr_idx: CIR.Expr.Idx) void {
-        _ = self;
-        if (!DEBUG_ENABLED) return;
-        std.debug.print("DEBUG:  {s} (expr={})\n", .{ phase_name, @intFromEnum(expr_idx) });
+    /// Debug helper for tracing evaluation phases (legacy - use tracePrint instead)
+    fn debugTracePhase(self: *Interpreter, phase_name: []const u8, expr_idx: CIR.Expr.Idx) void {
+        self.tracePrint("📍 PHASE: {s} (expr_idx={})", .{ phase_name, @intFromEnum(expr_idx) });
     }
 
+    // ===================================================================
+    // STRUCTURED DEBUG TRACING SYSTEM
+    // ===================================================================
+    //
+    // This system provides clean, hierarchical debug output that only prints
+    // when both DEBUG_ENABLED is true AND a trace session is active.
+    //
+    // ## Usage Pattern:
+    //
+    // 1. Start a trace session:
+    //    ```zig
+    //    interpreter.startTrace("My Test Description");
+    //    defer interpreter.endTrace(); // Always end the trace
+    //    ```
+    //
+    // 2. Use trace methods throughout your code:
+    //    ```zig
+    //    self.traceEnter("METHOD_NAME(arg={})", .{arg_value});
+    //    defer self.traceExit("METHOD_NAME completed");
+    //
+    //    self.tracePrint("General info: {}", .{value});
+    //    self.traceInfo("Data: key={s}, count={}", .{key, count});
+    //    self.traceWarn("Warning: {}", .{issue});
+    //    self.traceError("Error occurred: {}", .{error_info});
+    //    self.traceSuccess("Operation completed successfully");
+    //    ```
+    //
+    // 3. Use specialized trace helpers:
+    //    ```zig
+    //    self.traceStackState("before_operation");
+    //    self.traceLayout("return_type", layout);
+    //    self.traceClosure("allocated", closure_ptr, has_captures);
+    //    ```
+    //
+    // ## Output Format:
+    // - 🔵 Function/method entry (with indentation)
+    // - 🔴 Function/method exit (with indentation)
+    // - ⚪ General trace messages
+    // - ℹ️ Info messages (data/state)
+    // - ⚠️ Warning messages
+    // - ❌ Error messages
+    // - ✅ Success messages
+    // - 📊 Stack state info
+    // - 📐 Layout info
+    // - 🏗️ Closure info
+    //
+    // ## Testing:
+    // Run tests with: `zig build test -Dtrace-eval`
+    // Only tests with active trace sessions will produce debug output.
+    //
+    // ===================================================================
+
+    /// Start a debug trace session with a given name and writer
+    /// Only has effect if DEBUG_ENABLED is true
+    pub fn startTrace(self: *Interpreter, trace_name: []const u8, writer: std.io.AnyWriter) void {
+        if (!DEBUG_ENABLED) return;
+        self.trace_name = trace_name;
+        self.trace_indent = 0;
+        self.trace_writer = writer;
+        writer.print("\n🚀 TRACE START: {s}\n", .{trace_name}) catch {};
+        writer.print("═══════════════════════════════════════\n", .{}) catch {};
+    }
+
+    /// End the current debug trace session
+    /// Only has effect if DEBUG_ENABLED is true
+    pub fn endTrace(self: *Interpreter) void {
+        if (!DEBUG_ENABLED) return;
+        if (self.trace_writer) |writer| {
+            writer.print("═══════════════════════════════════════\n", .{}) catch {};
+            if (self.trace_name) |name| {
+                writer.print("✅ TRACE END: {s}\n\n", .{name}) catch {};
+            } else {
+                writer.print("✅ TRACE END\n\n", .{}) catch {};
+            }
+        }
+        self.trace_name = null;
+        self.trace_indent = 0;
+        self.trace_writer = null;
+    }
+
+    /// Print indentation for current trace level
+    fn printTraceIndent(self: *const Interpreter) void {
+        if (!DEBUG_ENABLED) return;
+        if (self.trace_writer) |writer| {
+            var i: u32 = 0;
+            while (i < self.trace_indent) : (i += 1) {
+                writer.print("  ", .{}) catch {};
+            }
+        }
+    }
+
+    /// Enter a traced function/method with formatted message
+    pub fn traceEnter(self: *Interpreter, comptime fmt: []const u8, args: anytype) void {
+        if (!DEBUG_ENABLED) return;
+        if (self.trace_writer) |writer| {
+            self.printTraceIndent();
+            writer.print("🔵 " ++ fmt ++ "\n", args) catch {};
+            self.trace_indent += 1;
+        }
+    }
+
+    /// Exit a traced function/method
+    pub fn traceExit(self: *Interpreter, comptime fmt: []const u8, args: anytype) void {
+        if (!DEBUG_ENABLED) return;
+        if (self.trace_writer) |writer| {
+            if (self.trace_indent > 0) self.trace_indent -= 1;
+            self.printTraceIndent();
+            writer.print("🔴 " ++ fmt ++ "\n", args) catch {};
+        }
+    }
+
+    /// Print a general trace message
+    pub fn tracePrint(self: *const Interpreter, comptime fmt: []const u8, args: anytype) void {
+        if (!DEBUG_ENABLED) return;
+        if (self.trace_writer) |writer| {
+            self.printTraceIndent();
+            writer.print("⚪ " ++ fmt ++ "\n", args) catch {};
+        }
+    }
+
+    /// Print trace information (data/state)
+    pub fn traceInfo(self: *const Interpreter, comptime fmt: []const u8, args: anytype) void {
+        if (!DEBUG_ENABLED) return;
+        if (self.trace_writer) |writer| {
+            self.printTraceIndent();
+            writer.print("ℹ️  " ++ fmt ++ "\n", args) catch {};
+        }
+    }
+
+    /// Print trace warning
+    pub fn traceWarn(self: *const Interpreter, comptime fmt: []const u8, args: anytype) void {
+        if (!DEBUG_ENABLED) return;
+        if (self.trace_writer) |writer| {
+            self.printTraceIndent();
+            writer.print("⚠️  " ++ fmt ++ "\n", args) catch {};
+        }
+    }
+
+    /// Print trace error
+    pub fn traceError(self: *const Interpreter, comptime fmt: []const u8, args: anytype) void {
+        if (!DEBUG_ENABLED) return;
+        if (self.trace_writer) |writer| {
+            self.printTraceIndent();
+            writer.print("❌ " ++ fmt ++ "\n", args) catch {};
+        }
+    }
+
+    /// Print trace success
+    pub fn traceSuccess(self: *const Interpreter, comptime fmt: []const u8, args: anytype) void {
+        if (!DEBUG_ENABLED) return;
+        if (self.trace_writer) |writer| {
+            self.printTraceIndent();
+            writer.print("✅ " ++ fmt ++ "\n", args) catch {};
+        }
+    }
+
+    /// Trace stack memory state
+    pub fn traceStackState(self: *const Interpreter, label: []const u8) void {
+        if (!DEBUG_ENABLED) return;
+        if (self.trace_writer) |writer| {
+            self.printTraceIndent();
+            writer.print("📊 STACK STATE ({s}): used={}, capacity={}, items_on_layout_stack={}\n", .{
+                label,
+                self.stack_memory.used,
+                self.stack_memory.capacity,
+                self.layout_stack.items.len,
+            }) catch {};
+        }
+    }
+
+    /// Trace layout information
+    pub fn traceLayout(self: *const Interpreter, label: []const u8, layout_val: layout.Layout) void {
+        if (!DEBUG_ENABLED) return;
+        if (self.trace_writer) |writer| {
+            self.printTraceIndent();
+            const size = self.layout_cache.layoutSize(layout_val);
+            writer.print("📐 LAYOUT ({s}): tag={s}, size={}\n", .{ label, @tagName(layout_val.tag), size }) catch {};
+        }
+    }
+
+    /// Trace closure information
+    pub fn traceClosure(self: *const Interpreter, label: []const u8, closure_ptr: anytype, has_captures: bool) void {
+        if (!DEBUG_ENABLED) return;
+        if (self.trace_writer) |writer| {
+            self.printTraceIndent();
+            const pos = @intFromPtr(closure_ptr) - @intFromPtr(self.stack_memory.start);
+            if (has_captures) {
+                const closure = @as(*Closure, @ptrCast(@alignCast(closure_ptr)));
+                writer.print("🏗️  CLOSURE ({s}): pos={}, body={}, args_len={}, has_captures=true\n", .{
+                    label,
+                    pos,
+                    @intFromEnum(closure.body_expr_idx),
+                    closure.args_pattern_span.span.len,
+                }) catch {};
+            } else {
+                const closure = @as(*SimpleClosure, @ptrCast(@alignCast(closure_ptr)));
+                writer.print("🏗️  CLOSURE ({s}): pos={}, body={}, args_len={}, has_captures=false\n", .{
+                    label,
+                    pos,
+                    @intFromEnum(closure.body_expr_idx),
+                    closure.args_pattern_span.span.len,
+                }) catch {};
+            }
+        }
+    }
+
+    /// Legacy debug method - use traceStackState instead
     fn debugInspectState(self: *const Interpreter, label: []const u8) void {
         if (!DEBUG_ENABLED) return;
 
