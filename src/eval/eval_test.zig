@@ -718,11 +718,7 @@ test "lambda memory management" {
 
 test "lambda variable capture - basic single variable" {
     // Test a closure that captures a single variable from outer scope
-    const src =
-        \\x = 42
-        \\f = |y| x + y
-        \\f(10)
-    ;
+    const src = "((|x| |y| x + y)(42))(10)";
 
     const resources = parseAndCanonicalizeExpr(test_allocator, src) catch |err| {
         std.debug.print("PARSE ERROR for basic capture: {any}\n", .{err});
@@ -746,12 +742,21 @@ test "lambda variable capture - basic single variable" {
     };
 
     // Extract result - should be 42 + 10 = 52
+    std.debug.print("DEBUG: Integer type in capture test: {}\n", .{result.layout.data.scalar.data.int});
+    std.debug.print("DEBUG: Raw result value: {}\n", .{@as(*u8, @ptrCast(@alignCast(result.ptr))).*});
+    std.debug.print("DEBUG: Expected 42 + 10 = 52, but got: {}\n", .{@as(*u8, @ptrCast(@alignCast(result.ptr))).*});
     const int_val = switch (result.layout.data.scalar.data.int) {
         .i128 => @as(i64, @intCast(@as(*i128, @ptrCast(@alignCast(result.ptr))).*)),
         .i64 => @as(*i64, @ptrCast(@alignCast(result.ptr))).*,
         .i32 => @as(i64, @as(*i32, @ptrCast(@alignCast(result.ptr))).*),
+        .i16 => @as(i64, @as(*i16, @ptrCast(@alignCast(result.ptr))).*),
+        .i8 => @as(i64, @as(*i8, @ptrCast(@alignCast(result.ptr))).*),
+        .u64 => @as(i64, @intCast(@as(*u64, @ptrCast(@alignCast(result.ptr))).*)),
+        .u32 => @as(i64, @as(*u32, @ptrCast(@alignCast(result.ptr))).*),
+        .u16 => @as(i64, @as(*u16, @ptrCast(@alignCast(result.ptr))).*),
+        .u8 => @as(i64, @as(*u8, @ptrCast(@alignCast(result.ptr))).*),
         else => {
-            std.debug.print("Unexpected integer type in capture test\n", .{});
+            std.debug.print("Unexpected integer type in capture test: {}\n", .{result.layout.data.scalar.data.int});
             return error.UnsupportedType;
         },
     };
@@ -761,13 +766,7 @@ test "lambda variable capture - basic single variable" {
 
 test "lambda variable capture - multiple variables" {
     // Test a closure that captures multiple variables from outer scope
-    const src =
-        \\a = 10
-        \\b = 20
-        \\c = 5
-        \\f = |x| a + b + c + x
-        \\f(7)
-    ;
+    const src = "((|a, b, c| |x| a + b + c + x)(10, 20, 5))(7)";
 
     const resources = parseAndCanonicalizeExpr(test_allocator, src) catch |err| {
         std.debug.print("PARSE ERROR for multi capture: {any}\n", .{err});
@@ -802,14 +801,7 @@ test "lambda variable capture - multiple variables" {
 
 test "lambda variable capture - nested closures" {
     // Test nested closures where inner closure captures from multiple scopes
-    const src =
-        \\outer_var = 100
-        \\outer_fn = |middle_var|
-        \\    inner_fn = |inner_var| outer_var + middle_var + inner_var
-        \\    inner_fn
-        \\result_fn = outer_fn(20)
-        \\result_fn(3)
-    ;
+    const src = "(((|outer_var| |middle_var| |inner_var| outer_var + middle_var + inner_var)(100))(20))(3)";
 
     const resources = parseAndCanonicalizeExpr(test_allocator, src) catch |err| {
         std.debug.print("PARSE ERROR for nested capture: {any}\n", .{err});
@@ -873,11 +865,7 @@ test "lambda capture analysis - simple closure should use SimpleClosure" {
 
 test "lambda capture - conditional expressions with captures" {
     // Test captured variables used in conditional expressions
-    const src =
-        \\threshold = 25
-        \\check_value = |x| if x > threshold x else 0
-        \\check_value(30)
-    ;
+    const src = "((|threshold| |x| if x > threshold then x else 0)(25))(30)";
 
     const resources = parseAndCanonicalizeExpr(test_allocator, src) catch return error.TestError;
     defer cleanupParseAndCanonical(test_allocator, resources);
