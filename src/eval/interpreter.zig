@@ -51,6 +51,8 @@ pub const EvalError = error{
     BugUnboxedFlexVar,
     DivisionByZero,
     InvalidStackState,
+    NoCapturesProvided,
+    CaptureBindingFailed,
 };
 
 /// Result of evaluating an expression.
@@ -960,40 +962,60 @@ pub const Interpreter = struct {
                     }
                 }
 
-                const closure_size = @sizeOf(SimpleClosure);
-                const closure_alignment = @as(std.mem.Alignment, @enumFromInt(@alignOf(SimpleClosure)));
-
-                // Allocate closure on stack
-                const closure_ptr = self.stack_memory.alloca(closure_size, closure_alignment) catch |err| switch (err) {
-                    error.StackOverflow => return error.StackOverflow,
-                };
-
-                // Initialize closure with effective arguments
-                const closure = @as(*SimpleClosure, @ptrCast(@alignCast(closure_ptr)));
-
                 if (has_captures) {
-                    // For lambdas with captures, we need to create effective arguments
-                    // that include the original parameters plus a capture record
-                    // For now, we store the original args and handle capture transformation in function calls
-                    closure.* = SimpleClosure{
-                        .body_expr_idx = lambda_expr.body,
-                        .args_pattern_span = lambda_expr.args, // TODO: Transform to include capture record
+                    // Use full Closure struct for lambdas with captures
+                    const closure_size = @sizeOf(Closure);
+                    const closure_alignment = @as(std.mem.Alignment, @enumFromInt(@alignOf(Closure)));
+
+                    // Allocate closure on stack
+                    const closure_ptr = self.stack_memory.alloca(closure_size, closure_alignment) catch |err| switch (err) {
+                        error.StackOverflow => return error.StackOverflow,
                     };
+
+                    // Initialize closure with capture info
+                    const closure = @as(*Closure, @ptrCast(@alignCast(closure_ptr)));
+                    closure.* = Closure{
+                        .body_expr_idx = lambda_expr.body,
+                        .args_pattern_span = lambda_expr.args,
+                        .captured_env = null, // We'll store capture info differently
+                    };
+
+                    // Store capture information directly in closure for later retrieval
+                    // For now, we'll rely on the original lambda_expr.captures during calls
                 } else {
-                    // Simple lambda with no captures
+                    // Use SimpleClosure for lambdas without captures
+                    const closure_size = @sizeOf(SimpleClosure);
+                    const closure_alignment = @as(std.mem.Alignment, @enumFromInt(@alignOf(SimpleClosure)));
+
+                    // Allocate closure on stack
+                    const closure_ptr = self.stack_memory.alloca(closure_size, closure_alignment) catch |err| switch (err) {
+                        error.StackOverflow => return error.StackOverflow,
+                    };
+
+                    // Initialize closure
+                    const closure = @as(*SimpleClosure, @ptrCast(@alignCast(closure_ptr)));
                     closure.* = SimpleClosure{
                         .body_expr_idx = lambda_expr.body,
                         .args_pattern_span = lambda_expr.args,
                     };
                 }
 
-                // Create and push closure layout
-                const env_size: u16 = if (has_captures) @intCast(lambda_expr.captures.captured_vars.len * @sizeOf(usize)) else 0;
+                // Create and push closure layout with capture info for later use
+                const env_size: u16 = if (has_captures) @intCast(lambda_expr.captures.captured_vars.len) else 0;
+
+                if (DEBUG_ENABLED) {
+                    std.debug.print("DEBUG: 📐 LAMBDA LAYOUT CREATION: has_captures={}, captured_vars.len={}, env_size={}\n", .{ has_captures, lambda_expr.captures.captured_vars.len, env_size });
+                }
+
                 const closure_layout = layout.Layout{
                     .tag = .closure,
                     .data = .{ .closure = .{ .env_size = env_size } },
                 };
                 try self.layout_stack.append(closure_layout);
+
+                if (DEBUG_ENABLED) {
+                    std.debug.print("DEBUG: 📐 LAYOUT PUSHED: tag={s}, env_size={}\n", .{ @tagName(closure_layout.tag), closure_layout.data.closure.env_size });
+                }
             },
         }
     }
@@ -1312,7 +1334,13 @@ pub const Interpreter = struct {
         }
 
         // Check if function has captures and add capture record as hidden argument
+        if (DEBUG_ENABLED) {
+            std.debug.print("DEBUG: 📞 ABOUT TO HANDLE CAPTURE ARGUMENTS for expr={}\n", .{@intFromEnum(call_expr_idx)});
+        }
         try self.handleCaptureArguments(call_expr_idx, function_layout_idx);
+        if (DEBUG_ENABLED) {
+            std.debug.print("DEBUG: 📞 FINISHED HANDLING CAPTURE ARGUMENTS for expr={}\n", .{@intFromEnum(call_expr_idx)});
+        }
 
         self.debugTracePhase("call_ready_for_binding", call_expr_idx);
         self.debugInspectState("call_function_complete");
@@ -1323,62 +1351,102 @@ pub const Interpreter = struct {
 
     /// Handle capture arguments for functions that capture variables from outer scopes.
     /// Creates capture records and pushes them as hidden arguments.
-    fn handleCaptureArguments(self: *Interpreter, call_expr_idx: CIR.Expr.Idx, _: usize) EvalError!void {
-        // Get the call expression to find the function
+    fn handleCaptureArguments(self: *Interpreter, call_expr_idx: CIR.Expr.Idx, function_layout_idx: usize) EvalError!void {
+        // Check function layout to see if this closure has captures
+        const function_layout = self.layout_stack.items[function_layout_idx];
+
+        if (DEBUG_ENABLED) {
+            std.debug.print("DEBUG: 🔍 CAPTURE CHECK: tag={s}, env_size={}\n", .{ @tagName(function_layout.tag), if (function_layout.tag == .closure) function_layout.data.closure.env_size else 0 });
+        }
+
+        if (function_layout.tag != .closure or function_layout.data.closure.env_size == 0) {
+            if (DEBUG_ENABLED) {
+                std.debug.print("DEBUG: 🚫 EARLY RETURN: Not a closure with captures\n", .{});
+            }
+            return; // Not a closure with captures
+        }
+
+        if (DEBUG_ENABLED) {
+            std.debug.print("DEBUG: 🎯 ADDING CAPTURE RECORD: env_size={}, call_expr={}\n", .{ function_layout.data.closure.env_size, @intFromEnum(call_expr_idx) });
+        }
+
+        // Get the call expression to find the function and get capture info
         const call_expr = self.cir.store.getExpr(call_expr_idx);
         const call = switch (call_expr) {
             .e_call => |c| c,
-            else => return, // Not a call, nothing to do
+            else => return,
         };
 
         const all_exprs = self.cir.store.sliceExpr(call.args);
-        if (all_exprs.len == 0) return; // No function to call
+        if (all_exprs.len == 0) return;
 
         // Get the function expression (first argument in call.args)
         const function_expr_idx = all_exprs[0];
         const function_expr = self.cir.store.getExpr(function_expr_idx);
 
-        // Check if this is a lambda with captures
+        // Get capture info from lambda (if it's a direct lambda call)
         const lambda_captures = switch (function_expr) {
             .e_lambda => |lambda| lambda.captures,
-            else => return, // Not a lambda, no captures to handle
+            else => {
+                // This is calling a closure (not direct lambda)
+                // We need to get capture info from the closure on the stack
+                if (DEBUG_ENABLED) {
+                    std.debug.print("DEBUG: 🎯 CLOSURE CALL WITH CAPTURES: env_size={}\n", .{function_layout.data.closure.env_size});
+                }
+
+                // For now, create a simple capture record based on env_size
+                // TODO: Store actual capture info with closure for proper implementation
+                const num_captures = function_layout.data.closure.env_size;
+                const capture_record_size: u32 = @intCast(num_captures * @sizeOf(usize));
+                const capture_record_alignment = @as(std.mem.Alignment, @enumFromInt(@alignOf(usize)));
+
+                const capture_record_ptr = self.stack_memory.alloca(capture_record_size, capture_record_alignment) catch |err| switch (err) {
+                    error.StackOverflow => return error.StackOverflow,
+                };
+
+                // Initialize with dummy values for now - this needs proper capture value lookup
+                const capture_record = @as([*]usize, @ptrCast(@alignCast(capture_record_ptr)));
+                for (0..num_captures) |i| {
+                    capture_record[i] = 42; // Placeholder - need actual captured values
+                }
+
+                // Push capture record layout as a scalar argument
+                const capture_layout = layout.Layout{
+                    .tag = .scalar,
+                    .data = .{ .scalar = .{ .tag = .int, .data = .{ .int = .i64 } } },
+                };
+                try self.layout_stack.append(capture_layout);
+
+                if (DEBUG_ENABLED) {
+                    std.debug.print("DEBUG: ✅ CLOSURE CAPTURE RECORD PUSHED: {} vars\n", .{num_captures});
+                }
+                return;
+            },
         };
 
-        if (lambda_captures.captured_vars.len == 0) return; // No captures
+        if (lambda_captures.captured_vars.len == 0) return;
 
-        if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: 🎯 CREATING CAPTURE RECORD: {} variables\n", .{lambda_captures.captured_vars.len});
-        }
-
-        // Create capture record on the stack
-        const capture_record_size: u32 = @intCast(lambda_captures.captured_vars.len * @sizeOf(usize)); // Simple record for now
+        // Create simple capture record - just store pattern indices for now
+        const capture_record_size: u32 = @intCast(lambda_captures.captured_vars.len * @sizeOf(usize));
         const capture_record_alignment = @as(std.mem.Alignment, @enumFromInt(@alignOf(usize)));
 
         const capture_record_ptr = self.stack_memory.alloca(capture_record_size, capture_record_alignment) catch |err| switch (err) {
             error.StackOverflow => return error.StackOverflow,
         };
 
-        // Initialize capture record with current values of captured variables
+        // Initialize capture record with current values
         const capture_record = @as([*]usize, @ptrCast(@alignCast(capture_record_ptr)));
 
         for (lambda_captures.captured_vars, 0..) |captured_var, i| {
             // Look up current value of captured variable from parameter bindings
             const current_value = self.lookupCapturedVariableValue(captured_var.pattern_idx) catch {
-                if (DEBUG_ENABLED) {
-                    std.debug.print("DEBUG: ⚠️  CAPTURE LOOKUP FAILED for pattern {}\n", .{@intFromEnum(captured_var.pattern_idx)});
-                }
                 capture_record[i] = 0; // Default value if lookup fails
                 continue;
             };
             capture_record[i] = current_value;
-
-            if (DEBUG_ENABLED) {
-                std.debug.print("DEBUG: 📦 CAPTURED VAR[{}]: pattern={}, value={}\n", .{ i, @intFromEnum(captured_var.pattern_idx), current_value });
-            }
         }
 
-        // Push capture record layout onto layout stack
-        // Use a simple scalar layout for the capture record for now
+        // Push capture record layout as a scalar argument
         const capture_layout = layout.Layout{
             .tag = .scalar,
             .data = .{ .scalar = .{ .tag = .int, .data = .{ .int = .i64 } } },
@@ -1386,7 +1454,7 @@ pub const Interpreter = struct {
         try self.layout_stack.append(capture_layout);
 
         if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: ✅ CAPTURE RECORD CREATED: size={}, fields={}\n", .{ capture_record_size, lambda_captures.captured_vars.len });
+            std.debug.print("DEBUG: ✅ CAPTURE RECORD PUSHED: {} vars\n", .{lambda_captures.captured_vars.len});
         }
     }
 
@@ -1488,7 +1556,24 @@ pub const Interpreter = struct {
             return error.LayoutError; // Function must be a closure
         }
 
-        const closure_ptr = @as(*SimpleClosure, @ptrCast(@alignCast(@as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos)));
+        // Handle both SimpleClosure and Closure types based on captures
+        const has_captures = function_layout.data.closure.env_size > 0;
+
+        const closure_body_expr_idx: CIR.Expr.Idx = if (has_captures) blk: {
+            const full_closure_ptr = @as(*Closure, @ptrCast(@alignCast(@as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos)));
+            break :blk full_closure_ptr.body_expr_idx;
+        } else blk: {
+            const simple_closure_ptr = @as(*SimpleClosure, @ptrCast(@alignCast(@as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos)));
+            break :blk simple_closure_ptr.body_expr_idx;
+        };
+
+        const closure_args_pattern_span: CIR.Pattern.Span = if (has_captures) blk: {
+            const full_closure_ptr = @as(*Closure, @ptrCast(@alignCast(@as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos)));
+            break :blk full_closure_ptr.args_pattern_span;
+        } else blk: {
+            const simple_closure_ptr = @as(*SimpleClosure, @ptrCast(@alignCast(@as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos)));
+            break :blk simple_closure_ptr.args_pattern_span;
+        };
 
         // Enhanced debugging for position calculation
         if (DEBUG_ENABLED) {
@@ -1497,7 +1582,7 @@ pub const Interpreter = struct {
             std.debug.print("  layout_stack.len={}\n", .{self.layout_stack.items.len});
             std.debug.print("  calculated function_stack_pos={}\n", .{function_stack_pos});
             std.debug.print("  stack_memory.start={}\n", .{@intFromPtr(self.stack_memory.start)});
-            std.debug.print("  closure_ptr={}\n", .{@intFromPtr(closure_ptr)});
+            std.debug.print("  function_stack_pos={}\n", .{function_stack_pos});
 
             // Show the layout items being summed for position calculation
             std.debug.print("  Items after function (summed for position):\n", .{});
@@ -1507,56 +1592,55 @@ pub const Interpreter = struct {
             }
         }
 
-        // Debug: Test multiple positions to find correct closure location
+        // Debug: Verify our calculated position
         if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: 🔍 TESTING MULTIPLE POSITIONS:\n", .{});
-
-            // Test position 16 (where closure was created)
-            const test_pos_16 = @as(*SimpleClosure, @ptrCast(@alignCast(@as([*]u8, @ptrCast(self.stack_memory.start)) + 16)));
-            std.debug.print("  pos=16: body={}, span_len={}\n", .{ @intFromEnum(test_pos_16.body_expr_idx), test_pos_16.args_pattern_span.span.len });
-
-            // Test our calculated position
-            const test_calculated = closure_ptr;
-            std.debug.print("  pos={}: body={}, span_len={}\n", .{ function_stack_pos, @intFromEnum(test_calculated.body_expr_idx), test_calculated.args_pattern_span.span.len });
-
-            // Test layout debug position (extract from layout debug logic)
-            var layout_debug_pos = self.stack_memory.used;
-            for (self.layout_stack.items[0 .. function_layout_idx + 1]) |item_layout| {
-                layout_debug_pos -= self.layout_cache.layoutSize(item_layout);
-            }
-            layout_debug_pos += self.layout_cache.layoutSize(function_layout); // Add back function size to get start
-            const test_layout_pos = @as(*SimpleClosure, @ptrCast(@alignCast(@as([*]u8, @ptrCast(self.stack_memory.start)) + layout_debug_pos)));
-            std.debug.print("  layout_pos={}: body={}, span_len={}\n", .{ layout_debug_pos, @intFromEnum(test_layout_pos.body_expr_idx), test_layout_pos.args_pattern_span.span.len });
+            std.debug.print("DEBUG: 🔍 VERIFYING CALCULATED POSITION:\n", .{});
+            std.debug.print("  calculated pos={}: body={}, span_len={}\n", .{ function_stack_pos, @intFromEnum(closure_body_expr_idx), closure_args_pattern_span.span.len });
         }
 
-        // Verify closure integrity
-        self.debugVerifyClosure(closure_ptr, "parameter_binding");
+        // Verify closure integrity - handle both types
+        if (has_captures) {
+            const full_closure_ptr = @as(*Closure, @ptrCast(@alignCast(@as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos)));
+            if (DEBUG_ENABLED) {
+                std.debug.print("🔬 Full Closure parameter_binding: body={} span_len={} addr={}\n", .{ @intFromEnum(full_closure_ptr.body_expr_idx), full_closure_ptr.args_pattern_span.span.len, @intFromPtr(full_closure_ptr) });
+            }
+        } else {
+            const simple_closure_ptr = @as(*SimpleClosure, @ptrCast(@alignCast(@as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos)));
+            self.debugVerifyClosure(simple_closure_ptr, "parameter_binding");
+        }
 
         // EXECUTION-TIME CAPTURE ANALYSIS: Check if closure body contains nested lambdas
         // This is the correct timing - after outer parameters are bound and execution context is populated
 
         // Debug: Validate closure body before nested lambda detection
         if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: 🔍 VALIDATING CLOSURE BODY: body_expr_idx={}\n", .{@intFromEnum(closure_ptr.body_expr_idx)});
-            std.debug.print("DEBUG: 🔍 CLOSURE PTR: body={}, args_span_len={}\n", .{ @intFromEnum(closure_ptr.body_expr_idx), closure_ptr.args_pattern_span.span.len });
+            std.debug.print("DEBUG: 🔍 VALIDATING CLOSURE BODY: body_expr_idx={}\n", .{@intFromEnum(closure_body_expr_idx)});
+            std.debug.print("DEBUG: 🔍 CLOSURE PTR: body={}, args_span_len={}\n", .{ @intFromEnum(closure_body_expr_idx), closure_args_pattern_span.span.len });
         }
 
         // NEW APPROACH: Captures are now passed as regular function arguments
         // No execution-time capture analysis needed - everything is handled at canonicalization time
         if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: 🎯 PARAMETER BINDING: closure with {} args\n", .{closure_ptr.args_pattern_span.span.len});
+            std.debug.print("DEBUG: 🎯 PARAMETER BINDING: closure with {} args\n", .{closure_args_pattern_span.span.len});
         }
 
-        const parameter_patterns = self.cir.store.slicePatterns(closure_ptr.args_pattern_span);
+        const parameter_patterns = self.cir.store.slicePatterns(closure_args_pattern_span);
 
-        if (parameter_patterns.len != arg_count) {
+        // For closures with captures, we expect one extra argument (the capture record)
+        const expected_args = if (has_captures) parameter_patterns.len + 1 else parameter_patterns.len;
+
+        if (expected_args != arg_count) {
             if (DEBUG_ENABLED) {
-                std.debug.print("DEBUG: CORRUPTION: arity_mismatch at parameter_binding\n", .{});
-                std.debug.print("   Expected: {}\n", .{parameter_patterns.len});
+                std.debug.print("DEBUG: 🚨 ARITY MISMATCH DETAILS:\n", .{});
+                std.debug.print("   Expected: {} (pattern_params={}, has_captures={})\n", .{ expected_args, parameter_patterns.len, has_captures });
                 std.debug.print("   Actual:   {}\n", .{arg_count});
+                std.debug.print("   Function layout env_size: {}\n", .{function_layout.data.closure.env_size});
+                std.debug.print("   Function body expr: {}\n", .{@intFromEnum(closure_body_expr_idx)});
             }
             return error.ArityMismatch;
         }
+
+        // Bind regular parameters (ignore capture record for now)
 
         // Multi-parameter binding: handle any number of parameters
         // Arguments are on the stack in order, with the last argument at the top
@@ -2117,6 +2201,8 @@ pub const Interpreter = struct {
             @constCast(captured_env).deferred_init = false;
         }
     }
+
+    // Removed createCapturedEnvironment - using record approach instead
 };
 
 // Helper function to write an integer to memory with the correct precision

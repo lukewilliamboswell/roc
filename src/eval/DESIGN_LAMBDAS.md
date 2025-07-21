@@ -1,293 +1,175 @@
-# Lambda Evaluation Design - Current Status & Implementation Plan
+# Lambda Captures - Debugging Plan & Current Status
 
-## 🎯 Current Implementation Status [UPDATED]
+## 🎯 Current Status: Bug Identified, Ready for Focused Debugging
 
-### ✅ **PHASE 1 COMPLETED: CANONICALIZATION CAPTURE DETECTION**
+### ✅ **What's Working**
+- **Capture Detection**: Canonicalization perfectly identifies captured variables
+- **Lambda Creation**: Lambdas with captures are created correctly (`env_size=1`)
+- **Basic Infrastructure**: Stack-based interpreter, layout system, parameter binding all functional
+- **Test Infrastructure**: Comprehensive test suite with proper debug instrumentation
 
-**MAJOR ACHIEVEMENT**: Capture analysis successfully moved from execution-time to canonicalization-time.
+### ❌ **The Bug: Layout Information Lost During Function Returns**
+**Root Cause**: Closures with captures are created correctly but layout information (`env_size`) is corrupted/lost when returned from function calls.
 
-#### **Architecture Complete & Validated**
-- **Capture Detection**: Working perfectly during canonicalization
-- **CIR Integration**: Lambda expressions now include capture information
-- **NodeStore**: Successfully storing and retrieving capture data
-- **Test Coverage**: Comprehensive snapshot tests validating all scenarios
+## 🔍 **Evidence of the Bug**
 
-#### **Proven Working Features**
-```roc
-|outer| |inner| outer + inner
-# CANONICALIZE shows:
-# (captures (capture (name "outer")))
+### **During Lambda Creation** (✅ Works)
+```
+DEBUG: 🎯 LAMBDA WITH CAPTURES: 1 variables
+DEBUG: 📐 LAMBDA LAYOUT CREATION: has_captures=true, captured_vars.len=1, env_size=1
+DEBUG: 📐 LAYOUT PUSHED: tag=closure, env_size=1
 ```
 
-```roc
-|a, b| |c| a + b + c  
-# CANONICALIZE shows:
-# (captures 
-#   (capture (name "a"))
-#   (capture (name "b")))
+### **During Subsequent Calls** (❌ Broken)
+```
+DEBUG: 🔍 CAPTURE CHECK: tag=closure, env_size=0
+DEBUG: 🚫 EARLY RETURN: Not a closure with captures
 ```
 
-### ✅ **PHASE 2 COMPLETED: COMPREHENSIVE TESTING**
+### **The Problem**
+In test case `((|x| |y| x + y)(42))(10)`:
+1. ✅ First call `(|x| |y| x + y)(42)`: Creates inner lambda with `env_size=1`
+2. ❌ Second call `((inner_lambda))(10)`: Layout shows `env_size=0`
 
-#### **Test Matrix Coverage**
-- ✅ **Basic Captures**: Single variable, multiple variables
-- ✅ **Complex Nesting**: Three-level, five-level deep nesting
-- ✅ **Mixed Patterns**: Some lambdas capture, others don't
-- ✅ **Edge Cases**: No captures (regression test)
-- ✅ **Error Handling**: Invalid references properly detected
-- ✅ **Fully Applied**: `(|a,b| |c| a + b + c)(1,2)(3)` → should equal 6
-- ✅ **Complex Expressions**: Conditionals with captures
+**Conclusion**: The capture record approach is sound. The bug is in stack/layout management during function returns.
 
-#### **Validation Results**
-All snapshot tests show correct capture detection:
-- Parse phase: Correctly structures nested lambdas
-- Canonicalize phase: Shows capture information with `(captures (capture (name "var")))`  
-- Types phase: Processes without errors
-- No false positives or missed captures
+## 🎯 **Focused Debugging Plan**
 
-## 🏗️ Current Architecture [PROVEN WORKING]
+### **Phase 1: Single Test Case Deep Dive**
+**Target Test**: `lambda variable capture - basic single variable`
+**Source**: `((|x| |y| x + y)(42))(10)`
+**Expected Result**: `52` (42 + 10)
 
-### **Canonicalization-Time Capture Analysis**
+### **Debugging Strategy**
+1. **Add test-specific debug filter** to trace only our target test
+2. **Follow the complete execution path** step by step
+3. **Identify exactly where layout information is lost**
+4. **Fix the specific issue** without changing the overall approach
+5. **Verify the fix works** for the target test
+6. **Move to next test case**
+
+### **Key Questions to Answer**
+1. **When** does `env_size` change from `1` to `0`?
+2. **Where** in the call/return mechanism is layout information lost?
+3. **How** should layout information be preserved across function returns?
+
+## 📋 **Implementation Plan**
+
+### **Step 1: Add Test-Specific Tracing**
 ```zig
-// In canonicalize.zig
-fn canonicalizeExpr(self: *Self, expr_idx: Expr.Idx) -> Expr.Idx {
-    .e_lambda => |e| {
-        // Track function context depth
-        self.pushFunctionContext();
-        defer self.popFunctionContext();
-        
-        // Canonicalize body and detect captures
-        const body_idx = try self.canonicalizeExpr(e.body);
-        
-        // Create capture record from detected captures
-        const captures = self.getCurrentCaptureInfo();
-        
-        return self.can_ir.store.addExpr(.{
-            .e_lambda = .{
-                .args = e.args,
-                .body = body_idx,
-                .captures = captures, // ✅ Working!
-            }
-        });
-    }
+const TEST_FILTER = "basic single variable";
+if (std.mem.indexOf(u8, debug_context, TEST_FILTER)) |_| {
+    std.debug.print("TRACE[{}]: {}\n", .{TEST_FILTER, debug_message});
 }
 ```
 
-### **Extended CIR Structure** 
-```zig
-pub const Expr = union(enum) {
-    e_lambda: struct {
-        args: Pattern.Span,
-        body: Expr.Idx,
-        captures: CaptureInfo, // ✅ Successfully integrated
-    },
-    // ...
-};
+### **Step 2: Trace Critical Points**
+- Lambda creation with captures
+- Layout stack operations
+- Function call setup
+- Function return handling  
+- Layout information retrieval
 
-pub const CaptureInfo = struct {
-    captured_vars: []const CapturedVar,
-    capture_pattern_idx: ?Pattern.Idx,
-};
+### **Step 3: Identify Root Cause**
+Focus on the transition between:
+- Creating closure with `env_size=1`
+- Calling closure that shows `env_size=0`
+
+### **Step 4: Implement Targeted Fix**
+- Preserve layout information during returns
+- Ensure closure metadata survives stack operations
+- Verify capture record is added correctly
+
+## 🧪 **Test Case Focus**
+
+### **Primary Test Case**
+```roc
+((|x| |y| x + y)(42))(10)
 ```
 
-### **NodeStore Integration**
-✅ Successfully storing and retrieving capture information with bounds checking
+**Expected Flow**:
+1. **Parse**: Nested lambda structure with captures detected
+2. **Canonicalize**: Inner lambda shows `(captures (capture (name "x")))`
+3. **Create Outer Lambda**: `|x|` (no captures)
+4. **Call Outer Lambda**: `(outer_lambda)(42)` 
+5. **Execute Outer Lambda**: Creates inner lambda `|y| x + y` with `env_size=1`
+6. **Return Inner Lambda**: Layout preserved with `env_size=1`
+7. **Call Inner Lambda**: `(inner_lambda)(10)` detects `env_size=1`
+8. **Add Capture Record**: Automatically append captured `x=42`
+9. **Bind Parameters**: `y=10`, `capture_record={x: 42}`
+10. **Execute Body**: `x + y` → `42 + 10 = 52`
 
-## 📋 **NEXT PHASE: INTERPRETER IMPLEMENTATION**
+**Current Failure Point**: Step 7 - Inner lambda shows `env_size=0` instead of `env_size=1`
 
-### **Current Issue Analysis**
-The capture detection is perfect, but the interpreter doesn't yet handle captures:
-
+### **Debug Commands**
 ```bash
-# Current behavior:
-error.Crash at e_runtime_error
+# Run with tracing and filter for our test
+zig build test -Dtrace-eval 2>&1 | grep -A 5 -B 5 "basic single variable"
+
+# Focus on layout information
+zig build test -Dtrace-eval 2>&1 | grep -E "env_size|LAMBDA WITH CAPTURES|CAPTURE CHECK"
+
+# Track the specific expressions in our test
+zig build test -Dtrace-eval 2>&1 | grep -E "expr=(81|79)" | head -20
 ```
 
-**Root Cause**: Interpreter sees captures but doesn't know how to execute them.
+## 🔧 **Technical Approach**
 
-### **Required Implementation Steps**
+### **The Capture Record Strategy** (Confirmed Correct)
+1. **Detection**: Canonicalization identifies captures ✅
+2. **Creation**: Lambda with captures uses `Closure` struct ✅  
+3. **Calling**: `handleCaptureArguments` adds capture record as extra argument
+4. **Binding**: Parameters include regular args + capture record
+5. **Execution**: Body has access to captured variables
 
-#### **1. Complete Capture Record Creation** [HIGH PRIORITY]
-**File**: `src/eval/interpreter.zig`
+### **The Bug Location** (Stack/Layout Management)
+- **Not** in capture detection
+- **Not** in the fundamental approach
+- **Likely** in function return mechanism
+- **Likely** in layout stack preservation
 
-```zig
-fn handleCaptureArguments(
-    self: *Self, 
-    lambda_captures: CaptureInfo,
-    current_context: *ExecutionContext
-) ![]Value {
-    // Convert capture specifications to actual values
-    var capture_values = try self.allocator.alloc(Value, lambda_captures.captured_vars.len);
-    
-    for (lambda_captures.captured_vars, 0..) |captured_var, i| {
-        // Look up the captured variable in current execution context
-        const value = try current_context.findBinding(captured_var.pattern_idx);
-        capture_values[i] = value;
-    }
-    
-    return capture_values;
-}
+### **Minimal Fix Strategy**
+1. **Preserve** layout information across function returns
+2. **Ensure** returned closures maintain their `env_size` 
+3. **Verify** layout stack operations don't corrupt closure metadata
+
+## 📊 **Success Criteria**
+
+### **Immediate Success**
+```bash
+# This should work
+zig build test 2>&1 | grep "lambda variable capture - basic single variable"
+# Should show: PASSED
+
+# Debug output should show
+DEBUG: 🔍 CAPTURE CHECK: tag=closure, env_size=1  # Not env_size=0
+DEBUG: 🎯 ADDING CAPTURE RECORD: env_size=1       # Actually adding record
+DEBUG: Result: 52                                  # Correct computation
 ```
 
-#### **2. Update Lambda Creation** [HIGH PRIORITY]
-```zig
-.e_lambda => |lambda_expr| {
-    // Create closure with capture values
-    const capture_values = if (lambda_expr.captures.captured_vars.len > 0)
-        try self.handleCaptureArguments(lambda_expr.captures, self.current_context)
-    else
-        &[_]Value{};
-        
-    const closure = Closure{
-        .body_expr_idx = lambda_expr.body,
-        .args_pattern_span = lambda_expr.args,
-        .captured_values = capture_values, // Pass actual values
-    };
-    
-    return Value{ .closure = closure };
-}
-```
+### **Secondary Tests** (Once Primary Works)
+1. `lambda variable capture - multiple variables`
+2. `lambda variable capture - nested closures`
+3. `lambda capture - conditional expressions with captures`
 
-#### **3. Update Parameter Binding** [HIGH PRIORITY]
-```zig
-fn handleBindParameters(
-    self: *Self,
-    closure: *const Closure,
-    args: []const Value
-) !void {
-    // First bind captured variables as hidden parameters
-    for (closure.captured_values, 0..) |capture_value, i| {
-        // Bind captures before regular parameters
-        try self.current_context.bindCapture(i, capture_value);
-    }
-    
-    // Then bind regular parameters
-    for (args, closure.args_pattern_span) |arg_value, pattern_idx| {
-        try self.current_context.bindParameter(pattern_idx, arg_value);
-    }
-}
-```
+### **Final Success**
+- All capture tests pass
+- No regression in non-capture tests
+- Clean debug output showing capture flow working correctly
 
-### **Implementation Strategy**
+## 🔍 **Next Session Workflow**
 
-#### **Phase A: Basic Capture Execution** [IMMEDIATE]
-1. **Target**: Get `(|x| |y| x + y)(5)(3)` → `8` working
-2. **Approach**: Minimal changes to handle simple single capture
-3. **Validation**: Test the fully applied lambda: `(|a,b| |c| a + b + c)(1,2)(3)` → `6`
+### **Step 1**: Add test-specific debug filtering
+### **Step 2**: Trace the failing test case end-to-end
+### **Step 3**: Identify where `env_size=1` becomes `env_size=0`
+### **Step 4**: Fix the layout preservation issue
+### **Step 5**: Verify fix and move to next test
 
-#### **Phase B: Complex Capture Support** [FOLLOW-UP]
-1. **Target**: Multiple captures, nested captures
-2. **Approach**: Extend basic implementation
-3. **Validation**: All snapshot tests execute correctly
+### **Key Files to Focus On**
+- `src/eval/interpreter.zig` - Main execution logic
+- `src/eval/eval_test.zig` - Test cases and verification
+- Layout stack operations in function calls/returns
 
-#### **Phase C: Memory Management** [CLEANUP]
-1. **Fix**: Memory leaks in capture allocation
-2. **Optimize**: Capture record reuse where possible
-3. **Test**: Ensure no regressions
+---
 
-## 🧪 **Test-Driven Implementation Plan**
-
-### **Success Criteria**
-Each implementation step validated by:
-
-1. **Unit Tests**: Specific capture scenarios
-2. **Snapshot Tests**: End-to-end compilation pipeline  
-3. **Execution Tests**: Actual value computation
-4. **Memory Tests**: No leaks, proper cleanup
-
-### **Critical Test Cases**
-```roc
-# Basic capture - should work first
-(|x| |y| x + y)(5)(3)  # → 8
-
-# Multi-capture - comprehensive test
-(|a,b| |c| a + b + c)(1,2)(3)  # → 6
-
-# Block expression with captures
-|base| {
-    f = |x| base + x
-    f(10)
-}  # Should work with base captured
-
-# No captures (regression)
-|x| x + 1  # Should continue working
-```
-
-## 🔧 **Implementation Guidelines**
-
-### **Error Handling Philosophy**
-Following Roc's "Inform Don't Block" approach:
-- Never crash on capture-related errors
-- Insert runtime errors and continue
-- Collect diagnostics for later reporting
-
-### **Memory Management**
-- Capture values allocated in closure creation
-- Freed when closure is deallocated
-- Use arena allocation where possible for temporary captures
-
-### **Performance Considerations**
-- Capture record creation is one-time cost
-- Variable lookup in captured environment should be O(1)
-- No significant overhead for non-capturing lambdas
-
-## 📊 **Current Metrics**
-
-### **Test Coverage**
-- ✅ 10 comprehensive snapshot tests
-- ✅ All compiler phases (PARSE → CANONICALIZE → TYPES)
-- ✅ Error cases and edge conditions  
-- ✅ Regression prevention for existing functionality
-
-### **Architecture Health**
-- ✅ Capture detection: 100% accurate
-- ✅ Memory safety: Bounds checking in place
-- ✅ Integration: CIR and NodeStore working
-- ❌ Execution: Not implemented (next phase)
-
-## 🎯 **Next Session Objectives**
-
-### **Primary Goal**
-Complete interpreter implementation for basic captures:
-```roc
-(|x| |y| x + y)(5)(3) → 8  # Must work
-```
-
-### **Secondary Goals**
-1. Fix memory leaks in capture allocation
-2. Validate multi-capture execution
-3. Ensure all snapshot tests execute (not just canonicalize)
-
-### **Success Definition**
-- All existing eval tests pass
-- New capture tests execute and return correct values
-- No memory leaks in capture handling
-- Performance impact minimal for non-capturing lambdas
-
-## 🏆 **Key Achievements So Far**
-
-1. **Architectural Success**: Moved capture analysis to canonicalization ✅
-2. **Integration Success**: CIR and NodeStore handle captures ✅  
-3. **Testing Success**: Comprehensive validation of capture detection ✅
-4. **Quality Success**: No false positives, catches all edge cases ✅
-
-**Bottom Line**: The foundation is rock-solid. Next phase is "just" implementing the interpreter execution logic to use the capture information that's already perfectly detected and stored! 🚀
-
-## 🔄 **Migration Notes**
-
-### **What Changed**
-- Removed complex execution-time capture analysis
-- Removed CaptureAnalysis struct and related code
-- Added capture information to canonicalized lambdas
-- Fixed NodeStore to handle capture storage/retrieval
-
-### **What's Stable**
-- All existing non-capture lambda functionality
-- Parser and tokenizer unchanged
-- Type system integration working
-- Performance of non-capturing lambdas unchanged
-
-### **What's Next**
-- Interpreter update to handle captures in execution
-- Memory management cleanup
-- Performance validation
+**Bottom Line**: The capture detection and approach are correct. We have a specific, debuggable stack management bug. The focused debugging approach should quickly identify and fix the issue, leading to working lambda captures.
