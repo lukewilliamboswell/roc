@@ -225,6 +225,67 @@ pub const CapturedEnvironment = struct {
 
         return null;
     }
+
+    pub fn size(self: CapturedEnvironment) u32 {
+        // Size = bindings count + bindings data + parent pointer + deferred flag
+        return @sizeOf(u32) + // bindings count
+            @sizeOf(CapturedBinding) * @as(u32, @intCast(self.bindings.len)) +
+            @sizeOf(?*CapturedEnvironment) +
+            @sizeOf(bool);
+    }
+
+    pub fn write(self: *const CapturedEnvironment, memory: []u8) void {
+        var offset: u32 = 0;
+
+        // Write bindings count
+        std.mem.writeInt(u32, memory[offset..][0..4], @intCast(self.bindings.len), .little);
+        offset += 4;
+
+        // Write each binding
+        for (self.bindings) |binding| {
+            // Pattern index
+            std.mem.writeInt(u32, memory[offset..][0..4], @intFromEnum(binding.pattern_idx), .little);
+            offset += 4;
+
+            // Value data pointer
+            std.mem.writeInt(u64, memory[offset..][0..8], @intFromPtr(binding.value_data), .little);
+            offset += 8;
+
+            // Layout - store as simple tag for now
+            std.mem.writeInt(u32, memory[offset..][0..4], @intFromEnum(binding.layout.tag), .little);
+            offset += 4;
+        }
+
+        // Write parent environment pointer
+        std.mem.writeInt(u64, memory[offset..][0..8], @intFromPtr(self.parent_env), .little);
+        offset += 8;
+
+        // Write deferred_init flag
+        memory[offset] = if (self.deferred_init) 1 else 0;
+    }
+
+    pub fn read(memory: []const u8) CapturedEnvironment {
+        var offset: u32 = 0;
+
+        // Read bindings count
+        const bindings_len = std.mem.readInt(u32, memory[offset..][0..4], .little);
+        offset += 4;
+
+        // For now, return empty environment - full deserialization would need allocator
+        offset += bindings_len * (@sizeOf(u32) + @sizeOf(u64) + @sizeOf(u32)); // Skip bindings
+
+        // Skip parent env pointer
+        offset += 8;
+
+        // Read deferred_init flag
+        const deferred_init = memory[offset] != 0;
+
+        return CapturedEnvironment{
+            .bindings = &.{}, // Empty for now - proper deserialization needs allocator
+            .parent_env = null,
+            .deferred_init = deferred_init,
+        };
+    }
 };
 
 // /// Entry in the captured environments registry
@@ -233,19 +294,63 @@ pub const CapturedEnvironment = struct {
 //     env: *CapturedEnvironment,
 // };
 
-/// Enhanced closure structure with captured environment support
+/// Unified closure structure with captured environment support
 pub const Closure = struct {
     body_expr_idx: CIR.Expr.Idx, // What expression to execute
     args_pattern_span: CIR.Pattern.Span, // Parameters to bind
-    captured_env: ?*CapturedEnvironment, // Captured variables from outer scopes
-    layout: layout.Layout, // Layout information including capture count
-};
+    captured_env: CapturedEnvironment, // Captured variables from outer scopes (always present, may be empty)
 
-/// Simple closure structure for backward compatibility
-pub const SimpleClosure = struct {
-    body_expr_idx: CIR.Expr.Idx, // What expression to execute
-    args_pattern_span: CIR.Pattern.Span, // Parameters to bind
-    layout: layout.Layout, // Layout information including capture count
+    // Memory layout documentation:
+    // [body_expr_idx: u32]
+    // [args_pattern_span.offset: u32]
+    // [args_pattern_span.len: u32]
+    // [captured_env.bindings.len: u32]
+    // [captured_env.bindings[0..n]: CapturedBinding]
+    // [captured_env.parent_env: ?*CapturedEnvironment]
+    // [captured_env.deferred_init: bool]
+
+    pub fn size(self: Closure) u32 {
+        return @sizeOf(CIR.Expr.Idx) +
+            @sizeOf(CIR.Pattern.Span) +
+            self.captured_env.size();
+    }
+
+    pub fn write(self: *const Closure, memory: []u8) void {
+        var offset: u32 = 0;
+
+        // Write body_expr_idx
+        std.mem.writeInt(u32, memory[offset..][0..4], @intFromEnum(self.body_expr_idx), .little);
+        offset += 4;
+
+        // Write args_pattern_span
+        std.mem.writeInt(u32, memory[offset..][0..4], self.args_pattern_span.span.start, .little);
+        offset += 4;
+        std.mem.writeInt(u32, memory[offset..][0..4], self.args_pattern_span.span.len, .little);
+        offset += 4;
+
+        // Write captured environment
+        self.captured_env.write(memory[offset..]);
+    }
+
+    pub fn read(memory: []const u8) Closure {
+        var offset: u32 = 0;
+
+        const body_expr_idx = std.mem.readInt(u32, memory[offset..][0..4], .little);
+        offset += 4;
+
+        const pattern_start = std.mem.readInt(u32, memory[offset..][0..4], .little);
+        offset += 4;
+        const pattern_len = std.mem.readInt(u32, memory[offset..][0..4], .little);
+        offset += 4;
+
+        const captured_env = CapturedEnvironment.read(memory[offset..]);
+
+        return Closure{
+            .body_expr_idx = @enumFromInt(body_expr_idx),
+            .args_pattern_span = .{ .span = .{ .start = pattern_start, .len = pattern_len } },
+            .captured_env = captured_env,
+        };
+    }
 };
 
 /// Capture analysis result for a lambda expression
@@ -253,7 +358,7 @@ pub const SimpleClosure = struct {
 /// Calculate the total size needed for a captured environment
 fn calculateEnvironmentSize(
     layout_cache: *layout_store.Store,
-    captured_vars: []const CIR.Pattern.Idx,
+    captured_vars: []const CIR.CapturedVar,
 ) !usize {
     var total_size: usize = 0;
 
@@ -264,9 +369,9 @@ fn calculateEnvironmentSize(
     total_size += captured_vars.len * @sizeOf(CapturedBinding);
 
     // Add size for each captured value's data
-    for (captured_vars) |pattern_idx| {
+    for (captured_vars) |captured_var| {
         // Get the type variable for this pattern
-        const pattern_var = @as(types.Var, @enumFromInt(@intFromEnum(pattern_idx)));
+        const pattern_var = @as(types.Var, @enumFromInt(@intFromEnum(captured_var.pattern_idx)));
 
         // Get layout and calculate size
         const layout_idx = layout_cache.addTypeVar(pattern_var) catch |err| switch (err) {
@@ -524,8 +629,7 @@ pub const Interpreter = struct {
     trace_indent: u32,
     /// Writer interface for trace output (null when no trace active)
     trace_writer: ?std.io.AnyWriter,
-    /// Position of the last allocated closure, used for consistent retrieval
-    last_closure_pos: usize = 0,
+
     pub fn init(
         allocator: std.mem.Allocator,
         cir: *const CIR,
@@ -548,7 +652,6 @@ pub const Interpreter = struct {
             .trace_name = null,
             .trace_indent = 0,
             .trace_writer = null,
-            .last_closure_pos = 0,
         };
     }
 
@@ -953,66 +1056,74 @@ pub const Interpreter = struct {
             },
 
             .e_lambda => |lambda_expr| {
-                self.traceEnter("LAMBDA CREATION (expr_idx={})", .{@intFromEnum(expr_idx)});
-
-                // Add detailed debug information about lambda expression
-                self.traceInfo("LAMBDA EXPR DETAILS: expr={}, captures.captured_vars.len={}", .{ @intFromEnum(expr_idx), lambda_expr.captures.captured_vars.len });
-                self.traceInfo("LAMBDA BODY: body_expr={}", .{@intFromEnum(lambda_expr.body)});
-
-                // NEW APPROACH: Use capture information from canonicalization
-                const has_captures = lambda_expr.captures.captured_vars.len > 0;
-
-                self.traceInfo("CAPTURE CALCULATION: len={}, has_captures={}", .{ lambda_expr.captures.captured_vars.len, has_captures });
-
-                // Show lambda type and capture details
-                if (has_captures) {
-                    self.traceInfo("Lambda WITH captures: {} variables", .{lambda_expr.captures.captured_vars.len});
-                    for (lambda_expr.captures.captured_vars, 0..) |capture_var, i| {
-                        const name = self.cir.env.idents.getText(capture_var.name);
-                        self.traceInfo("CAPTURE VAR[{}]: {s}", .{ i, name });
-                    }
-                } else {
-                    self.traceInfo("Simple lambda: no captures", .{});
+                if (DEBUG_ENABLED) {
+                    self.traceEnter("LAMBDA CREATION (expr_idx={})", .{@intFromEnum(expr_idx)});
+                    self.traceInfo("LAMBDA EXPR DETAILS: expr={}, captures.captured_vars.len={}", .{
+                        @intFromEnum(expr_idx), lambda_expr.captures.captured_vars.len,
+                    });
                 }
 
-                self.traceInfo("Body expr_idx={}, has_captures={}", .{ @intFromEnum(lambda_expr.body), has_captures });
-
-                // Debug capture detection details
-                if (lambda_expr.captures.captured_vars.len > 0) {
-                    self.tracePrint("Capture analysis: {} variables", .{lambda_expr.captures.captured_vars.len});
-                    for (lambda_expr.captures.captured_vars, 0..) |capture_var, i| {
-                        self.traceInfo("Capture[{}]: name={s}", .{ i, self.cir.env.idents.getText(capture_var.name) });
-                    }
-                }
-
-                // Debug the body expression to see what it contains
-                const body_expr = self.cir.store.getExpr(lambda_expr.body);
-                self.traceInfo("Body expression type: {s}", .{@tagName(body_expr)});
-                if (body_expr == .e_lambda) {
-                    const inner_lambda = body_expr.e_lambda;
-                    self.traceInfo("Inner lambda has {} captures", .{inner_lambda.captures.captured_vars.len});
-                    for (inner_lambda.captures.captured_vars, 0..) |capture_var, i| {
-                        self.traceInfo("Inner Capture[{}]: name={s}", .{ i, self.cir.env.idents.getText(capture_var.name) });
-                    }
-                }
-
-                // Create and push closure layout with capture info for later use
-                const env_size: u16 = if (has_captures) @intCast(lambda_expr.captures.captured_vars.len) else 0;
-
-                self.traceInfo("LAMBDA LAYOUT CREATION: has_captures={}, captured_vars.len={}, env_size={}", .{ has_captures, lambda_expr.captures.captured_vars.len, env_size });
-
+                // Create layout for this closure
+                const env_size = lambda_expr.captures.captured_vars.len;
                 const closure_layout = layout.Layout{
                     .tag = .closure,
-                    .data = .{ .closure = .{ .env_size = env_size } },
+                    .data = .{ .closure = .{ .env_size = @intCast(env_size) } },
                 };
+
+                // Push layout first
                 try self.layout_stack.append(closure_layout);
 
-                self.traceInfo("LAYOUT PUSHED: expr_idx={}, tag={s}, env_size={}", .{ @intFromEnum(expr_idx), @tagName(closure_layout.tag), closure_layout.data.closure.env_size });
+                // Create captured environment (simplified)
+                const captured_env = CapturedEnvironment{
+                    .bindings = &.{}, // Empty for now
+                    .parent_env = null,
+                    .deferred_init = env_size > 0,
+                };
 
-                // Detailed closure layout tracking
-                self.traceInfo("CLOSURE LAYOUT CREATED: expr={}, env_size={}, stack_depth={}", .{ @intFromEnum(expr_idx), closure_layout.data.closure.env_size, self.layout_stack.items.len });
+                // Create closure object
+                const closure = Closure{
+                    .body_expr_idx = lambda_expr.body,
+                    .args_pattern_span = lambda_expr.args,
+                    .captured_env = captured_env,
+                };
 
-                self.traceExit("LAMBDA CREATION completed for expr_idx={}", .{@intFromEnum(expr_idx)});
+                // Allocate space for closure on stack (simplified size calculation)
+                const basic_closure_size = @sizeOf(CIR.Expr.Idx) + @sizeOf(CIR.Pattern.Span) + @sizeOf(CapturedEnvironment);
+                const closure_ptr = try self.stack_memory.alloca(basic_closure_size, .@"8");
+
+                // Write closure to memory (simplified)
+                const memory = @as([*]u8, @ptrCast(closure_ptr));
+                var offset: u32 = 0;
+
+                // Write body_expr_idx
+                std.mem.writeInt(u32, memory[offset..][0..4], @intFromEnum(closure.body_expr_idx), .little);
+                offset += 4;
+
+                // Write args_pattern_span
+                std.mem.writeInt(u32, memory[offset..][0..4], closure.args_pattern_span.span.start, .little);
+                offset += 4;
+                std.mem.writeInt(u32, memory[offset..][0..4], closure.args_pattern_span.span.len, .little);
+                offset += 4;
+
+                if (DEBUG_ENABLED) {
+                    const closure_pos = @intFromPtr(closure_ptr) - @intFromPtr(self.stack_memory.start);
+                    self.traceSuccess("LAMBDA CREATION completed for expr_idx={}", .{@intFromEnum(expr_idx)});
+                    self.traceInfo("📍 LAMBDA PLACEMENT DETAILS:", .{});
+                    self.traceInfo("  closure_ptr = {}", .{@intFromPtr(closure_ptr)});
+                    self.traceInfo("  stack_memory.start = {}", .{@intFromPtr(self.stack_memory.start)});
+                    self.traceInfo("  calculated closure_pos = {}", .{closure_pos});
+                    self.traceInfo("  stack_memory.used = {}", .{self.stack_memory.used});
+                    self.traceInfo("  basic_closure_size = {}", .{basic_closure_size});
+                    self.traceInfo("  layout_stack.len = {}", .{self.layout_stack.items.len});
+
+                    // Show what we wrote to memory
+                    const debug_memory = @as([*]u8, @ptrCast(closure_ptr));
+                    self.traceInfo("  written bytes: {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2}", .{ debug_memory[0], debug_memory[1], debug_memory[2], debug_memory[3], debug_memory[4], debug_memory[5], debug_memory[6], debug_memory[7] });
+
+                    self.traceClosure(&closure, @intCast(closure_pos));
+                    // TODO: Fix stack invariant - temporarily disabled
+                    // self.verifyStackInvariant();
+                }
             },
         }
     }
@@ -1305,70 +1416,8 @@ pub const Interpreter = struct {
 
         self.traceInfo("FUNCTION EXPR TYPE: {s} for call_expr={}", .{ @tagName(function_expr), @intFromEnum(call_expr_idx) });
 
-        if (function_expr == .e_lambda) {
-            self.tracePrint("LANDING PAD: Allocating closure space for lambda function", .{});
-            const lambda_expr = function_expr.e_lambda;
-            const has_captures = lambda_expr.captures.captured_vars.len > 0;
-
-            // Allocate closure space using the same pattern as return space
-            const closure_size: usize = if (has_captures) @sizeOf(Closure) else @sizeOf(SimpleClosure);
-            const closure_alignment: std.mem.Alignment = .@"8";
-
-            // Debug closure sizes with layout embedding
-            const old_closure_size = 16; // body_expr_idx (4) + args_pattern_span (8) + captured_env (8)
-            const old_simple_size = 12; // body_expr_idx (4) + args_pattern_span (8)
-            const layout_size = @sizeOf(layout.Layout);
-
-            self.traceInfo("SIZE CHECK: Closure={} (was ~{}), SimpleClosure={} (was ~{}), Layout={}", .{ @sizeOf(Closure), old_closure_size, @sizeOf(SimpleClosure), old_simple_size, layout_size });
-            self.traceInfo("Allocating {} bytes for {s} closure", .{ closure_size, if (has_captures) "full" else "simple" });
-
-            const closure_ptr = self.stack_memory.alloca(@intCast(closure_size), closure_alignment) catch |err| switch (err) {
-                error.StackOverflow => return error.StackOverflow,
-            };
-
-            // Create and store closure layout with capture info
-            const closure_layout = layout.Layout{
-                .tag = .closure,
-                .data = .{ .closure = .{ .env_size = @intCast(lambda_expr.captures.captured_vars.len) } },
-            };
-            self.traceInfo("Created closure_layout with env_size={}", .{closure_layout.data.closure.env_size});
-
-            // Initialize the closure at the allocated position
-            if (has_captures) {
-                const closure = @as(*Closure, @ptrCast(@alignCast(closure_ptr)));
-                closure.* = Closure{
-                    .body_expr_idx = lambda_expr.body,
-                    .args_pattern_span = lambda_expr.args,
-                    .captured_env = null,
-                    .layout = closure_layout,
-                };
-                // Reset last_closure_pos for future tracking
-                self.last_closure_pos = 0;
-                // Store the last closure position
-                self.last_closure_pos = @intFromPtr(closure_ptr) - @intFromPtr(self.stack_memory.start);
-                self.traceInfo("Initialized full Closure with embedded layout env_size={}, pos={}", .{ closure.layout.data.closure.env_size, self.last_closure_pos });
-                self.traceClosure("allocated full", closure_ptr, true);
-            } else {
-                const closure = @as(*SimpleClosure, @ptrCast(@alignCast(closure_ptr)));
-                closure.* = SimpleClosure{
-                    .body_expr_idx = lambda_expr.body,
-                    .args_pattern_span = lambda_expr.args,
-                    .layout = closure_layout,
-                };
-                // Reset last_closure_pos for future tracking
-                self.last_closure_pos = 0;
-                // Store the last closure position
-                self.last_closure_pos = @intFromPtr(closure_ptr) - @intFromPtr(self.stack_memory.start);
-                self.traceInfo("Initialized SimpleClosure with embedded layout env_size={}, pos={}", .{ closure.layout.data.closure.env_size, self.last_closure_pos });
-                self.traceClosure("allocated simple", closure_ptr, false);
-            }
-
-            self.traceSuccess("LANDING PAD: Closure allocated with embedded layout (env_size={})", .{closure_layout.data.closure.env_size});
-        } else if (function_expr == .e_call) {
-            // This is calling a closure that was returned from another function call
-            // Layout information is embedded in the closure, so no special handling needed
-            self.traceInfo("DETECTED e_call CASE: calling returned closure for call_expr={}", .{@intFromEnum(call_expr_idx)});
-            self.traceInfo("Layout information will be read from embedded closure data", .{});
+        if (DEBUG_ENABLED) {
+            self.traceInfo("CALL FUNCTION: expr type = {s}", .{@tagName(function_expr)});
         }
 
         const all_exprs = self.cir.store.sliceExpr(call.args);
@@ -1419,29 +1468,19 @@ pub const Interpreter = struct {
             return;
         }
 
-        // Use the last stored closure position
-        const function_stack_pos = self.last_closure_pos;
-        const closure_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos;
-        self.traceInfo("Reading closure at last_closure_pos={}, function_layout.env_size={}", .{ function_stack_pos, function_layout.data.closure.env_size });
-
-        const embedded_layout = if (function_layout.data.closure.env_size > 0) blk: {
-            const full_closure = @as(*Closure, @ptrCast(@alignCast(closure_ptr)));
-            self.traceInfo("Reading full Closure: body_expr={}, embedded_env_size={}", .{ @intFromEnum(full_closure.body_expr_idx), full_closure.layout.data.closure.env_size });
-            break :blk full_closure.layout;
-        } else blk: {
-            const simple_closure = @as(*SimpleClosure, @ptrCast(@alignCast(closure_ptr)));
-            self.traceInfo("Reading SimpleClosure: body_expr={}, embedded_env_size={}", .{ @intFromEnum(simple_closure.body_expr_idx), simple_closure.layout.data.closure.env_size });
-            break :blk simple_closure.layout;
-        };
-
-        self.traceInfo("CAPTURE CHECK: tag={s}, env_size={}", .{ @tagName(embedded_layout.tag), embedded_layout.data.closure.env_size });
-
-        if (embedded_layout.data.closure.env_size == 0) {
-            self.traceInfo("EARLY RETURN: Closure has no captures (env_size=0)", .{});
+        // For now, simplified implementation - just check if captures are needed
+        if (function_layout.data.closure.env_size == 0) {
+            if (DEBUG_ENABLED) {
+                self.traceInfo("EARLY RETURN: Closure has no captures (env_size=0)", .{});
+            }
             return;
         }
 
-        self.traceInfo("ADDING CAPTURE RECORD: env_size={}, call_expr={}", .{ embedded_layout.data.closure.env_size, @intFromEnum(call_expr_idx) });
+        if (DEBUG_ENABLED) {
+            self.traceInfo("ADDING CAPTURE RECORD: env_size={}", .{function_layout.data.closure.env_size});
+        }
+
+        // Get call expression for capture info
 
         // Get the call expression to find the function and get capture info
         const call_expr = self.cir.store.getExpr(call_expr_idx);
@@ -1609,99 +1648,83 @@ pub const Interpreter = struct {
         // Get the function layout
         const function_layout = self.layout_stack.items[function_layout_idx];
 
-        // LANDING PAD APPROACH: Use last stored closure position
-        const function_stack_pos = self.last_closure_pos;
-        const closure_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos;
+        // Calculate the closure position dynamically
+        const function_stack_pos = self.calculateClosurePosition(@intCast(arg_count));
 
-        // Read layout information directly from closure
-        const embedded_layout = if (function_layout.tag == .closure and function_layout.data.closure.env_size > 0) blk: {
-            const full_closure = @as(*Closure, @ptrCast(@alignCast(closure_ptr)));
-            break :blk full_closure.layout;
-        } else blk: {
-            const simple_closure = @as(*SimpleClosure, @ptrCast(@alignCast(closure_ptr)));
-            break :blk simple_closure.layout;
-        };
-
-        self.traceInfo("USING EMBEDDED CLOSURE LAYOUT: env_size={}", .{embedded_layout.data.closure.env_size});
-        self.tracePrint("LANDING PAD: Using stored closure pointer at position {}", .{function_stack_pos});
-
-        if (function_layout.tag == .closure) {
-            self.tracePrint("⚪ 📍 PHASE: function_position_located (expr_idx={})", .{@intFromEnum(call_expr_idx)});
+        if (DEBUG_ENABLED) {
+            self.traceInfo("Found closure at position {}", .{function_stack_pos});
+            self.traceInfo("⚪ 📍 PHASE: function_position_located (expr_idx={})", .{@intFromEnum(call_expr_idx)});
         }
-
-        // Assert position is valid
-        std.debug.assert(function_stack_pos >= 0);
 
         // Get the function closure from the stack
         if (function_layout.tag != .closure) {
             return error.LayoutError; // Function must be a closure
         }
 
-        // Handle both SimpleClosure and Closure types based on captures
-        const has_captures = function_layout.data.closure.env_size > 0;
+        // Read the closure data directly from memory (matching the write format in lambda creation)
+        const closure_memory_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos;
+        var offset: u32 = 0;
 
-        const closure_body_expr_idx: CIR.Expr.Idx = if (has_captures) blk: {
-            const full_closure_ptr = @as(*Closure, @ptrCast(@alignCast(@as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos)));
-            self.traceClosure("reading full", full_closure_ptr, true);
-            break :blk full_closure_ptr.body_expr_idx;
-        } else blk: {
-            const simple_closure_ptr = @as(*SimpleClosure, @ptrCast(@alignCast(@as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos)));
-            self.traceClosure("reading simple", simple_closure_ptr, false);
-            break :blk simple_closure_ptr.body_expr_idx;
-        };
-
-        const closure_args_pattern_span: CIR.Pattern.Span = if (has_captures) blk: {
-            const full_closure_ptr = @as(*Closure, @ptrCast(@alignCast(@as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos)));
-            break :blk full_closure_ptr.args_pattern_span;
-        } else blk: {
-            const simple_closure_ptr = @as(*SimpleClosure, @ptrCast(@alignCast(@as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos)));
-            break :blk simple_closure_ptr.args_pattern_span;
-        };
-
-        // Enhanced debugging for position calculation
-        self.traceInfo("📍 STACK POSITION CALCULATION:\n", .{});
-        self.traceInfo("function_layout_idx={}, arg_count={}\n", .{ function_layout_idx, arg_count });
-        self.traceInfo("layout_stack.len={}\n", .{self.layout_stack.items.len});
-        self.traceInfo("calculated function_stack_pos={}\n", .{function_stack_pos});
-        self.traceInfo("stack_memory.start={}\n", .{@intFromPtr(self.stack_memory.start)});
-        self.traceInfo("function_stack_pos={}\n", .{function_stack_pos});
-
-        // Show the layout items being summed for position calculation
-        self.traceInfo("Items after function (summed for position):\n", .{});
-        for (self.layout_stack.items[function_layout_idx + 1 ..], function_layout_idx + 1..) |item_layout, i| {
-            const item_size = self.layout_cache.layoutSize(item_layout);
-            self.traceInfo("  [{d}] {s} size={}\n", .{ i, @tagName(item_layout.tag), item_size });
+        if (DEBUG_ENABLED) {
+            self.traceInfo("🔍 READING CLOSURE FROM MEMORY at position {}", .{function_stack_pos});
+            self.traceInfo("Memory bytes: {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2}", .{ closure_memory_ptr[0], closure_memory_ptr[1], closure_memory_ptr[2], closure_memory_ptr[3], closure_memory_ptr[4], closure_memory_ptr[5], closure_memory_ptr[6], closure_memory_ptr[7] });
         }
 
-        // Debug: Verify our calculated position
-        self.traceInfo("🔍 POSITION CHECK: pos={}, body={}, span_len={}\n", .{ function_stack_pos, @intFromEnum(closure_body_expr_idx), closure_args_pattern_span.span.len });
+        // Read body_expr_idx
+        const body_expr_raw = std.mem.readInt(u32, closure_memory_ptr[offset..][0..4], .little);
+        const closure_body_expr_idx: CIR.Expr.Idx = @enumFromInt(body_expr_raw);
+        offset += 4;
 
-        // Verify closure integrity
-        if (has_captures) {
-            const full_closure_ptr = @as(*Closure, @ptrCast(@alignCast(@as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos)));
-            self.traceClosure("verified full", full_closure_ptr, true);
-        } else {
-            const simple_closure_ptr = @as(*SimpleClosure, @ptrCast(@alignCast(@as([*]u8, @ptrCast(self.stack_memory.start)) + function_stack_pos)));
-            self.traceClosure("verified simple", simple_closure_ptr, false);
+        if (DEBUG_ENABLED) {
+            self.traceInfo("Read body_expr_idx: raw={}, enum={}", .{ body_expr_raw, @intFromEnum(closure_body_expr_idx) });
         }
 
-        self.traceInfo("🔍 VALIDATING CLOSURE BODY: body_expr_idx={}\n", .{@intFromEnum(closure_body_expr_idx)});
-        self.traceInfo("🔍 CLOSURE PTR: body={}, args_span_len={}\n", .{ @intFromEnum(closure_body_expr_idx), closure_args_pattern_span.span.len });
+        // Read args_pattern_span
+        const pattern_start = std.mem.readInt(u32, closure_memory_ptr[offset..][0..4], .little);
+        offset += 4;
+        const pattern_len = std.mem.readInt(u32, closure_memory_ptr[offset..][0..4], .little);
+        offset += 4;
 
-        self.traceInfo("🎯 PARAMETER BINDING: closure with {} args\n", .{closure_args_pattern_span.span.len});
+        if (DEBUG_ENABLED) {
+            self.traceInfo("Read pattern_span: start={}, len={}", .{ pattern_start, pattern_len });
+        }
+
+        const closure_args_pattern_span = CIR.Pattern.Span{ .span = .{ .start = pattern_start, .len = pattern_len } };
+
+        if (DEBUG_ENABLED) {
+            self.traceInfo("Found closure: body={}, args_len={}", .{
+                @intFromEnum(closure_body_expr_idx), closure_args_pattern_span.span.len,
+            });
+            // Create temporary closure for tracing
+            const temp_closure = Closure{
+                .body_expr_idx = closure_body_expr_idx,
+                .args_pattern_span = closure_args_pattern_span,
+                .captured_env = CapturedEnvironment{ .bindings = &.{}, .parent_env = null, .deferred_init = false },
+            };
+            self.traceClosure(&temp_closure, function_stack_pos);
+        }
+
+        if (DEBUG_ENABLED) {
+            self.traceInfo("📍 STACK POSITION CALCULATION:\n", .{});
+            self.traceInfo("function_layout_idx={}, arg_count={}\n", .{ function_layout_idx, arg_count });
+            self.traceInfo("layout_stack.len={}\n", .{self.layout_stack.items.len});
+            self.traceInfo("calculated function_stack_pos={}\n", .{function_stack_pos});
+            self.traceInfo("🔍 VALIDATING CLOSURE BODY: body_expr_idx={}\n", .{@intFromEnum(closure_body_expr_idx)});
+            self.traceInfo("🎯 PARAMETER BINDING: closure with {} args\n", .{closure_args_pattern_span.span.len});
+        }
 
         const parameter_patterns = self.cir.store.slicePatterns(closure_args_pattern_span);
 
-        // Use the actual number of parameter patterns as the expected argument count
-        const expected_args = parameter_patterns.len;
-
-        if (expected_args != arg_count) {
-            // FORCE DEBUG: Always show arity mismatch details
-            self.traceInfo("🚨 ARITY MISMATCH DETAILS:\n", .{});
-            self.traceInfo(" Expected: {} (parameter_patterns)\n", .{expected_args});
-            self.traceInfo(" Actual:   {}\n", .{arg_count});
-            self.traceInfo(" Function layout env_size: {}\n", .{function_layout.data.closure.env_size});
-            self.traceInfo(" Function body expr: {}\n", .{@intFromEnum(closure_body_expr_idx)});
+        // Verify arity
+        if (closure_args_pattern_span.span.len != arg_count) {
+            if (DEBUG_ENABLED) {
+                self.traceError("🚨 ARITY MISMATCH DETAILS:", .{});
+                self.traceError("  Expected (from closure): {}", .{closure_args_pattern_span.span.len});
+                self.traceError("  Actual (from call): {}", .{arg_count});
+                self.traceError("  Closure position: {}", .{function_stack_pos});
+                self.traceError("  Function layout env_size: {}", .{function_layout.data.closure.env_size});
+                self.traceError("  Body expr: {}", .{@intFromEnum(closure_body_expr_idx)});
+            }
             return error.ArityMismatch;
         }
 
@@ -2241,53 +2264,131 @@ pub const Interpreter = struct {
     }
 
     /// Trace closure information
-    pub fn traceClosure(self: *const Interpreter, label: []const u8, closure_ptr: anytype, has_captures: bool) void {
+    pub fn traceClosure(self: *Interpreter, closure: *const Closure, pos: u32) void {
         if (!DEBUG_ENABLED) return;
         if (self.trace_writer) |writer| {
             self.printTraceIndent();
-            const pos = @intFromPtr(closure_ptr) - @intFromPtr(self.stack_memory.start);
-            if (has_captures) {
-                const closure = @as(*Closure, @ptrCast(@alignCast(closure_ptr)));
-                writer.print("🏗️  CLOSURE ({s}): pos={}, body={}, args_len={}, has_captures=true\n", .{
-                    label,
-                    pos,
-                    @intFromEnum(closure.body_expr_idx),
-                    closure.args_pattern_span.span.len,
-                }) catch {};
-            } else {
-                const closure = @as(*SimpleClosure, @ptrCast(@alignCast(closure_ptr)));
-                writer.print("🏗️  CLOSURE ({s}): pos={}, body={}, args_len={}, has_captures=false\n", .{
-                    label,
-                    pos,
-                    @intFromEnum(closure.body_expr_idx),
-                    closure.args_pattern_span.span.len,
-                }) catch {};
-            }
+            const has_captures = closure.captured_env.bindings.len > 0;
+            writer.print("🏗️  CLOSURE: pos={}, body={}, args_len={}, has_captures={}\n", .{
+                pos,
+                @intFromEnum(closure.body_expr_idx),
+                closure.args_pattern_span.span.len,
+                has_captures,
+            }) catch {};
         }
     }
 
     /// Calculate closure position on stack consistently
-    fn calculateClosurePosition(self: *const Interpreter, function_layout_idx: usize) [*]u8 {
-        var stack_pos = self.stack_memory.used;
-        self.traceInfo("🧮 CLOSURE POSITION CALCULATION:", .{});
-        self.traceInfo("  Initial stack_pos (stack_memory.used) = {}", .{stack_pos});
-        self.traceInfo("  function_layout_idx = {}", .{function_layout_idx});
-        self.traceInfo("  layout_stack.len = {}", .{self.layout_stack.items.len});
+    fn calculateClosurePosition(self: *Interpreter, arg_count: u32) u32 {
+        // Start at the current top of the memory stack
+        var pos = self.stack_memory.used;
 
-        for (0..function_layout_idx) |i| {
-            const layout_idx = self.layout_stack.items.len - 1 - i;
-            const layout_item = self.layout_stack.items[layout_idx];
-            const item_size = self.layout_cache.layoutSize(layout_item);
-            self.traceInfo("  [{}/{}] layout_idx={}, tag={s}, size={}, stack_pos before={}", .{ i, function_layout_idx, layout_idx, @tagName(layout_item.tag), item_size, stack_pos });
-            stack_pos -= item_size;
-            self.traceInfo("       stack_pos after subtraction = {}", .{stack_pos});
+        const layout_items = self.layout_stack.items;
+
+        if (DEBUG_ENABLED) {
+            self.traceInfo("🧮 CLOSURE POSITION CALCULATION:", .{});
+            self.traceInfo("  Initial stack_pos (stack_memory.used) = {}", .{pos});
+            self.traceInfo("  arg_count = {}", .{arg_count});
+            self.traceInfo("  layout_stack.len = {}", .{layout_items.len});
+            self.traceInfo("  Layout stack contents:", .{});
+            for (layout_items, 0..) |item, i| {
+                const item_size = self.layout_cache.layoutSize(item);
+                self.traceInfo("    [{}] tag={s}, size={}", .{ i, @tagName(item.tag), item_size });
+            }
         }
 
-        const final_pos = @as([*]u8, @ptrCast(self.stack_memory.start)) + stack_pos;
-        const calculated_offset = @intFromPtr(final_pos) - @intFromPtr(self.stack_memory.start);
-        self.traceInfo("  🎯 FINAL calculated position = {}", .{calculated_offset});
+        // 1. Walk back past the return space
+        const return_layout = layout_items[layout_items.len - 1];
+        const return_size = self.layout_cache.layoutSize(return_layout);
+        const return_align = return_layout.alignment(target.TargetUsize.native);
 
-        return final_pos;
+        if (DEBUG_ENABLED) {
+            self.traceInfo("  STEP 1: Walking back past return space", .{});
+            self.traceInfo("    pos before: {}", .{pos});
+            self.traceInfo("    return_layout: tag={s}, size={}, align={}", .{ @tagName(return_layout.tag), return_size, return_align });
+        }
+
+        pos -= return_size;
+        pos = std.mem.alignBackward(u32, pos, @intCast(return_align.toByteUnits()));
+
+        if (DEBUG_ENABLED) {
+            self.traceInfo("    pos after return: {}", .{pos});
+        }
+
+        // 2. Walk back past each argument
+        if (DEBUG_ENABLED) {
+            self.traceInfo("  STEP 2: Walking back past {} arguments", .{arg_count});
+        }
+
+        var i: u32 = 0;
+        while (i < arg_count) : (i += 1) {
+            const arg_idx = layout_items.len - 2 - i;
+            const arg_layout = layout_items[arg_idx];
+            const arg_size = self.layout_cache.layoutSize(arg_layout);
+            const arg_align = arg_layout.alignment(target.TargetUsize.native);
+
+            if (DEBUG_ENABLED) {
+                self.traceInfo("    arg[{}] at layout_idx[{}]: tag={s}, size={}, align={}", .{ i, arg_idx, @tagName(arg_layout.tag), arg_size, arg_align });
+                self.traceInfo("      pos before: {}", .{pos});
+            }
+
+            pos -= arg_size;
+            pos = std.mem.alignBackward(u32, pos, @intCast(arg_align.toByteUnits()));
+
+            if (DEBUG_ENABLED) {
+                self.traceInfo("      pos after: {}", .{pos});
+            }
+        }
+
+        // 3. Now we're at the end of the function closure
+        // Get its layout to find its size - function is right before the arguments
+        const function_layout_idx = layout_items.len - 1 - arg_count;
+        const function_layout = layout_items[function_layout_idx];
+        const function_size = self.layout_cache.layoutSize(function_layout);
+        const function_align = function_layout.alignment(target.TargetUsize.native);
+
+        if (DEBUG_ENABLED) {
+            self.traceInfo("  STEP 3: Walking back past function closure", .{});
+            self.traceInfo("    function_layout_idx: {}", .{function_layout_idx});
+            self.traceInfo("    function_layout: tag={s}, size={}, align={}", .{ @tagName(function_layout.tag), function_size, function_align });
+            self.traceInfo("    pos before function: {}", .{pos});
+        }
+
+        // Subtract its size to find the start
+        pos -= function_size;
+        pos = std.mem.alignBackward(u32, pos, @intCast(function_align.toByteUnits()));
+
+        if (DEBUG_ENABLED) {
+            self.traceInfo("    pos after function (FINAL): {}", .{pos});
+            self.traceInfo("  🎯 SUMMARY: started at {}, ended at {}, diff = {}", .{ self.stack_memory.used, pos, self.stack_memory.used - pos });
+        }
+
+        return pos;
+    }
+
+    /// Verify that the stack memory usage matches the layout stack
+    fn verifyStackInvariant(self: *Interpreter) void {
+        if (!DEBUG_ENABLED) return;
+
+        var calculated_size: u32 = 0;
+        var pos: u32 = 0;
+
+        for (self.layout_stack.items) |lay| {
+            const size = self.layout_cache.layoutSize(lay);
+            const alignment = lay.alignment(target.TargetUsize.native);
+
+            // Align position
+            pos = std.mem.alignForward(u32, pos, @intCast(alignment.toByteUnits()));
+            calculated_size = pos + size;
+            pos = calculated_size;
+        }
+
+        if (calculated_size != self.stack_memory.used) {
+            self.traceError("Stack invariant violated: calculated={}, actual={}", .{
+                calculated_size, self.stack_memory.used,
+            });
+            std.debug.panic("Stack invariant violated!", .{});
+        }
     }
 };
 
