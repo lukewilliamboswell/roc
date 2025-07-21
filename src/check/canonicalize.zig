@@ -2213,6 +2213,9 @@ pub fn canonicalizeExpr(
             };
 
             // Get captures from current function context and clean up
+            var captured_vars_to_free: ?[]CIR.Expr.CapturedVar = null;
+            defer if (captured_vars_to_free) |vars| self.can_ir.env.gpa.free(vars);
+
             const capture_info = blk: {
                 var context = self.exitFunctionContext();
                 defer context.deinit();
@@ -2220,6 +2223,7 @@ pub fn canonicalizeExpr(
                 if (context.captures.items.len > 0) {
                     // Convert captures to Expression.CapturedVar format
                     const captured_vars = try self.can_ir.env.gpa.alloc(CIR.Expr.CapturedVar, context.captures.items.len);
+                    captured_vars_to_free = captured_vars;
                     for (context.captures.items, 0..) |capture, i| {
                         captured_vars[i] = CIR.Expr.CapturedVar{
                             .name = capture.name,
