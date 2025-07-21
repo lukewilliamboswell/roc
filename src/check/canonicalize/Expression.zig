@@ -251,6 +251,7 @@ pub const Expr = union(enum) {
     e_lambda: struct {
         args: Pattern.Span,
         body: Expr.Idx,
+        captures: CaptureInfo,
     },
     /// Binary operation between two expressions.
     /// Includes arithmetic, comparison, logical, and pipe operators.
@@ -787,6 +788,21 @@ pub const Expr = union(enum) {
                 }
                 try tree.endNode(args_begin, args_attrs);
 
+                // Display capture information if present
+                if (lambda_expr.captures.captured_vars.len > 0) {
+                    const captures_begin = tree.beginNode();
+                    try tree.pushStaticAtom("captures");
+                    const captures_attrs = tree.beginNode();
+                    for (lambda_expr.captures.captured_vars) |captured_var| {
+                        const capture_begin = tree.beginNode();
+                        try tree.pushStaticAtom("capture");
+                        try tree.pushStringPair("name", ir.getIdentText(captured_var.name));
+                        const capture_attrs = tree.beginNode();
+                        try tree.endNode(capture_begin, capture_attrs);
+                    }
+                    try tree.endNode(captures_begin, captures_attrs);
+                }
+
                 try ir.store.getExpr(lambda_expr.body).pushToSExprTree(ir, tree, lambda_expr.body);
 
                 try tree.endNode(begin, attrs);
@@ -1030,5 +1046,25 @@ pub const Expr = union(enum) {
 
             try tree.endNode(begin, attrs);
         }
+    };
+
+    /// Represents a variable captured by a lambda
+    pub const CapturedVar = struct {
+        name: base.Ident.Idx,
+        pattern_idx: Pattern.Idx,
+        scope_depth: u32,
+    };
+
+    /// Capture information for lambda expressions
+    pub const CaptureInfo = struct {
+        /// Variables captured by this lambda
+        captured_vars: []const CapturedVar,
+        /// Pre-computed record pattern for captures (optimization)
+        capture_pattern_idx: ?Pattern.Idx,
+
+        pub const empty = CaptureInfo{
+            .captured_vars = &[_]CapturedVar{},
+            .capture_pattern_idx = null,
+        };
     };
 };

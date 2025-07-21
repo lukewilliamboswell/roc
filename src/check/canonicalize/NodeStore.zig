@@ -39,6 +39,9 @@ scratch_anno_record_fields: base.Scratch(CIR.TypeAnno.RecordField.Idx),
 scratch_exposed_items: base.Scratch(CIR.ExposedItem.Idx),
 scratch_defs: base.Scratch(CIR.Def.Idx),
 scratch_diagnostics: base.Scratch(CIR.Diagnostic.Idx),
+// Arrays for capture storage
+captured_vars: std.ArrayListUnmanaged(CIR.Expr.CapturedVar),
+capture_infos: std.ArrayListUnmanaged(CIR.Expr.CaptureInfo),
 
 /// Initializes the NodeStore
 pub fn init(gpa: std.mem.Allocator) std.mem.Allocator.Error!NodeStore {
@@ -69,6 +72,8 @@ pub fn initCapacity(gpa: std.mem.Allocator, capacity: usize) std.mem.Allocator.E
         .scratch_defs = try base.Scratch(CIR.Def.Idx).init(gpa),
         .scratch_where_clauses = try base.Scratch(CIR.WhereClause.Idx).init(gpa),
         .scratch_diagnostics = try base.Scratch(CIR.Diagnostic.Idx).init(gpa),
+        .captured_vars = .{},
+        .capture_infos = .{},
     };
 }
 
@@ -92,6 +97,8 @@ pub fn deinit(store: *NodeStore) void {
     store.scratch_defs.items.deinit(store.gpa);
     store.scratch_where_clauses.items.deinit(store.gpa);
     store.scratch_diagnostics.items.deinit(store.gpa);
+    store.captured_vars.deinit(store.gpa);
+    store.capture_infos.deinit(store.gpa);
 }
 
 /// Compile-time constants for union variant counts to ensure we don't miss cases
@@ -458,11 +465,19 @@ pub fn getExpr(store: *const NodeStore, expr: CIR.Expr.Idx) CIR.Expr {
             const args_start = extra_data[0];
             const args_len = extra_data[1];
             const body_idx = extra_data[2];
+            const capture_info_idx_plus_one = extra_data[3];
+
+            // Reconstruct capture information
+            const captures = if (capture_info_idx_plus_one > 0)
+                store.capture_infos.items[capture_info_idx_plus_one - 1]
+            else
+                CIR.Expr.CaptureInfo.empty;
 
             return CIR.Expr{
                 .e_lambda = .{
                     .args = .{ .span = .{ .start = args_start, .len = args_len } },
                     .body = @enumFromInt(body_idx),
+                    .captures = captures,
                 },
             };
         },
@@ -1398,6 +1413,26 @@ pub fn addExpr(store: *NodeStore, expr: CIR.Expr, region: base.Region) std.mem.A
             try store.extra_data.append(store.gpa, e.args.span.len);
             // Store body index
             try store.extra_data.append(store.gpa, @intFromEnum(e.body));
+
+            // Store capture information
+            if (e.captures.captured_vars.len > 0) {
+                // Store captured variables in the captured_vars array
+                const captured_vars_start = @as(u32, @intCast(store.captured_vars.items.len));
+                try store.captured_vars.appendSlice(store.gpa, e.captures.captured_vars);
+
+                // Store capture info in capture_infos array
+                const capture_info_idx = @as(u32, @intCast(store.capture_infos.items.len));
+                try store.capture_infos.append(store.gpa, CIR.Expr.CaptureInfo{
+                    .captured_vars = store.captured_vars.items[captured_vars_start..],
+                    .capture_pattern_idx = e.captures.capture_pattern_idx,
+                });
+
+                // Store capture info index (non-zero indicates captures exist)
+                try store.extra_data.append(store.gpa, capture_info_idx + 1);
+            } else {
+                // No captures - store zero
+                try store.extra_data.append(store.gpa, 0);
+            }
 
             node.data_1 = extra_data_start;
         },
@@ -2966,5 +3001,7 @@ pub fn deserializeFrom(buffer: []align(@alignOf(Node)) const u8, allocator: std.
         .scratch_defs = base.Scratch(CIR.Def.Idx){ .items = .{} },
         .scratch_diagnostics = base.Scratch(CIR.Diagnostic.Idx){ .items = .{} },
         .scratch_record_destructs = base.Scratch(CIR.Pattern.RecordDestruct.Idx){ .items = .{} },
+        .captured_vars = .{},
+        .capture_infos = .{},
     };
 }
