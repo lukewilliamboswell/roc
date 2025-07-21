@@ -36,6 +36,17 @@ const collections = @import("collections");
 const types_store = types.store;
 const target = base.target;
 
+/// Debug configuration set at build time using flag `zig build test -Dtrace-eval`
+///
+/// Used in conjunction with tracing in a single test e.g.
+///
+/// ```zig
+/// interpreter.startTrace("<name of my trace>", std.io.getStdErr().writer().any());
+/// defer interpreter.endTrace();
+/// ```
+///
+const DEBUG_ENABLED = build_options.trace_eval;
+
 /// Errors that can occur during expression evaluation
 pub const EvalError = error{
     Crash,
@@ -216,23 +227,25 @@ pub const CapturedEnvironment = struct {
     }
 };
 
-/// Entry in the captured environments registry
-const CapturedEnvironmentEntry = struct {
-    position: usize,
-    env: *CapturedEnvironment,
-};
+// /// Entry in the captured environments registry
+// const CapturedEnvironmentEntry = struct {
+//     position: usize,
+//     env: *CapturedEnvironment,
+// };
 
 /// Enhanced closure structure with captured environment support
 pub const Closure = struct {
     body_expr_idx: CIR.Expr.Idx, // What expression to execute
     args_pattern_span: CIR.Pattern.Span, // Parameters to bind
     captured_env: ?*CapturedEnvironment, // Captured variables from outer scopes
+    layout: layout.Layout, // Layout information including capture count
 };
 
 /// Simple closure structure for backward compatibility
 pub const SimpleClosure = struct {
     body_expr_idx: CIR.Expr.Idx, // What expression to execute
     args_pattern_span: CIR.Pattern.Span, // Parameters to bind
+    layout: layout.Layout, // Layout information including capture count
 };
 
 /// Capture analysis result for a lambda expression
@@ -277,6 +290,7 @@ fn initializeCapturedEnvironment(
     captured_vars: []const CIR.Pattern.Idx,
 ) !*CapturedEnvironment {
     self.traceInfo("INIT CAPTURE ENV: {} variables to capture", .{captured_vars.len});
+
     // Cast memory to environment structure
     const env = @as(*CapturedEnvironment, @ptrCast(@alignCast(env_ptr)));
 
@@ -362,12 +376,10 @@ fn lookupVariable(
 
     const result = self.searchCapturedEnvironment(pattern_idx, env);
 
-    if (DEBUG_ENABLED) {
-        if (result) |binding| {
-            self.traceSuccess("VAR FOUND: pattern={}, layout={s}", .{ @intFromEnum(binding.pattern_idx), @tagName(binding.layout.tag) });
-        } else {
-            self.traceWarn("VAR NOT FOUND: pattern={}", .{@intFromEnum(pattern_idx)});
-        }
+    if (result) |binding| {
+        self.traceSuccess("VAR FOUND: pattern={}, layout={s}", .{ @intFromEnum(binding.pattern_idx), @tagName(binding.layout.tag) });
+    } else {
+        self.traceWarn("VAR NOT FOUND: pattern={}", .{@intFromEnum(pattern_idx)});
     }
 
     return result;
@@ -390,7 +402,7 @@ fn searchCapturedEnvironment(
 
     // Search in current environment
     for (current_env.bindings, 0..) |binding, i| {
-        self.traceInfo("  [{:2}] checking pattern {} vs target {}", .{ i, @intFromEnum(binding.pattern_idx), @intFromEnum(pattern_idx) });
+        self.traceInfo("[{:2}] checking pattern {} vs target {}", .{ i, @intFromEnum(binding.pattern_idx), @intFromEnum(pattern_idx) });
 
         if (binding.pattern_idx == pattern_idx) {
             self.traceSuccess("MATCH found at index {}", .{i});
@@ -403,20 +415,6 @@ fn searchCapturedEnvironment(
         self.traceInfo("SEARCH PARENT: continuing search", .{});
     }
     return self.searchCapturedEnvironment(pattern_idx, current_env.parent_env);
-}
-
-// Debug configuration
-const DEBUG_ENABLED = build_options.trace_eval;
-const TEST_FILTER = "basic single variable"; // Filter for specific test debugging
-
-/// Helper function for filtered debug output - only prints if test name matches filter
-fn debugFiltered(comptime format: []const u8, args: anytype, test_context: []const u8) void {
-    if (!DEBUG_ENABLED) return;
-
-    if (std.mem.indexOf(u8, test_context, TEST_FILTER) != null) {
-        std.debug.print("TRACE[{s}]: ", .{TEST_FILTER});
-        std.debug.print(format ++ "\n", args);
-    }
 }
 
 /// Binds a function parameter pattern to an argument value during function calls.
@@ -518,8 +516,6 @@ pub const Interpreter = struct {
     execution_contexts: std.ArrayList(ExecutionContext),
     /// Current active execution context (top of stack)
     current_context: ?*ExecutionContext,
-    /// Stored closure pointer for landing pad approach
-    current_closure_ptr: ?*anyopaque,
 
     // Debug tracing state
     /// Name/identifier for the current trace session
@@ -546,7 +542,7 @@ pub const Interpreter = struct {
             .parameter_bindings = std.ArrayList(ParameterBinding).init(allocator),
             .execution_contexts = std.ArrayList(ExecutionContext).init(allocator),
             .current_context = null,
-            .current_closure_ptr = null,
+
             .trace_name = null,
             .trace_indent = 0,
             .trace_writer = null,
@@ -619,7 +615,7 @@ pub const Interpreter = struct {
         if (self.layout_stack.items.len > 0) {
             self.traceWarn("Layout stack not empty! {} items remaining:", .{self.layout_stack.items.len});
             for (self.layout_stack.items, 0..) |item_layout, i| {
-                self.traceInfo("  [{}]: tag = {s}", .{ i, @tagName(item_layout.tag) });
+                self.traceInfo("[{}]: tag = {s}", .{ i, @tagName(item_layout.tag) });
             }
         }
 
@@ -956,12 +952,22 @@ pub const Interpreter = struct {
             .e_lambda => |lambda_expr| {
                 self.traceEnter("LAMBDA CREATION (expr_idx={})", .{@intFromEnum(expr_idx)});
 
+                // Add detailed debug information about lambda expression
+                self.traceInfo("LAMBDA EXPR DETAILS: expr={}, captures.captured_vars.len={}", .{ @intFromEnum(expr_idx), lambda_expr.captures.captured_vars.len });
+                self.traceInfo("LAMBDA BODY: body_expr={}", .{@intFromEnum(lambda_expr.body)});
+
                 // NEW APPROACH: Use capture information from canonicalization
                 const has_captures = lambda_expr.captures.captured_vars.len > 0;
+
+                self.traceInfo("CAPTURE CALCULATION: len={}, has_captures={}", .{ lambda_expr.captures.captured_vars.len, has_captures });
 
                 // Show lambda type and capture details
                 if (has_captures) {
                     self.traceInfo("Lambda WITH captures: {} variables", .{lambda_expr.captures.captured_vars.len});
+                    for (lambda_expr.captures.captured_vars, 0..) |capture_var, i| {
+                        const name = self.cir.env.idents.getText(capture_var.name);
+                        self.traceInfo("CAPTURE VAR[{}]: {s}", .{ i, name });
+                    }
                 } else {
                     self.traceInfo("Simple lambda: no captures", .{});
                 }
@@ -972,7 +978,7 @@ pub const Interpreter = struct {
                 if (lambda_expr.captures.captured_vars.len > 0) {
                     self.tracePrint("Capture analysis: {} variables", .{lambda_expr.captures.captured_vars.len});
                     for (lambda_expr.captures.captured_vars, 0..) |capture_var, i| {
-                        self.traceInfo("  Capture[{}]: name={s}", .{ i, self.cir.env.idents.getText(capture_var.name) });
+                        self.traceInfo("Capture[{}]: name={s}", .{ i, self.cir.env.idents.getText(capture_var.name) });
                     }
                 }
 
@@ -983,14 +989,9 @@ pub const Interpreter = struct {
                     const inner_lambda = body_expr.e_lambda;
                     self.traceInfo("Inner lambda has {} captures", .{inner_lambda.captures.captured_vars.len});
                     for (inner_lambda.captures.captured_vars, 0..) |capture_var, i| {
-                        self.traceInfo("  Inner Capture[{}]: name={s}", .{ i, self.cir.env.idents.getText(capture_var.name) });
+                        self.traceInfo("Inner Capture[{}]: name={s}", .{ i, self.cir.env.idents.getText(capture_var.name) });
                     }
                 }
-
-                // LANDING PAD APPROACH: Don't allocate closure space here
-                // Instead, closure space will be allocated during call setup
-                // Just store the closure information for later use
-                self.tracePrint("Using LANDING PAD approach - deferring closure allocation until call setup", .{});
 
                 // Create and push closure layout with capture info for later use
                 const env_size: u16 = if (has_captures) @intCast(lambda_expr.captures.captured_vars.len) else 0;
@@ -1004,6 +1005,9 @@ pub const Interpreter = struct {
                 try self.layout_stack.append(closure_layout);
 
                 self.traceInfo("LAYOUT PUSHED: expr_idx={}, tag={s}, env_size={}", .{ @intFromEnum(expr_idx), @tagName(closure_layout.tag), closure_layout.data.closure.env_size });
+
+                // Detailed closure layout tracking
+                self.traceInfo("CLOSURE LAYOUT CREATED: expr={}, env_size={}, stack_depth={}", .{ @intFromEnum(expr_idx), closure_layout.data.closure.env_size, self.layout_stack.items.len });
 
                 self.traceExit("LAMBDA CREATION completed for expr_idx={}", .{@intFromEnum(expr_idx)});
             },
@@ -1037,22 +1041,18 @@ pub const Interpreter = struct {
         const left_ptr = rhs_ptr - left_size;
 
         // Debug: Stack position calculations
-        if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: completeBinop stack analysis\n", .{});
-            std.debug.print("DEBUG: stack.used = {}, right_size = {}, left_size = {}\n", .{ self.stack_memory.used, right_size, left_size });
-            std.debug.print("DEBUG: rhs_ptr offset = {}, left_ptr offset = {}\n", .{ self.stack_memory.used - right_size, self.stack_memory.used - right_size - left_size });
-        }
+        self.traceInfo("completeBinop stack analysis\n", .{});
+        self.traceInfo("stack.used = {}, right_size = {}, left_size = {}\n", .{ self.stack_memory.used, right_size, left_size });
+        self.traceInfo("rhs_ptr offset = {}, left_ptr offset = {}\n", .{ self.stack_memory.used - right_size, self.stack_memory.used - right_size - left_size });
 
         // Read the values
         const lhs_val = readIntFromMemory(@as([*]u8, @ptrCast(left_ptr)), lhs_scalar.data.int);
         const rhs_val = readIntFromMemory(@as([*]u8, @ptrCast(rhs_ptr)), rhs_scalar.data.int);
 
         // Debug: Values read from memory
-        if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: Read values - left = {}, right = {}\n", .{ lhs_val, rhs_val });
-            std.debug.print("DEBUG: Left layout: tag={}, precision={}\n", .{ left_layout.tag, lhs_scalar.data.int });
-            std.debug.print("DEBUG: Right layout: tag={}, precision={}\n", .{ right_layout.tag, rhs_scalar.data.int });
-        }
+        self.traceInfo("Read values - left = {}, right = {}\n", .{ lhs_val, rhs_val });
+        self.traceInfo("Left layout: tag={}, precision={}\n", .{ left_layout.tag, lhs_scalar.data.int });
+        self.traceInfo("Right layout: tag={}, precision={}\n", .{ right_layout.tag, rhs_scalar.data.int });
 
         // Pop the operands from the stack
         self.stack_memory.used -= @as(u32, @intCast(left_size + right_size));
@@ -1085,15 +1085,13 @@ pub const Interpreter = struct {
         switch (kind) {
             .binop_add => {
                 const result_val: i128 = lhs_val + rhs_val;
-                if (DEBUG_ENABLED) {
-                    std.debug.print("DEBUG: Addition operation: {} + {} = {}\n", .{ lhs_val, rhs_val, result_val });
-                }
+                self.traceInfo("Addition operation: {} + {} = {}\n", .{ lhs_val, rhs_val, result_val });
                 writeIntToMemory(@as([*]u8, @ptrCast(result_ptr)), result_val, lhs_scalar.data.int);
 
-                // Debug: Verify what was written to memory
-                if (DEBUG_ENABLED) {
+                {
+                    // Debug: Verify what was written to memory
                     const verification = readIntFromMemory(@as([*]u8, @ptrCast(result_ptr)), lhs_scalar.data.int);
-                    std.debug.print("DEBUG: Verification read from result memory = {}\n", .{verification});
+                    self.traceInfo("Verification read from result memory = {}\n", .{verification});
                 }
             },
             .binop_sub => {
@@ -1161,9 +1159,7 @@ pub const Interpreter = struct {
         const operand_ptr = @as(*anyopaque, @ptrFromInt(@intFromPtr(self.stack_memory.start) + self.stack_memory.used - operand_size));
         const operand_val = readIntFromMemory(@as([*]u8, @ptrCast(operand_ptr)), operand_scalar.data.int);
 
-        if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: Unary minus operation: -{} = {}\n", .{ operand_val, -operand_val });
-        }
+        self.traceInfo("Unary minus operation: -{} = {}\n", .{ operand_val, -operand_val });
 
         // Negate the value and write it back to the same location
         const result_val: i128 = -operand_val;
@@ -1292,7 +1288,7 @@ pub const Interpreter = struct {
         const call = switch (call_expr) {
             .e_call => |c| c,
             else => {
-                self.debugError("invalid_call_expr", call_expr_idx, "call_function");
+                self.traceError("Invalid call expression type: {s}", .{@tagName(call_expr)});
                 return error.LayoutError;
             },
         };
@@ -1301,6 +1297,11 @@ pub const Interpreter = struct {
         // Get function expression to determine closure requirements
         const all_exprs_for_closure = self.cir.store.sliceExpr(call.args);
         const function_expr = self.cir.store.getExpr(all_exprs_for_closure[0]);
+
+        self.traceInfo("CALL FUNCTION: checking expr type for LANDING PAD decision: {s}", .{@tagName(function_expr)});
+
+        self.traceInfo("FUNCTION EXPR TYPE: {s} for call_expr={}", .{ @tagName(function_expr), @intFromEnum(call_expr_idx) });
+
         if (function_expr == .e_lambda) {
             self.tracePrint("LANDING PAD: Allocating closure space for lambda function", .{});
             const lambda_expr = function_expr.e_lambda;
@@ -1310,11 +1311,24 @@ pub const Interpreter = struct {
             const closure_size: usize = if (has_captures) @sizeOf(Closure) else @sizeOf(SimpleClosure);
             const closure_alignment: std.mem.Alignment = .@"8";
 
+            // Debug closure sizes with layout embedding
+            const old_closure_size = 16; // body_expr_idx (4) + args_pattern_span (8) + captured_env (8)
+            const old_simple_size = 12; // body_expr_idx (4) + args_pattern_span (8)
+            const layout_size = @sizeOf(layout.Layout);
+
+            self.traceInfo("SIZE CHECK: Closure={} (was ~{}), SimpleClosure={} (was ~{}), Layout={}", .{ @sizeOf(Closure), old_closure_size, @sizeOf(SimpleClosure), old_simple_size, layout_size });
             self.traceInfo("Allocating {} bytes for {s} closure", .{ closure_size, if (has_captures) "full" else "simple" });
 
             const closure_ptr = self.stack_memory.alloca(@intCast(closure_size), closure_alignment) catch |err| switch (err) {
                 error.StackOverflow => return error.StackOverflow,
             };
+
+            // Create and store closure layout with capture info
+            const closure_layout = layout.Layout{
+                .tag = .closure,
+                .data = .{ .closure = .{ .env_size = @intCast(lambda_expr.captures.captured_vars.len) } },
+            };
+            self.traceInfo("Created closure_layout with env_size={}", .{closure_layout.data.closure.env_size});
 
             // Initialize the closure at the allocated position
             if (has_captures) {
@@ -1323,20 +1337,27 @@ pub const Interpreter = struct {
                     .body_expr_idx = lambda_expr.body,
                     .args_pattern_span = lambda_expr.args,
                     .captured_env = null,
+                    .layout = closure_layout,
                 };
+                self.traceInfo("Initialized full Closure with embedded layout env_size={}", .{closure.layout.data.closure.env_size});
                 self.traceClosure("allocated full", closure_ptr, true);
             } else {
                 const closure = @as(*SimpleClosure, @ptrCast(@alignCast(closure_ptr)));
                 closure.* = SimpleClosure{
                     .body_expr_idx = lambda_expr.body,
                     .args_pattern_span = lambda_expr.args,
+                    .layout = closure_layout,
                 };
+                self.traceInfo("Initialized SimpleClosure with embedded layout env_size={}", .{closure.layout.data.closure.env_size});
                 self.traceClosure("allocated simple", closure_ptr, false);
             }
 
-            // Store the actual closure pointer for later retrieval
-            self.current_closure_ptr = closure_ptr;
-            self.traceSuccess("LANDING PAD: Closure allocated and stored for retrieval", .{});
+            self.traceSuccess("LANDING PAD: Closure allocated with embedded layout (env_size={})", .{closure_layout.data.closure.env_size});
+        } else if (function_expr == .e_call) {
+            // This is calling a closure that was returned from another function call
+            // Layout information is embedded in the closure, so no special handling needed
+            self.traceInfo("DETECTED e_call CASE: calling returned closure for call_expr={}", .{@intFromEnum(call_expr_idx)});
+            self.traceInfo("Layout information will be read from embedded closure data", .{});
         }
 
         const all_exprs = self.cir.store.sliceExpr(call.args);
@@ -1344,12 +1365,14 @@ pub const Interpreter = struct {
 
         // Check that we have enough items on the layout stack
         if (self.layout_stack.items.len < arg_count + 1) {
-            self.debugError("insufficient_layout_items", call_expr_idx, "call_function");
+            self.traceError("Insufficient layout items: have {}, need {}", .{ self.layout_stack.items.len, arg_count + 1 });
             return error.InvalidStackState;
         }
 
-        // Validate layout stack consistency
-        self.debugValidateLayoutStack(arg_count + 1, "call_function_validation");
+        // Layout stack validation
+        if (DEBUG_ENABLED and self.layout_stack.items.len != arg_count + 1) {
+            self.traceInfo("Layout stack mismatch in call_function_validation: expected={}, actual={}\n", .{ arg_count + 1, self.layout_stack.items.len });
+        }
 
         // Access the function layout (it's at the bottom of our function call portion)
         const function_layout_idx = self.layout_stack.items.len - arg_count - 1;
@@ -1357,21 +1380,18 @@ pub const Interpreter = struct {
 
         // Verify it's a closure
         if (function_layout.tag != .closure) {
-            self.debugError("not_a_function", call_expr_idx, "call_function");
+            self.traceError("Expected closure but got: {s}", .{@tagName(function_layout.tag)});
             return error.Crash; // "Not a function" error
         }
 
         // Check if function has captures and add capture record as hidden argument
-        if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: 📞 ABOUT TO HANDLE CAPTURE ARGUMENTS for expr={}\n", .{@intFromEnum(call_expr_idx)});
-        }
-        try self.handleCaptureArguments(call_expr_idx, function_layout_idx);
-        if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: 📞 FINISHED HANDLING CAPTURE ARGUMENTS for expr={}\n", .{@intFromEnum(call_expr_idx)});
-        }
+        self.traceInfo("📞 ABOUT TO HANDLE CAPTURE ARGUMENTS for expr={}\n", .{@intFromEnum(call_expr_idx)});
 
-        self.debugTracePhase("call_ready_for_binding", call_expr_idx);
-        self.debugInspectState("call_function_complete");
+        try self.handleCaptureArguments(call_expr_idx, function_layout_idx);
+
+        self.traceInfo("📞 FINISHED HANDLING CAPTURE ARGUMENTS for expr={}\n", .{@intFromEnum(call_expr_idx)});
+
+        self.tracePrint("⚪ 📍 PHASE: call_ready_for_binding (expr_idx={})", .{@intFromEnum(call_expr_idx)});
 
         // The function and arguments are now ready for parameter binding
         // Nothing else to do here - the next work item will handle binding
@@ -1380,26 +1400,45 @@ pub const Interpreter = struct {
     /// Handle capture arguments for functions that capture variables from outer scopes.
     /// Creates capture records and pushes them as hidden arguments.
     fn handleCaptureArguments(self: *Interpreter, call_expr_idx: CIR.Expr.Idx, function_layout_idx: usize) EvalError!void {
-        // Check function layout to see if this closure has captures
+        // Get the closure pointer and read layout information directly from the closure
         const function_layout = self.layout_stack.items[function_layout_idx];
 
-        if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: 🔍 CAPTURE CHECK: tag={s}, env_size={}\n", .{ @tagName(function_layout.tag), if (function_layout.tag == .closure) function_layout.data.closure.env_size else 0 });
-            debugFiltered("🔍 CAPTURE CHECK: tag={s}, env_size={}", .{ @tagName(function_layout.tag), if (function_layout.tag == .closure) function_layout.data.closure.env_size else 0 }, "basic single variable");
+        if (function_layout.tag != .closure) {
+            self.traceInfo("EARLY RETURN: Not a closure, tag={s}", .{@tagName(function_layout.tag)});
+            return;
         }
 
-        if (function_layout.tag != .closure or function_layout.data.closure.env_size == 0) {
-            if (DEBUG_ENABLED) {
-                std.debug.print("DEBUG: 🚫 EARLY RETURN: Not a closure with captures\n", .{});
-                debugFiltered("🚫 EARLY RETURN: Not a closure with captures", .{}, "basic single variable");
-            }
-            return; // Not a closure with captures
+        // Calculate closure position on stack
+        var stack_pos = self.stack_memory.used;
+        for (0..function_layout_idx) |i| {
+            const layout_idx = self.layout_stack.items.len - 1 - i;
+            const layout_item = self.layout_stack.items[layout_idx];
+            const item_size = self.layout_cache.layoutSize(layout_item);
+            stack_pos -= item_size;
         }
 
-        if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: 🎯 ADDING CAPTURE RECORD: env_size={}, call_expr={}\n", .{ function_layout.data.closure.env_size, @intFromEnum(call_expr_idx) });
-            debugFiltered("🎯 ADDING CAPTURE RECORD: env_size={}, call_expr={}", .{ function_layout.data.closure.env_size, @intFromEnum(call_expr_idx) }, "basic single variable");
+        // Cast to closure and read embedded layout information
+        const closure_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + stack_pos;
+        self.traceInfo("Reading closure at stack_pos={}, function_layout.env_size={}", .{ stack_pos, function_layout.data.closure.env_size });
+
+        const embedded_layout = if (function_layout.data.closure.env_size > 0) blk: {
+            const full_closure = @as(*Closure, @ptrCast(@alignCast(closure_ptr)));
+            self.traceInfo("Reading full Closure: body_expr={}, embedded_env_size={}", .{ @intFromEnum(full_closure.body_expr_idx), full_closure.layout.data.closure.env_size });
+            break :blk full_closure.layout;
+        } else blk: {
+            const simple_closure = @as(*SimpleClosure, @ptrCast(@alignCast(closure_ptr)));
+            self.traceInfo("Reading SimpleClosure: body_expr={}, embedded_env_size={}", .{ @intFromEnum(simple_closure.body_expr_idx), simple_closure.layout.data.closure.env_size });
+            break :blk simple_closure.layout;
+        };
+
+        self.traceInfo("CAPTURE CHECK: tag={s}, env_size={}", .{ @tagName(embedded_layout.tag), embedded_layout.data.closure.env_size });
+
+        if (embedded_layout.data.closure.env_size == 0) {
+            self.traceInfo("EARLY RETURN: Closure has no captures (env_size=0)", .{});
+            return;
         }
+
+        self.traceInfo("ADDING CAPTURE RECORD: env_size={}, call_expr={}", .{ embedded_layout.data.closure.env_size, @intFromEnum(call_expr_idx) });
 
         // Get the call expression to find the function and get capture info
         const call_expr = self.cir.store.getExpr(call_expr_idx);
@@ -1421,9 +1460,7 @@ pub const Interpreter = struct {
             else => {
                 // This is calling a closure (not direct lambda)
                 // We need to get capture info from the closure on the stack
-                if (DEBUG_ENABLED) {
-                    std.debug.print("DEBUG: 🎯 CLOSURE CALL WITH CAPTURES: env_size={}\n", .{function_layout.data.closure.env_size});
-                }
+                self.traceInfo("🎯 CLOSURE CALL WITH CAPTURES: env_size={}\n", .{function_layout.data.closure.env_size});
 
                 // For now, create a simple capture record based on env_size
                 // TODO: Store actual capture info with closure for proper implementation
@@ -1448,9 +1485,8 @@ pub const Interpreter = struct {
                 };
                 try self.layout_stack.append(capture_layout);
 
-                if (DEBUG_ENABLED) {
-                    std.debug.print("DEBUG: ✅ CLOSURE CAPTURE RECORD PUSHED: {} vars\n", .{num_captures});
-                }
+                self.traceInfo("✅ CLOSURE CAPTURE RECORD PUSHED: {} vars\n", .{num_captures});
+
                 return;
             },
         };
@@ -1484,9 +1520,7 @@ pub const Interpreter = struct {
         };
         try self.layout_stack.append(capture_layout);
 
-        if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: ✅ CAPTURE RECORD PUSHED: {} vars\n", .{lambda_captures.captured_vars.len});
-        }
+        self.traceInfo("✅ CAPTURE RECORD PUSHED: {} vars\n", .{lambda_captures.captured_vars.len});
     }
 
     /// Look up the current value of a captured variable from parameter bindings
@@ -1533,15 +1567,15 @@ pub const Interpreter = struct {
     /// - Pattern destructuring (tuples, records)
     /// - Optimized parameter lookup (hash maps)
     fn handleBindParameters(self: *Interpreter, call_expr_idx: CIR.Expr.Idx) EvalError!void {
-        self.debugTraceCall("handleBindParameters", call_expr_idx);
-        defer self.debugTraceCallExit("handleBindParameters");
+        self.traceEnter("handleBindParameters(expr_idx={})", .{@intFromEnum(call_expr_idx)});
+        defer self.traceExit("handleBindParameters", .{});
 
         // Get the call expression to determine argument count
         const call_expr = self.cir.store.getExpr(call_expr_idx);
         const call = switch (call_expr) {
             .e_call => |c| c,
             else => {
-                self.debugError("invalid_call_expr", call_expr_idx, "bind_parameters");
+                self.traceError("Invalid call expression in bind_parameters: {s}", .{@tagName(call_expr)});
                 return error.LayoutError;
             },
         };
@@ -1550,12 +1584,14 @@ pub const Interpreter = struct {
         const arg_count = all_exprs.len - 1; // Subtract 1 for the function itself
 
         if (self.layout_stack.items.len < arg_count + 1) {
-            self.debugError("layout_stack_underflow", call_expr_idx, "bind_parameters");
+            self.traceError("Layout stack underflow: have {}, need {}", .{ self.layout_stack.items.len, arg_count + 1 });
             return error.InvalidStackState;
         }
 
-        // Validate layout stack consistency
-        self.debugValidateLayoutStack(arg_count + 1, "bind_parameters_entry");
+        // Layout stack validation
+        if (DEBUG_ENABLED and self.layout_stack.items.len != arg_count + 1) {
+            self.traceInfo("Layout stack mismatch in bind_parameters_entry: expected={}, actual={}\n", .{ arg_count + 1, self.layout_stack.items.len });
+        }
 
         self.traceStackState("bind_parameters_start");
         self.traceInfo("Argument count: {}", .{arg_count});
@@ -1570,17 +1606,33 @@ pub const Interpreter = struct {
         // Get the function layout
         const function_layout = self.layout_stack.items[function_layout_idx];
 
-        // LANDING PAD APPROACH: Use stored closure pointer instead of calculating position
-        const closure_ptr = self.current_closure_ptr orelse {
-            self.traceError("No closure pointer stored for landing pad", .{});
-            return error.LayoutError;
+        // LANDING PAD APPROACH: Calculate closure position and read embedded layout
+        var stack_pos = self.stack_memory.used;
+        for (0..function_layout_idx) |i| {
+            const layout_idx = self.layout_stack.items.len - 1 - i;
+            const layout_item = self.layout_stack.items[layout_idx];
+            const item_size = self.layout_cache.layoutSize(layout_item);
+            stack_pos -= item_size;
+        }
+
+        const closure_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + stack_pos;
+
+        // Read layout information directly from closure
+        const embedded_layout = if (function_layout.tag == .closure and function_layout.data.closure.env_size > 0) blk: {
+            const full_closure = @as(*Closure, @ptrCast(@alignCast(closure_ptr)));
+            break :blk full_closure.layout;
+        } else blk: {
+            const simple_closure = @as(*SimpleClosure, @ptrCast(@alignCast(closure_ptr)));
+            break :blk simple_closure.layout;
         };
+
+        self.traceInfo("USING EMBEDDED CLOSURE LAYOUT: env_size={}", .{embedded_layout.data.closure.env_size});
 
         const function_stack_pos = @intFromPtr(closure_ptr) - @intFromPtr(self.stack_memory.start);
         self.tracePrint("LANDING PAD: Using stored closure pointer at position {}", .{function_stack_pos});
 
         if (function_layout.tag == .closure) {
-            self.debugTracePhase("function_position_located", call_expr_idx);
+            self.tracePrint("⚪ 📍 PHASE: function_position_located (expr_idx={})", .{@intFromEnum(call_expr_idx)});
         }
 
         // Assert position is valid
@@ -1613,26 +1665,22 @@ pub const Interpreter = struct {
         };
 
         // Enhanced debugging for position calculation
-        if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: 📍 STACK POSITION CALCULATION:\n", .{});
-            std.debug.print("  function_layout_idx={}, arg_count={}\n", .{ function_layout_idx, arg_count });
-            std.debug.print("  layout_stack.len={}\n", .{self.layout_stack.items.len});
-            std.debug.print("  calculated function_stack_pos={}\n", .{function_stack_pos});
-            std.debug.print("  stack_memory.start={}\n", .{@intFromPtr(self.stack_memory.start)});
-            std.debug.print("  function_stack_pos={}\n", .{function_stack_pos});
+        self.traceInfo("📍 STACK POSITION CALCULATION:\n", .{});
+        self.traceInfo("function_layout_idx={}, arg_count={}\n", .{ function_layout_idx, arg_count });
+        self.traceInfo("layout_stack.len={}\n", .{self.layout_stack.items.len});
+        self.traceInfo("calculated function_stack_pos={}\n", .{function_stack_pos});
+        self.traceInfo("stack_memory.start={}\n", .{@intFromPtr(self.stack_memory.start)});
+        self.traceInfo("function_stack_pos={}\n", .{function_stack_pos});
 
-            // Show the layout items being summed for position calculation
-            std.debug.print("  Items after function (summed for position):\n", .{});
-            for (self.layout_stack.items[function_layout_idx + 1 ..], function_layout_idx + 1..) |item_layout, i| {
-                const item_size = self.layout_cache.layoutSize(item_layout);
-                std.debug.print("    [{d}] {s} size={}\n", .{ i, @tagName(item_layout.tag), item_size });
-            }
+        // Show the layout items being summed for position calculation
+        self.traceInfo("Items after function (summed for position):\n", .{});
+        for (self.layout_stack.items[function_layout_idx + 1 ..], function_layout_idx + 1..) |item_layout, i| {
+            const item_size = self.layout_cache.layoutSize(item_layout);
+            self.traceInfo("  [{d}] {s} size={}\n", .{ i, @tagName(item_layout.tag), item_size });
         }
 
         // Debug: Verify our calculated position
-        if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: 🔍 POSITION CHECK: pos={}, body={}, span_len={}\n", .{ function_stack_pos, @intFromEnum(closure_body_expr_idx), closure_args_pattern_span.span.len });
-        }
+        self.traceInfo("🔍 POSITION CHECK: pos={}, body={}, span_len={}\n", .{ function_stack_pos, @intFromEnum(closure_body_expr_idx), closure_args_pattern_span.span.len });
 
         // Verify closure integrity
         if (has_captures) {
@@ -1643,20 +1691,10 @@ pub const Interpreter = struct {
             self.traceClosure("verified simple", simple_closure_ptr, false);
         }
 
-        // EXECUTION-TIME CAPTURE ANALYSIS: Check if closure body contains nested lambdas
-        // This is the correct timing - after outer parameters are bound and execution context is populated
+        self.traceInfo("🔍 VALIDATING CLOSURE BODY: body_expr_idx={}\n", .{@intFromEnum(closure_body_expr_idx)});
+        self.traceInfo("🔍 CLOSURE PTR: body={}, args_span_len={}\n", .{ @intFromEnum(closure_body_expr_idx), closure_args_pattern_span.span.len });
 
-        // Debug: Validate closure body before nested lambda detection
-        if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: 🔍 VALIDATING CLOSURE BODY: body_expr_idx={}\n", .{@intFromEnum(closure_body_expr_idx)});
-            std.debug.print("DEBUG: 🔍 CLOSURE PTR: body={}, args_span_len={}\n", .{ @intFromEnum(closure_body_expr_idx), closure_args_pattern_span.span.len });
-        }
-
-        // NEW APPROACH: Captures are now passed as regular function arguments
-        // No execution-time capture analysis needed - everything is handled at canonicalization time
-        if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: 🎯 PARAMETER BINDING: closure with {} args\n", .{closure_args_pattern_span.span.len});
-        }
+        self.traceInfo("🎯 PARAMETER BINDING: closure with {} args\n", .{closure_args_pattern_span.span.len});
 
         const parameter_patterns = self.cir.store.slicePatterns(closure_args_pattern_span);
 
@@ -1665,11 +1703,11 @@ pub const Interpreter = struct {
 
         if (expected_args != arg_count) {
             // FORCE DEBUG: Always show arity mismatch details
-            std.debug.print("DEBUG: 🚨 ARITY MISMATCH DETAILS:\n", .{});
-            std.debug.print("   Expected: {} (pattern_params={}, has_captures={})\n", .{ expected_args, parameter_patterns.len, has_captures });
-            std.debug.print("   Actual:   {}\n", .{arg_count});
-            std.debug.print("   Function layout env_size: {}\n", .{function_layout.data.closure.env_size});
-            std.debug.print("   Function body expr: {}\n", .{@intFromEnum(closure_body_expr_idx)});
+            self.traceInfo("🚨 ARITY MISMATCH DETAILS:\n", .{});
+            self.traceInfo(" Expected: {} (pattern_params={}, has_captures={})\n", .{ expected_args, parameter_patterns.len, has_captures });
+            self.traceInfo(" Actual:   {}\n", .{arg_count});
+            self.traceInfo(" Function layout env_size: {}\n", .{function_layout.data.closure.env_size});
+            self.traceInfo(" Function body expr: {}\n", .{@intFromEnum(closure_body_expr_idx)});
             return error.ArityMismatch;
         }
 
@@ -1700,9 +1738,7 @@ pub const Interpreter = struct {
             };
 
             // Trace parameter binding
-            if (DEBUG_ENABLED) {
-                std.debug.print("DEBUG: BIND param[{}] pattern={} at pos={} ({s})\n", .{ arg_idx, @intFromEnum(parameter_pattern_idx), current_stack_pos, @tagName(arg_layout.tag) });
-            }
+            self.traceInfo("BIND param[{}] pattern={} at pos={} ({s})\n", .{ arg_idx, @intFromEnum(parameter_pattern_idx), current_stack_pos, @tagName(arg_layout.tag) });
 
             try self.parameter_bindings.append(binding);
         }
@@ -1718,12 +1754,16 @@ pub const Interpreter = struct {
         self.current_context = &self.execution_contexts.items[self.execution_contexts.items.len - 1];
 
         // Final state verification and summary
-        if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: BIND SUMMARY: {} parameters bound, stack_used={}\n", .{ arg_count, self.stack_memory.used });
-            std.debug.print("DEBUG: CONTEXT STACK: {} contexts deep\n", .{self.execution_contexts.items.len});
-        }
-        self.debugInspectState("bind_parameters_complete");
-        self.debugTracePhase("parameter_binding_complete", call_expr_idx);
+        self.traceInfo("BIND SUMMARY: {} parameters bound, stack_used={}\n", .{ arg_count, self.stack_memory.used });
+        self.traceInfo("CONTEXT STACK: {} contexts deep\n", .{self.execution_contexts.items.len});
+        self.traceInfo("bind_parameters_complete: stack={d:.1}B/{d:.1}KB ({d:.1}%), layouts={}, bindings={}, work={}\n", .{
+            @as(f64, @floatFromInt(self.stack_memory.used)),
+            @as(f64, @floatFromInt(self.stack_memory.capacity)) / 1024.0,
+            @as(f64, @floatFromInt(self.stack_memory.used)) / @as(f64, @floatFromInt(self.stack_memory.capacity)) * 100.0,
+            self.layout_stack.items.len,
+            self.parameter_bindings.items.len,
+            self.work_stack.items.len,
+        });
     }
 
     fn handleEvalFunctionBody(self: *Interpreter, call_expr_idx: CIR.Expr.Idx) EvalError!void {
@@ -1791,24 +1831,24 @@ pub const Interpreter = struct {
         // At this point the stack has: [return_space, function, args..., body_result]
         // We need to copy body_result to return_space and clean up body_result
 
-        if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: === COPY RESULT TO RETURN SPACE ===\n", .{});
-            std.debug.print("DEBUG: Initial stack.used = {}\n", .{self.stack_memory.used});
-            std.debug.print("DEBUG: Layout stack size = {}\n", .{self.layout_stack.items.len});
-        }
+        self.traceInfo("=== COPY RESULT TO RETURN SPACE ===\n", .{});
+        self.traceInfo("Initial stack.used = {}\n", .{self.stack_memory.used});
+        self.traceInfo("Layout stack size = {}\n", .{self.layout_stack.items.len});
 
         // The body result is at the top of the stack
         const body_result_layout = self.layout_stack.pop() orelse return error.InvalidStackState;
         const body_result_size = self.layout_cache.layoutSize(body_result_layout);
 
+        // Detailed closure layout tracking during result copy
+        if (body_result_layout.tag == .closure) {
+            self.traceInfo("POPPING RESULT LAYOUT: tag=closure, env_size={}, remaining_stack_depth={}", .{ body_result_layout.data.closure.env_size, self.layout_stack.items.len });
+        }
+
         // Calculate position of body result
         const body_result_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + self.stack_memory.used - body_result_size;
 
-        if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: Body result layout = {}, size = {}\n", .{ body_result_layout.tag, body_result_size });
-            std.debug.print("DEBUG: Body result at stack position = {}\n", .{self.stack_memory.used - body_result_size});
-            debugFiltered("📋 COPY RESULT: layout.tag={s}, env_size={}", .{ @tagName(body_result_layout.tag), if (body_result_layout.tag == .closure) body_result_layout.data.closure.env_size else 0 }, "basic single variable");
-        }
+        self.traceInfo("Body result layout = {}, size = {}\n", .{ body_result_layout.tag, body_result_size });
+        self.traceInfo("Body result at stack position = {}\n", .{self.stack_memory.used - body_result_size});
 
         // Find the return space - it should be at the bottom of our call frame
         // We need to find how many items are in our call frame to calculate the return space position
@@ -1822,22 +1862,18 @@ pub const Interpreter = struct {
         const all_exprs = self.cir.store.sliceExpr(call.args);
         const arg_count = all_exprs.len - 1; // Subtract 1 for the function
 
-        if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: Call has {} arguments\n", .{arg_count});
-        }
+        self.traceInfo("Call has {} arguments\n", .{arg_count});
 
         // Calculate stack positions working backwards from current position
         // Stack layout: [return_space, function, arg1, arg2, ..., body_result]
         var stack_pos = self.stack_memory.used;
-        if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: Starting stack position calculation from {}\n", .{stack_pos});
-        }
+
+        self.traceInfo("Starting stack position calculation from {}\n", .{stack_pos});
 
         // Skip the body result we just calculated
         stack_pos -= body_result_size;
-        if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: After skipping body result: stack_pos = {}\n", .{stack_pos});
-        }
+
+        self.traceInfo("After skipping body result: stack_pos = {}\n", .{stack_pos});
 
         // Skip the arguments
         for (0..arg_count) |i| {
@@ -1845,33 +1881,31 @@ pub const Interpreter = struct {
             const arg_layout = self.layout_stack.items[layout_idx];
             const arg_size = self.layout_cache.layoutSize(arg_layout);
             stack_pos -= arg_size;
-            if (DEBUG_ENABLED) {
-                std.debug.print("DEBUG: After skipping arg {}: layout={}, size={}, stack_pos = {}\n", .{ i, arg_layout.tag, arg_size, stack_pos });
-            }
+
+            self.traceInfo("After skipping arg {}: layout={}, size={}, stack_pos = {}\n", .{ i, arg_layout.tag, arg_size, stack_pos });
         }
 
         // Skip the function
         const function_layout = self.layout_stack.items[self.layout_stack.items.len - arg_count - 1];
         const function_size = self.layout_cache.layoutSize(function_layout);
         stack_pos -= function_size;
-        if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: After skipping function: layout={}, size={}, stack_pos = {}\n", .{ function_layout.tag, function_size, stack_pos });
-        }
+
+        self.traceInfo("After skipping function: layout={}, size={}, stack_pos = {}\n", .{ function_layout.tag, function_size, stack_pos });
 
         // Now we're at the return space
         const return_space_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + stack_pos;
 
         if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: Final return space position = {}\n", .{stack_pos});
-            std.debug.print("DEBUG: Copying {} bytes from {} to {}\n", .{ body_result_size, self.stack_memory.used - body_result_size, stack_pos });
+            self.traceInfo("Final return space position = {}\n", .{stack_pos});
+            self.traceInfo("Copying {} bytes from {} to {}\n", .{ body_result_size, self.stack_memory.used - body_result_size, stack_pos });
 
             // Verify the copy source data before copying
             const source_bytes = @as([*]u8, @ptrCast(body_result_ptr));
-            std.debug.print("DEBUG: Source bytes: ", .{});
+            self.traceInfo("Source bytes: ", .{});
             for (0..@min(body_result_size, 16)) |i| {
-                std.debug.print("{x:0>2} ", .{source_bytes[i]});
+                self.traceInfo("{x:0>2} ", .{source_bytes[i]});
             }
-            std.debug.print("\n", .{});
+            self.traceInfo("\n", .{});
         }
 
         // Copy the result
@@ -1880,20 +1914,21 @@ pub const Interpreter = struct {
         // Verify the copy destination data after copying
         if (DEBUG_ENABLED) {
             const dest_bytes = @as([*]u8, @ptrCast(return_space_ptr));
-            std.debug.print("DEBUG: Dest bytes after copy: ", .{});
+            self.traceInfo("Dest bytes after copy: ", .{});
             for (0..@min(body_result_size, 16)) |i| {
-                std.debug.print("{x:0>2} ", .{dest_bytes[i]});
+                self.traceInfo("{x:0>2} ", .{dest_bytes[i]});
             }
-            std.debug.print("\n", .{});
+            self.traceInfo("\n", .{});
         }
 
         // Pop the body result from stack
         self.stack_memory.used -= @as(u32, @intCast(body_result_size));
+
         if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: After popping body result: stack.used = {}\n", .{self.stack_memory.used});
+            self.traceInfo("After popping body result: stack.used = {}\n", .{self.stack_memory.used});
 
             // Don't push the layout - the return space layout is already on the stack
-            std.debug.print("DEBUG: === END COPY RESULT TO RETURN SPACE ===\n", .{});
+            self.traceInfo("=== END COPY RESULT TO RETURN SPACE ===\n", .{});
         }
     }
 
@@ -1921,9 +1956,9 @@ pub const Interpreter = struct {
     fn handleCleanupFunction(self: *Interpreter, call_expr_idx: CIR.Expr.Idx) EvalError!void {
         self.traceEnter("CLEANUP FUNCTION (expr_idx={})", .{@intFromEnum(call_expr_idx)});
 
-        // Clear the stored closure pointer when cleaning up
-        self.current_closure_ptr = null;
-        self.tracePrint("Cleared stored closure pointer", .{});
+        // No longer need to manage closure_info_stack since layout is embedded in closures
+        self.tracePrint("Cleanup: closure layout information is embedded in closure data", .{});
+
         // Remove parameter bindings that were added for this function call
         self.parameter_bindings.clearRetainingCapacity();
 
@@ -1939,15 +1974,12 @@ pub const Interpreter = struct {
             else
                 null;
 
-            if (DEBUG_ENABLED) {
-                std.debug.print("DEBUG: CONTEXT STACK: {} contexts remaining after cleanup\n", .{self.execution_contexts.items.len});
-            }
+            self.traceInfo("CONTEXT STACK: {} contexts remaining after cleanup\n", .{self.execution_contexts.items.len});
         }
 
         if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: === CLEANUP FUNCTION ===\n", .{});
-            std.debug.print("DEBUG: Before cleanup: stack.used = {}, layout_stack.len = {}\n", .{ self.stack_memory.used, self.layout_stack.items.len });
-            debugFiltered("🧹 CLEANUP START: stack.used={}, layout_stack.len={}", .{ self.stack_memory.used, self.layout_stack.items.len }, "basic single variable");
+            self.traceInfo("=== CLEANUP FUNCTION ===\n", .{});
+            self.traceInfo("Before cleanup: stack.used = {}, layout_stack.len = {}\n", .{ self.stack_memory.used, self.layout_stack.items.len });
         }
 
         // Get call information
@@ -1983,7 +2015,7 @@ pub const Interpreter = struct {
         }
 
         if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: Return size = {}, cleanup size = {}\n", .{ return_size, cleanup_size });
+            self.traceInfo("Return size = {}, cleanup size = {}\n", .{ return_size, cleanup_size });
         }
 
         // Calculate where the return value currently is (same as copy operation)
@@ -2004,7 +2036,7 @@ pub const Interpreter = struct {
         const return_value_current_pos = current_stack_pos;
 
         if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: Moving return value from {} to 0, size={}\n", .{ return_value_current_pos, return_size });
+            self.traceInfo("Moving return value from {} to 0, size={}\n", .{ return_value_current_pos, return_size });
         }
 
         // Move return value from current position to position 0
@@ -2016,7 +2048,7 @@ pub const Interpreter = struct {
         self.stack_memory.used = @as(u32, @intCast(return_size));
 
         if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: After cleanup: stack.used = {}\n", .{self.stack_memory.used});
+            self.traceInfo("After cleanup: stack.used = {}\n", .{self.stack_memory.used});
         }
 
         // Clean up layout stack: remove all call-related layouts except return
@@ -2024,37 +2056,14 @@ pub const Interpreter = struct {
 
         // Remove function and argument layouts (but keep return layout)
         for (0..layouts_to_remove) |_| {
-            const popped_layout = self.layout_stack.pop() orelse return error.InvalidStackState;
-            if (DEBUG_ENABLED) {
-                debugFiltered("🧹 LAYOUT POPPED: tag={s}, env_size={}", .{ @tagName(popped_layout.tag), if (popped_layout.tag == .closure) popped_layout.data.closure.env_size else 0 }, "basic single variable");
-            }
+            _ = self.layout_stack.pop() orelse return error.InvalidStackState;
         }
 
         // The return layout should now be at the top of layout stack
         if (DEBUG_ENABLED) {
-            std.debug.print("DEBUG: After layout cleanup: layout_stack.len = {}\n", .{self.layout_stack.items.len});
-            std.debug.print("DEBUG: === END CLEANUP FUNCTION ===\n", .{});
-            if (self.layout_stack.items.len > 0) {
-                const top_layout = self.layout_stack.items[self.layout_stack.items.len - 1];
-                debugFiltered("🧹 CLEANUP END: top_layout.tag={s}, env_size={}", .{ @tagName(top_layout.tag), if (top_layout.tag == .closure) top_layout.data.closure.env_size else 0 }, "basic single variable");
-            }
+            self.traceInfo("After layout cleanup: layout_stack.len = {}\n", .{self.layout_stack.items.len});
+            self.traceInfo("=== END CLEANUP FUNCTION ===\n", .{});
         }
-    }
-
-    /// Debug helper for tracing function calls (legacy - use traceEnter instead)
-    fn debugTraceCall(self: *Interpreter, method_name: []const u8, expr_idx: CIR.Expr.Idx) void {
-        self.traceEnter("{s}(expr_idx={})", .{ method_name, @intFromEnum(expr_idx) });
-    }
-
-    fn debugTraceCallExit(self: *const Interpreter, function_name: []const u8) void {
-        _ = self;
-        if (!DEBUG_ENABLED) return;
-        std.debug.print("DEBUG: EXIT  {s}\n", .{function_name});
-    }
-
-    /// Debug helper for tracing evaluation phases (legacy - use tracePrint instead)
-    fn debugTracePhase(self: *Interpreter, phase_name: []const u8, expr_idx: CIR.Expr.Idx) void {
-        self.tracePrint("📍 PHASE: {s} (expr_idx={})", .{ phase_name, @intFromEnum(expr_idx) });
     }
 
     // ===================================================================
@@ -2143,7 +2152,7 @@ pub const Interpreter = struct {
         if (self.trace_writer) |writer| {
             var i: u32 = 0;
             while (i < self.trace_indent) : (i += 1) {
-                writer.print("  ", .{}) catch {};
+                writer.print("", .{}) catch {};
             }
         }
     }
@@ -2262,202 +2271,6 @@ pub const Interpreter = struct {
             }
         }
     }
-
-    /// Legacy debug method - use traceStackState instead
-    fn debugInspectState(self: *const Interpreter, label: []const u8) void {
-        if (!DEBUG_ENABLED) return;
-
-        const SizeInfo = struct { value: f64, unit: []const u8 };
-
-        const stack_size: SizeInfo = if (self.stack_memory.used < 1024)
-            .{ .value = @as(f64, @floatFromInt(self.stack_memory.used)), .unit = "B" }
-        else if (self.stack_memory.used < 1024 * 1024)
-            .{ .value = @as(f64, @floatFromInt(self.stack_memory.used)) / 1024.0, .unit = "KB" }
-        else
-            .{ .value = @as(f64, @floatFromInt(self.stack_memory.used)) / (1024.0 * 1024.0), .unit = "MB" };
-
-        const stack_cap: SizeInfo = if (self.stack_memory.capacity < 1024)
-            .{ .value = @as(f64, @floatFromInt(self.stack_memory.capacity)), .unit = "B" }
-        else if (self.stack_memory.capacity < 1024 * 1024)
-            .{ .value = @as(f64, @floatFromInt(self.stack_memory.capacity)) / 1024.0, .unit = "KB" }
-        else
-            .{ .value = @as(f64, @floatFromInt(self.stack_memory.capacity)) / (1024.0 * 1024.0), .unit = "MB" };
-
-        const pct = @as(f64, @floatFromInt(self.stack_memory.used)) / @as(f64, @floatFromInt(self.stack_memory.capacity)) * 100.0;
-
-        std.debug.print("\nDEBUG: {s}: stack={d:.1}{s}/{d:.1}{s} ({d:.1}%), layouts={}, bindings={}, work={}\n", .{
-            label,
-            stack_size.value,
-            stack_size.unit,
-            stack_cap.value,
-            stack_cap.unit,
-            pct,
-            self.layout_stack.items.len,
-            self.parameter_bindings.items.len,
-            self.work_stack.items.len,
-        });
-    }
-
-    fn debugError(self: *const Interpreter, error_type: []const u8, expr_idx: CIR.Expr.Idx, context: []const u8) void {
-        if (!DEBUG_ENABLED) return;
-        std.debug.print("❌ {s} in {s}: expr={}, stack_used={}\n", .{ error_type, context, @intFromEnum(expr_idx), self.stack_memory.used });
-    }
-
-    fn debugValidateLayoutStack(self: *const Interpreter, expected_count: usize, context: []const u8) void {
-        if (!DEBUG_ENABLED) return;
-
-        const actual_count = self.layout_stack.items.len;
-        if (actual_count != expected_count) {
-            std.debug.print("DEBUG:  Layout stack mismatch in {s}: expected={}, actual={}\n", .{ context, expected_count, actual_count });
-
-            std.debug.print("\nDEBUG: Layout stack ({s}): {} items, stack_used={}\n", .{ context, self.layout_stack.items.len, self.stack_memory.used });
-            var pos = self.stack_memory.used;
-            for (self.layout_stack.items, 0..) |item, i| {
-                const size = self.layout_cache.layoutSize(item);
-                pos -= @intCast(size);
-                std.debug.print("  [{:2}] {s:<12} size={:3} pos={:3}\n", .{ i, @tagName(item.tag), size, pos });
-            }
-        }
-    }
-
-    fn debugVerifyClosure(self: *const Interpreter, closure_ptr: *SimpleClosure, label: []const u8) void {
-        _ = self;
-        if (!DEBUG_ENABLED) return;
-
-        const body_idx: u32 = @intFromEnum(closure_ptr.body_expr_idx);
-        const span_len = closure_ptr.args_pattern_span.span.len;
-
-        std.debug.print("🔬 Closure {s}: body={} span_len={} addr={}\n", .{ label, body_idx, span_len, @intFromPtr(closure_ptr) });
-
-        // Show actual closure data for debugging
-        const raw_bytes = @as([*]const u8, @ptrCast(closure_ptr))[0..@sizeOf(SimpleClosure)];
-        std.debug.print("DEBUG: Closure data: body={}, span_len={}\n", .{ std.mem.readInt(u32, raw_bytes[0..4], std.builtin.Endian.little), std.mem.readInt(u32, raw_bytes[8..12], std.builtin.Endian.little) });
-
-        // Basic sanity checks
-        if (body_idx == 0 or body_idx > 1000000) {
-            std.debug.print("DEBUG: ❌ SUSPICIOUS body_expr_idx: {}\n", .{body_idx});
-        }
-        if (span_len > 100) {
-            std.debug.print("DEBUG: ❌ SUSPICIOUS span length: {}\n", .{span_len});
-        }
-    }
-
-    fn debugTraceCapture(self: *const Interpreter, phase: []const u8, expr_idx: CIR.Expr.Idx) void {
-        _ = self;
-        if (!DEBUG_ENABLED) return;
-        std.debug.print("🔍 CAPTURE {s}: expr={}\n", .{ phase, @intFromEnum(expr_idx) });
-    }
-
-    fn debugTraceCaptureResult(self: *const Interpreter, captured_count: usize, env_size: usize) void {
-        _ = self;
-        if (!DEBUG_ENABLED) return;
-        std.debug.print("📊 CAPTURE ANALYSIS: found {} variables, env_size={} bytes\n", .{ captured_count, env_size });
-    }
-
-    fn debugInspectCapturedVar(self: *const Interpreter, pattern_idx: CIR.Pattern.Idx, index: usize) void {
-        _ = self;
-        if (!DEBUG_ENABLED) return;
-        std.debug.print("  📌 Captured[{}]: pattern_idx={}\n", .{ index, @intFromEnum(pattern_idx) });
-    }
-
-    fn debugTraceEnhancedClosure(self: *const Interpreter, closure: *const Closure, env_size: usize) void {
-        if (!DEBUG_ENABLED) return;
-        const stack_pos = @intFromPtr(closure) - @intFromPtr(self.stack_memory.start);
-        std.debug.print("🏗️  ENHANCED CLOSURE: size={}, env_size={}, pos={}, has_env={}\n", .{ @sizeOf(Closure), env_size, stack_pos, closure.captured_env != null });
-    }
-
-    fn debugInspectCaptureEnvironment(self: *const Interpreter, env: *const CapturedEnvironment, label: []const u8) void {
-        _ = self;
-        if (!DEBUG_ENABLED) return;
-        std.debug.print("🗂️  CAPTURE ENV {s}: {} bindings, parent={}\n", .{ label, env.bindings.len, env.parent_env != null });
-
-        for (env.bindings, 0..) |binding, i| {
-            std.debug.print("    [{:2}] pattern={}, layout={s}, addr={}\n", .{ i, @intFromEnum(binding.pattern_idx), @tagName(binding.layout.tag), @intFromPtr(binding.value_data) });
-        }
-    }
-
-    /// Initialize the deferred captured environment for a closure
-    fn initializeDeferredCapturedEnvironment(self: *Interpreter, closure: *Closure) !void {
-        const env = closure.captured_env orelse return; // No environment to initialize
-
-        if (DEBUG_ENABLED) {
-            std.debug.print("🏗️  INIT DEFERRED CAPTURE ENV: {} variables to capture\n", .{env.bindings.len});
-        }
-
-        // Calculate value data offset (after environment and bindings)
-        const memory_block = @as([*]u8, @ptrCast(closure));
-        var value_data_offset = @sizeOf(Closure) + @sizeOf(CapturedEnvironment) +
-            (env.bindings.len * @sizeOf(CapturedBinding));
-
-        // Initialize each binding with actual captured values
-        for (env.bindings) |*binding| {
-            const pattern_idx = binding.pattern_idx;
-
-            // Find the current value of this variable from parameter bindings or execution context
-            var found_value: ?*u8 = null;
-            var found_layout: ?layout.Layout = null;
-
-            // First try current parameter bindings
-            for (self.parameter_bindings.items) |param_binding| {
-                if (param_binding.pattern_idx == pattern_idx) {
-                    found_value = @as(*u8, @ptrCast(param_binding.value_ptr));
-                    found_layout = param_binding.layout;
-                    break;
-                }
-            }
-
-            // If not found, search through execution context chain
-            if (found_value == null) {
-                var context = self.current_context;
-                while (context) |ctx| {
-                    if (ctx.findBinding(pattern_idx)) |ctx_binding| {
-                        found_value = @as(*u8, @ptrCast(ctx_binding.value_ptr));
-                        found_layout = ctx_binding.layout;
-                        if (DEBUG_ENABLED) {
-                            std.debug.print("🔍 FOUND DEFERRED in execution context: pattern={}\n", .{@intFromEnum(pattern_idx)});
-                        }
-                        break;
-                    }
-                    context = ctx.parent_context;
-                }
-            }
-
-            if (found_value == null) {
-                if (DEBUG_ENABLED) {
-                    std.debug.print("❌ DEFERRED CAPTURE ERROR: pattern {} not found\n", .{@intFromEnum(pattern_idx)});
-                }
-                return error.LayoutError;
-            }
-
-            // Calculate value size and copy value data
-            const value_layout = found_layout.?;
-            const value_size = self.layout_cache.layoutSize(value_layout);
-            const value_ptr = memory_block + value_data_offset;
-
-            if (DEBUG_ENABLED) {
-                std.debug.print("  📦 DEFERRED CAPTURING: pattern={}, size={} bytes\n", .{ @intFromEnum(pattern_idx), value_size });
-            }
-
-            // Copy the captured value
-            @memcpy(value_ptr[0..value_size], @as([*]u8, @ptrCast(found_value))[0..value_size]);
-
-            // Update binding with actual data
-            binding.* = CapturedBinding{
-                .pattern_idx = pattern_idx,
-                .value_data = value_ptr,
-                .layout = value_layout,
-            };
-
-            value_data_offset += value_size;
-        }
-
-        // Mark environment as initialized
-        if (closure.captured_env) |captured_env| {
-            @constCast(captured_env).deferred_init = false;
-        }
-    }
-
-    // Removed createCapturedEnvironment - using record approach instead
 };
 
 // Helper function to write an integer to memory with the correct precision
@@ -2477,7 +2290,7 @@ fn writeIntToMemory(ptr: [*]u8, value: i128, precision: types.Num.Int.Precision)
 }
 
 // Helper function to read an integer from memory with the correct precision
-fn readIntFromMemory(ptr: [*]u8, precision: types.Num.Int.Precision) i128 {
+pub fn readIntFromMemory(ptr: [*]u8, precision: types.Num.Int.Precision) i128 {
     return switch (precision) {
         .u8 => @as(i128, @as(*u8, @ptrCast(@alignCast(ptr))).*),
         .u16 => @as(i128, @as(*u16, @ptrCast(@alignCast(ptr))).*),

@@ -17,7 +17,11 @@ type=expr
 }
 ~~~
 # EXPECTED
-NIL
+UNUSED VARIABLE - lambda_capture_comprehensive.md:8:5:8:10
+UNUSED VARIABLE - lambda_capture_comprehensive.md:7:5:7:11
+UNUSED VARIABLE - lambda_capture_comprehensive.md:4:5:4:10
+UNUSED VARIABLE - lambda_capture_comprehensive.md:5:5:5:10
+UNUSED VARIABLE - lambda_capture_comprehensive.md:6:5:6:11
 # PROBLEMS
 **UNUSED VARIABLE**
 Variable `mixed` is not used anywhere in your code.

@@ -14,9 +14,6 @@ type=expr
 }
 ~~~
 # EXPECTED
-UNEXPECTED TOKEN IN EXPRESSION - lambda_capture_mixed_patterns.md:2:26:2:27
-UNEXPECTED TOKEN IN EXPRESSION - lambda_capture_mixed_patterns.md:3:27:3:28
-UNEXPECTED TOKEN IN EXPRESSION - lambda_capture_mixed_patterns.md:4:40:4:41
 UNUSED VARIABLE - lambda_capture_mixed_patterns.md:2:15:2:16
 UNUSED VARIABLE - lambda_capture_mixed_patterns.md:3:5:3:15
 UNUSED VARIABLE - lambda_capture_mixed_patterns.md:4:5:4:18

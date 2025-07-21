@@ -1,165 +1,141 @@
-# Next Session Plan: Lambda Capture Testing & Final Implementation
+# Lambda Capture Implementation - Next Session Plan
 
-## 🎯 **Session Objective**
-Develop comprehensive snapshot test suite to validate capture detection before completing the interpreter implementation.
+## Current Status (End of Session)
 
-## ✅ **Current Status Summary**
-- **MAJOR MILESTONE**: Capture analysis successfully moved to canonicalization
-- **Architecture Complete**: Captures-as-arguments framework implemented
-- **Code Cleanup**: All old execution-time analysis removed
-- **Compilation**: Everything compiles and basic functionality maintained
-- **Validation**: Basic capture detection working and visible in debug output
+### ✅ Completed
+1. **Code Cleanup**: DONE
+2. **Architecture Decision**: Implemented embedding layout information directly in closure structures
+3. **Struct Updates**: Added `layout: layout.Layout` field to both `SimpleClosure` and `Closure`
+4. **LANDING PAD Implementation**: Modified LANDING PAD allocation to initialize closures with embedded layout info
+5. **Capture Detection Logic**: Updated `handleCaptureArguments` to read layout from embedded closure data
 
-## 📋 **PRIORITY 1: Comprehensive Snapshot Test Development** [IMMEDIATE]
+### ❌ Core Issue Remains
+**Lambda captures still fail with `env_size=0` instead of expected capture counts**
 
-### **Testing Strategy**
-**Goal**: Validate capture detection accuracy before any further interpreter changes.
+## Root Cause Analysis
 
-**Why Testing First**: 
-- Ensures capture detection logic is rock-solid before building on it
-- Provides regression safety net for complex compiler features
-- Validates each compiler phase (PARSE → CANONICALIZE → TYPES) independently
+### What's Working ✅
+- **Canonicalization**: Correctly detects captures (e.g., `(capture (name "a"))`, `(capture (name "b"))`, etc.)
+- **Some Lambda Creation**: We see traces like `📋 COPY RESULT: layout.tag=closure, env_size=3`
+- **Basic Lambda Infrastructure**: Simple lambdas without captures work fine
 
-### **Required Test Matrix**
+### What's Failing ❌
+- **Capture Argument Handling**: Shows `🔍 CAPTURE CHECK: tag=closure, env_size=0` instead of expected counts
+- **Memory Corruption**: Large garbage numbers like `148873535527910577783673135168705527884` in arithmetic
+- **Closure Size**: Still shows 12 bytes (old size) instead of larger size with embedded layout
 
-#### **1. Basic Capture Scenarios**
-```roc
-# Test: lambda_capture_single.md
-|x| |y| x + y
+### Key Insight 🔍
+**The closures being called are NOT going through our modified LANDING PAD code path**
+- LANDING PAD handles direct `e_lambda` calls
+- But closures returned from function calls (e_call case) use a different creation path
+- Our embedded layout modifications only affect LANDING PAD path
 
-# Test: lambda_capture_multiple.md  
-|a, b| |c| a + b + c
-```
+## Critical Next Steps
 
-#### **2. Complex Nesting Scenarios**
-```roc
-# Test: lambda_capture_three_levels.md
-|outer| |middle| |inner| outer + middle + inner
+### 1. **Find All Closure Creation Paths** (HIGHEST PRIORITY)
+The LANDING PAD is not the only place closures are created. Need to audit:
 
-# Test: lambda_capture_mixed_patterns.md
-|base| {
-    simple = |x| x + 1,      # No captures
-    withCapture = |y| base + y # Captures 'base'
-}
-```
-
-#### **3. Edge Cases & Regression Prevention**
-```roc
-# Test: lambda_no_captures.md (regression)
-|x| x + 1
-
-# Test: lambda_partial_application.md
-|x| |y| |z| x + y + z
-
-# Test: lambda_complex_expressions.md
-|outer| |inner| if outer > 0 then outer + inner else inner
-```
-
-#### **4. Error Handling & Boundary Conditions**
-```roc
-# Test: lambda_invalid_references.md
-|x| |y| x + z  # Reference to undefined 'z'
-
-# Test: lambda_deep_nesting.md
-|a| |b| |c| |d| |e| a + b + c + d + e
-```
-
-### **Success Criteria for Each Test**
-- [ ] **Parse Stage**: Correctly parses nested lambda structure
-- [ ] **Canonicalize Stage**: Shows capture information in debug output
-- [ ] **Types Stage**: Processes without errors  
-- [ ] **Capture Detection**: Accurately identifies captured variables
-- [ ] **Debug Output**: Clear capture information visible (e.g., `(capture (name "var_name"))`)
-
-### **Test Validation Process**
-1. **Create Test File**: Write snapshot test with clear description
-2. **Run Snapshot**: `zig build snapshot -- src/snapshots/test_name.md`
-3. **Verify Output**: Check CANONICALIZE section shows capture information
-4. **Document Results**: Note any issues or unexpected behavior
-5. **Iterate**: Fix any detection issues before proceeding
-
-## 📋 **PRIORITY 2: Complete Interpreter Implementation** [AFTER TESTING]
-
-### **Remaining Implementation Tasks**
-Only proceed after comprehensive testing validates capture detection.
-
-#### **2.1 Complete Capture Record Creation**
-**File**: `roc/src/eval/interpreter.zig`
-- **Function**: Complete `handleCaptureArguments` implementation
-- **Task**: Finish capture value collection from current execution context
-- **Current Status**: Framework exists, needs completion
-
-#### **2.2 Enhance Parameter Binding** 
-**File**: `roc/src/eval/interpreter.zig`
-- **Function**: Update `handleBindParameters` 
-- **Task**: Handle capture records as hidden arguments
-- **Integration**: Ensure capture records bind like regular parameters
-
-#### **2.3 End-to-End Integration Testing**
-**Tests**: Create execution tests (not just canonicalization)
-- **Basic**: `(|x| |y| x + y)(5)(3)` should equal `8`
-- **Complex**: Multi-level nesting execution validation
-- **Performance**: Verify no significant slowdown vs. simple lambdas
-
-## 🎯 **Session Success Metrics**
-
-### **Phase 1 Complete (Testing)**
-- [ ] **Test Coverage**: At least 8-10 comprehensive snapshot tests created
-- [ ] **Pipeline Validation**: PARSE → CANONICALIZE → TYPES working for all scenarios
-- [ ] **Capture Detection**: All expected captures show in canonicalized output  
-- [ ] **Edge Cases**: Boundary conditions and error cases documented
-- [ ] **Regression Safety**: Existing lambda functionality confirmed working
-
-### **Phase 2 Complete (Implementation)**
-- [ ] **Capture Records**: Automatic capture record creation working
-- [ ] **Parameter Binding**: Capture records handled as hidden arguments
-- [ ] **End-to-End**: Basic nested closure execution: `((|x| |y| x + y)(5))(3) == 8`
-- [ ] **Performance**: No significant performance degradation
-
-## 🚨 **Critical Implementation Guidelines**
-
-### **Testing Phase Guidelines**
-1. **Test Everything**: Don't assume capture detection works in untested scenarios
-2. **Validate Each Stage**: Check PARSE, CANONICALIZE, and TYPES output for every test
-3. **Document Failures**: Any capture detection issues must be fixed before interpreter work
-4. **Keep Tests**: All snapshot tests become permanent regression tests
-
-### **Implementation Phase Guidelines**
-1. **No Shortcuts**: Only proceed after testing phase is complete
-2. **Incremental Changes**: Make small, testable changes to interpreter
-3. **Debug Output**: Maintain rich debugging throughout implementation
-4. **Test After Each Change**: Validate functionality at each step
-
-## 🔧 **Commands for Testing Session**
-
+**Search Tasks:**
 ```bash
-# Create new snapshot test
-cd roc
-touch src/snapshots/lambda_capture_[scenario].md
-
-# Run specific test
-zig build snapshot -- src/snapshots/lambda_capture_[scenario].md
-
-# Run all tests to check for regressions
-zig build test
+grep -r "SimpleClosure\|Closure.*=" src/eval/
+grep -r "\.body_expr_idx.*=" src/eval/
+grep -r "@sizeOf.*Closure" src/eval/
 ```
 
-## 📚 **Key Files to Focus On**
+**Likely Additional Paths:**
+- Closure copying during function returns
+- Closure creation in expression evaluation outside LANDING PAD
+- Layout cache closure size calculations
+- Stack memory closure allocation
 
-### **Testing Phase**
-- `roc/src/snapshots/lambda_capture_*.md` - New test files
-- `roc/src/check/canonicalize.zig` - If capture detection needs fixes
+### 2. **Fix Layout Size Calculations**
+The layout cache needs to know about the new closure sizes:
 
-### **Implementation Phase** (After Testing)
-- `roc/src/eval/interpreter.zig` - Complete capture argument handling
-- `roc/src/eval/interpreter.zig` - Update parameter binding for captures
+**Files to Check:**
+- `src/layout/store.zig` - layout size calculations
+- `src/layout/layout.zig` - closure layout definitions
+- Any `layoutSize()` method that handles closures
 
-## 🎉 **Expected Outcome**
+**Expected Changes:**
+- `SimpleClosure` size should increase from ~12 to ~12+sizeof(Layout)
+- `Closure` size should increase from ~16 to ~16+sizeof(Layout)
 
-By the end of the next session:
-1. **Rock-solid capture detection** validated by comprehensive tests
-2. **Clear understanding** of any edge cases or limitations
-3. **Solid foundation** for completing the interpreter implementation
-4. **Confidence** that the captures-as-arguments approach will work reliably
+### 3. **Trace Complete Closure Lifecycle**
+Need to understand the full flow:
 
-**Bottom Line**: Thorough testing now saves debugging time later and ensures a robust implementation! 🚀
+**Add Tracing To:**
+- All closure allocation points (not just LANDING PAD)
+- Closure copying operations
+- Layout stack operations involving closures
+- Memory corruption detection in arithmetic operations
+
+### 4. **Fix Memory Corruption**
+The large garbage numbers suggest:
+- Wrong memory alignment
+- Incorrect pointer calculations
+- Stack corruption during closure operations
+
+### 5. **Test-Driven Development**
+**Focus Tests:**
+- `(|a, b, c| |x| a + b + c + x)(10, 20, 5)(7)` → should equal 42
+- Enable tracing on ONE test only to avoid output confusion
+
+## Architecture Validation
+
+### The Embedded Layout Approach is Sound ✅
+- Layout information travels with closure automatically
+- No complex coordination between separate tracking systems
+- Eliminates the closure pointer stack complexity
+
+### Implementation Gap ❌
+- Only LANDING PAD path updated
+- Other closure creation paths still use old structures
+- Layout cache doesn't account for new sizes
+
+## Debugging Strategy
+
+### Systematic Approach:
+1. **Single Test Focus**: Use only the advanced multiple variables test with tracing
+2. **Size Verification**: Confirm all closure allocations use new sizes
+3. **Memory Tracking**: Add corruption detection to arithmetic operations
+4. **Path Coverage**: Ensure all closure creation paths use embedded layout
+
+### Success Criteria:
+- `🔍 CAPTURE CHECK: tag=closure, env_size=3` (not 0)
+- `🎯 ADDING CAPTURE RECORD: env_size=3` (actually executed)
+- Arithmetic operations with normal numbers (not garbage)
+- Test result: `42` for `(|a, b, c| |x| a + b + c + x)(10, 20, 5)(7)`
+
+## Files That Need Attention
+
+### High Priority:
+- `src/eval/interpreter.zig` - Find all closure creation paths
+- `src/layout/store.zig` - Update size calculations
+- `src/layout/layout.zig` - Verify closure layout definitions
+
+### Medium Priority:
+- Memory alignment and corruption detection
+- Stack management during closure operations
+- Test isolation and tracing cleanup
+
+## Risk Assessment
+
+### Low Risk:
+- Architecture is sound
+- Code cleanup was successful
+- Basic infrastructure works
+
+### High Risk:
+- Memory corruption suggests deeper issues
+- Multiple closure creation paths may exist
+- Stack/layout management complexity
+
+## Estimated Effort
+
+**Next Session Focus**: 2-3 hours
+1. Find all closure creation paths (30 min)
+2. Update layout size calculations (30 min)
+3. Fix memory corruption (60-90 min)
+4. Verify with focused test (30 min)
+
+**Success Probability**: High - we have good understanding of the issue and clear next steps.
