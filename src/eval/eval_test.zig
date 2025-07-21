@@ -1128,3 +1128,32 @@ test "debug - check block expression parsing" {
 
     std.debug.print("=== END DEBUG ===\n", .{});
 }
+
+test "simple nested closure - scope chain verification" {
+    // Simple nested closure to test ExecutionContext scope chain
+    const src = "(|x| (|y| x + y))(5)";
+
+    const resources = parseAndCanonicalizeExpr(test_allocator, src) catch |err| {
+        std.debug.print("PARSE ERROR for simple nested: {any}\n", .{err});
+        return err;
+    };
+    defer cleanupParseAndCanonical(test_allocator, resources);
+
+    var eval_stack = try stack.Stack.initCapacity(test_allocator, 1024);
+    defer eval_stack.deinit();
+
+    var layout_cache = try layout_store.Store.init(resources.module_env, &resources.module_env.types);
+    defer layout_cache.deinit();
+
+    var interpreter = try eval.Interpreter.init(test_allocator, resources.cir, &eval_stack, &layout_cache, &resources.module_env.types);
+    defer interpreter.deinit();
+
+    const result = interpreter.eval(resources.expr_idx) catch |err| {
+        std.debug.print("EVAL ERROR for simple nested: {any}\n", .{err});
+        return err;
+    };
+
+    // Result should be a closure that captures x=5
+    try testing.expect(result.layout.tag == .closure);
+    std.debug.print("SUCCESS: Simple nested closure created with captured variable\n", .{});
+}

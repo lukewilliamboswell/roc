@@ -179,6 +179,7 @@ pub const CapturedBinding = struct {
 pub const CapturedEnvironment = struct {
     bindings: []CapturedBinding, // Array of captured bindings
     parent_env: ?*CapturedEnvironment, // Parent environment for nested closures
+    deferred_init: bool, // Flag indicating if environment needs deferred initialization
 
     pub fn validate(self: CapturedEnvironment) bool {
         // Validate all bindings in this environment
@@ -418,16 +419,18 @@ fn initializeCapturedEnvironment(
     env.* = CapturedEnvironment{
         .bindings = bindings,
         .parent_env = null, // TODO: Support for nested environments
+        .deferred_init = false, // Regular initialization, not deferred
     };
 
     // Initialize captured bindings
     var value_data_offset = bindings_offset + (captured_vars.len * @sizeOf(CapturedBinding));
 
     for (captured_vars, 0..) |pattern_idx, i| {
-        // Find the current value of this variable from parameter bindings
+        // Find the current value of this variable from execution context chain
         var found_value: ?*u8 = null;
         var found_layout: ?layout.Layout = null;
 
+        // First try current parameter bindings (backward compatibility)
         for (self.parameter_bindings.items) |binding| {
             if (binding.pattern_idx == pattern_idx) {
                 found_value = @as(*u8, @ptrCast(binding.value_ptr));
@@ -436,10 +439,26 @@ fn initializeCapturedEnvironment(
             }
         }
 
+        // If not found, search through execution context chain
+        if (found_value == null) {
+            var context = self.current_context;
+            while (context) |ctx| {
+                if (ctx.findBinding(pattern_idx)) |binding| {
+                    found_value = @as(*u8, @ptrCast(binding.value_ptr));
+                    found_layout = binding.layout;
+                    if (DEBUG_ENABLED) {
+                        std.debug.print("🔍 FOUND in execution context: pattern={}\n", .{@intFromEnum(pattern_idx)});
+                    }
+                    break;
+                }
+                context = ctx.parent_context;
+            }
+        }
+
         if (found_value == null) {
             // This should not happen if capture analysis is correct
             if (DEBUG_ENABLED) {
-                std.debug.print("❌ CAPTURE ERROR: pattern {} not found in parameter bindings\n", .{@intFromEnum(pattern_idx)});
+                std.debug.print("❌ CAPTURE ERROR: pattern {} not found in parameter bindings or execution contexts\n", .{@intFromEnum(pattern_idx)});
             }
             return error.CaptureError;
         }
@@ -563,6 +582,41 @@ const ParameterBinding = struct {
     layout: layout.Layout,
 };
 
+/// Execution context for function calls, maintaining scope chain for variable lookup
+const ExecutionContext = struct {
+    /// Parameter bindings for this function call scope
+    parameter_bindings: std.ArrayList(ParameterBinding),
+    /// Parent context for nested function calls (scope chain)
+    parent_context: ?*ExecutionContext,
+
+    fn init(allocator: std.mem.Allocator, parent: ?*ExecutionContext) !ExecutionContext {
+        return ExecutionContext{
+            .parameter_bindings = try std.ArrayList(ParameterBinding).initCapacity(allocator, 16),
+            .parent_context = parent,
+        };
+    }
+
+    fn deinit(self: *ExecutionContext) void {
+        self.parameter_bindings.deinit();
+    }
+
+    fn findBinding(self: *const ExecutionContext, pattern_idx: CIR.Pattern.Idx) ?ParameterBinding {
+        // Search current context first
+        for (self.parameter_bindings.items) |binding| {
+            if (binding.pattern_idx == pattern_idx) {
+                return binding;
+            }
+        }
+
+        // Search parent contexts
+        if (self.parent_context) |parent| {
+            return parent.findBinding(pattern_idx);
+        }
+
+        return null;
+    }
+};
+
 /// The Roc expression interpreter.
 ///
 /// This evaluates Roc expressions using an iterative work queue
@@ -595,6 +649,10 @@ pub const Interpreter = struct {
     layout_stack: std.ArrayList(layout.Layout),
     /// Active parameter bindings for current function call(s)
     parameter_bindings: std.ArrayList(ParameterBinding),
+    /// Execution context stack for scope chain management
+    execution_contexts: std.ArrayList(ExecutionContext),
+    /// Current active execution context (top of stack)
+    current_context: ?*ExecutionContext,
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -612,6 +670,8 @@ pub const Interpreter = struct {
             .work_stack = try std.ArrayList(WorkItem).initCapacity(allocator, 128),
             .layout_stack = try std.ArrayList(layout.Layout).initCapacity(allocator, 128),
             .parameter_bindings = try std.ArrayList(ParameterBinding).initCapacity(allocator, 32),
+            .execution_contexts = try std.ArrayList(ExecutionContext).initCapacity(allocator, 32),
+            .current_context = null,
         };
     }
 
@@ -619,6 +679,12 @@ pub const Interpreter = struct {
         self.work_stack.deinit();
         self.layout_stack.deinit();
         self.parameter_bindings.deinit();
+
+        // Clean up execution contexts
+        for (self.execution_contexts.items) |*context| {
+            context.deinit();
+        }
+        self.execution_contexts.deinit();
     }
 
     /// Evaluates a CIR expression and returns the result.
@@ -1047,18 +1113,16 @@ pub const Interpreter = struct {
                 }
 
                 if (capture_analysis.captured_vars.items.len > 0) {
-                    // Create enhanced closure with captures
-                    self.debugTraceCapture("ENHANCED_CLOSURE_CREATE", expr_idx);
+                    // Create enhanced closure with DEFERRED environment initialization
+                    self.debugTraceCapture("ENHANCED_CLOSURE_CREATE_DEFERRED", expr_idx);
                     capture_analysis.total_env_size = env_size;
-                    const enhanced_closure = createClosureWithCaptures(self, .{ .args = lambda_expr.args, .body = lambda_expr.body }, capture_analysis) catch |err| switch (err) {
-                        error.StackOverflow => return error.StackOverflow,
-                        error.CaptureError => return error.LayoutError,
-                    };
 
-                    // Debug trace enhanced closure creation
-                    self.debugTraceEnhancedClosure(enhanced_closure, env_size);
-                    if (enhanced_closure.captured_env) |env| {
-                        self.debugInspectCaptureEnvironment(env, "CREATED");
+                    // Create closure structure but defer environment initialization until execution time
+                    _ = try createClosureWithDeferredCaptures(self, .{ .args = lambda_expr.args, .body = lambda_expr.body }, capture_analysis);
+
+                    // Debug trace deferred closure creation
+                    if (DEBUG_ENABLED) {
+                        std.debug.print("DEBUG: 🕐 DEFERRED CLOSURE: env_size={}, captured_vars={}\n", .{ env_size, capture_analysis.captured_vars.items.len });
                     }
 
                     // Create and push closure layout with environment size
@@ -1511,6 +1575,24 @@ pub const Interpreter = struct {
         // Verify closure integrity
         self.debugVerifyClosure(closure_ptr, "parameter_binding");
 
+        // Check if this is an enhanced closure that needs deferred environment initialization
+        if (@sizeOf(SimpleClosure) == 12 and closure_ptr.args_pattern_span.span.len > 0) {
+            // This might be a deferred enhanced closure - check if it has uninitialized environment
+            const enhanced_closure_candidate = @as(*Closure, @ptrCast(@alignCast(closure_ptr)));
+            if (enhanced_closure_candidate.captured_env != null) {
+                const env = enhanced_closure_candidate.captured_env.?;
+                // Check if environment needs deferred initialization
+                if (env.deferred_init) {
+                    // This is a deferred closure - initialize the environment now
+                    self.debugTraceCapture("INITIALIZE_DEFERRED_ENV", call_expr_idx);
+                    try self.initializeDeferredCapturedEnvironment(enhanced_closure_candidate);
+                    if (DEBUG_ENABLED) {
+                        std.debug.print("DEBUG: ✅ DEFERRED ENVIRONMENT INITIALIZED with {} captures\n", .{env.bindings.len});
+                    }
+                }
+            }
+        }
+
         const parameter_patterns = self.cir.store.slicePatterns(closure_ptr.args_pattern_span);
 
         if (parameter_patterns.len != arg_count) {
@@ -1554,9 +1636,20 @@ pub const Interpreter = struct {
             try self.parameter_bindings.append(binding);
         }
 
+        // Push new execution context with current parameter bindings
+        var new_context = try ExecutionContext.init(self.allocator, self.current_context);
+
+        // Copy current parameter bindings to the new context
+        try new_context.parameter_bindings.appendSlice(self.parameter_bindings.items);
+
+        // Add context to stack and make it current
+        try self.execution_contexts.append(new_context);
+        self.current_context = &self.execution_contexts.items[self.execution_contexts.items.len - 1];
+
         // Final state verification and summary
         if (DEBUG_ENABLED) {
             std.debug.print("DEBUG: BIND SUMMARY: {} parameters bound, stack_used={}\n", .{ arg_count, self.stack_memory.used });
+            std.debug.print("DEBUG: CONTEXT STACK: {} contexts deep\n", .{self.execution_contexts.items.len});
         }
         self.debugInspectState("bind_parameters_complete");
         self.debugTracePhase("parameter_binding_complete", call_expr_idx);
@@ -1753,6 +1846,23 @@ pub const Interpreter = struct {
     fn handleCleanupFunction(self: *Interpreter, call_expr_idx: CIR.Expr.Idx) EvalError!void {
         // Remove parameter bindings that were added for this function call
         self.parameter_bindings.clearRetainingCapacity();
+
+        // Pop execution context from stack
+        if (self.execution_contexts.items.len > 0) {
+            // Call deinit on the last context before removing it
+            self.execution_contexts.items[self.execution_contexts.items.len - 1].deinit();
+            _ = self.execution_contexts.pop();
+
+            // Update current context to parent (or null if stack is empty)
+            self.current_context = if (self.execution_contexts.items.len > 0)
+                &self.execution_contexts.items[self.execution_contexts.items.len - 1]
+            else
+                null;
+
+            if (DEBUG_ENABLED) {
+                std.debug.print("DEBUG: CONTEXT STACK: {} contexts remaining after cleanup\n", .{self.execution_contexts.items.len});
+            }
+        }
 
         if (DEBUG_ENABLED) {
             std.debug.print("DEBUG: === CLEANUP FUNCTION ===\n", .{});
@@ -1968,6 +2078,87 @@ pub const Interpreter = struct {
             std.debug.print("    [{:2}] pattern={}, layout={s}, addr={}\n", .{ i, @intFromEnum(binding.pattern_idx), @tagName(binding.layout.tag), @intFromPtr(binding.value_data) });
         }
     }
+
+    /// Initialize the deferred captured environment for a closure
+    fn initializeDeferredCapturedEnvironment(self: *Interpreter, closure: *Closure) !void {
+        const env = closure.captured_env orelse return; // No environment to initialize
+
+        if (DEBUG_ENABLED) {
+            std.debug.print("🏗️  INIT DEFERRED CAPTURE ENV: {} variables to capture\n", .{env.bindings.len});
+        }
+
+        // Calculate value data offset (after environment and bindings)
+        const memory_block = @as([*]u8, @ptrCast(closure));
+        var value_data_offset = @sizeOf(Closure) + @sizeOf(CapturedEnvironment) +
+            (env.bindings.len * @sizeOf(CapturedBinding));
+
+        // Initialize each binding with actual captured values
+        for (env.bindings) |*binding| {
+            const pattern_idx = binding.pattern_idx;
+
+            // Find the current value of this variable from parameter bindings or execution context
+            var found_value: ?*u8 = null;
+            var found_layout: ?layout.Layout = null;
+
+            // First try current parameter bindings
+            for (self.parameter_bindings.items) |param_binding| {
+                if (param_binding.pattern_idx == pattern_idx) {
+                    found_value = @as(*u8, @ptrCast(param_binding.value_ptr));
+                    found_layout = param_binding.layout;
+                    break;
+                }
+            }
+
+            // If not found, search through execution context chain
+            if (found_value == null) {
+                var context = self.current_context;
+                while (context) |ctx| {
+                    if (ctx.findBinding(pattern_idx)) |ctx_binding| {
+                        found_value = @as(*u8, @ptrCast(ctx_binding.value_ptr));
+                        found_layout = ctx_binding.layout;
+                        if (DEBUG_ENABLED) {
+                            std.debug.print("🔍 FOUND DEFERRED in execution context: pattern={}\n", .{@intFromEnum(pattern_idx)});
+                        }
+                        break;
+                    }
+                    context = ctx.parent_context;
+                }
+            }
+
+            if (found_value == null) {
+                if (DEBUG_ENABLED) {
+                    std.debug.print("❌ DEFERRED CAPTURE ERROR: pattern {} not found\n", .{@intFromEnum(pattern_idx)});
+                }
+                return error.LayoutError;
+            }
+
+            // Calculate value size and copy value data
+            const value_layout = found_layout.?;
+            const value_size = self.layout_cache.layoutSize(value_layout);
+            const value_ptr = memory_block + value_data_offset;
+
+            if (DEBUG_ENABLED) {
+                std.debug.print("  📦 DEFERRED CAPTURING: pattern={}, size={} bytes\n", .{ @intFromEnum(pattern_idx), value_size });
+            }
+
+            // Copy the captured value
+            @memcpy(value_ptr[0..value_size], @as([*]u8, @ptrCast(found_value))[0..value_size]);
+
+            // Update binding with actual data
+            binding.* = CapturedBinding{
+                .pattern_idx = pattern_idx,
+                .value_data = value_ptr,
+                .layout = value_layout,
+            };
+
+            value_data_offset += value_size;
+        }
+
+        // Mark environment as initialized
+        if (closure.captured_env) |captured_env| {
+            @constCast(captured_env).deferred_init = false;
+        }
+    }
 };
 
 // Helper function to write an integer to memory with the correct precision
@@ -2000,6 +2191,52 @@ fn readIntFromMemory(ptr: [*]u8, precision: types.Num.Int.Precision) i128 {
         .i64 => @as(i128, @as(*i64, @ptrCast(@alignCast(ptr))).*),
         .i128 => @as(*i128, @ptrCast(@alignCast(ptr))).*,
     };
+}
+
+/// Create a closure with deferred captured environment initialization
+fn createClosureWithDeferredCaptures(
+    self: *Interpreter,
+    lambda_info: struct { args: CIR.Pattern.Span, body: CIR.Expr.Idx },
+    capture_analysis: CaptureAnalysis,
+) !*Closure {
+    // Calculate total memory needed
+    const env_size = capture_analysis.total_env_size;
+    const total_size = @sizeOf(Closure) + env_size;
+
+    // Allocate memory block
+    const memory_block = self.stack_memory.alloca(@as(u32, @intCast(total_size)), @enumFromInt(@alignOf(Closure))) catch return error.StackOverflow;
+
+    // Initialize closure
+    const closure = @as(*Closure, @ptrCast(@alignCast(memory_block)));
+    closure.* = Closure{
+        .body_expr_idx = lambda_info.body,
+        .args_pattern_span = lambda_info.args,
+        .captured_env = if (capture_analysis.captured_vars.items.len > 0) blk: {
+            const env_ptr = @as(*CapturedEnvironment, @ptrCast(@alignCast(@as([*]u8, @ptrCast(memory_block)) + @sizeOf(Closure))));
+
+            // Initialize environment structure but with empty/placeholder bindings
+            const bindings_ptr = @as([*]CapturedBinding, @ptrCast(@alignCast(@as([*]u8, @ptrCast(memory_block)) + @sizeOf(Closure) + @sizeOf(CapturedEnvironment))));
+
+            env_ptr.* = CapturedEnvironment{
+                .bindings = bindings_ptr[0..capture_analysis.captured_vars.items.len],
+                .parent_env = null,
+                .deferred_init = true, // Mark for deferred initialization
+            };
+
+            // Create placeholder bindings that will be initialized later
+            for (capture_analysis.captured_vars.items, 0..) |pattern_idx, i| {
+                bindings_ptr[i] = CapturedBinding{
+                    .pattern_idx = pattern_idx,
+                    .value_data = undefined, // Will be filled during deferred initialization
+                    .layout = undefined, // Placeholder layout - will be filled during deferred initialization
+                };
+            }
+
+            break :blk env_ptr;
+        } else null,
+    };
+
+    return closure;
 }
 
 test {
