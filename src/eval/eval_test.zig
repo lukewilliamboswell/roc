@@ -669,29 +669,7 @@ test "lambda expressions comprehensive" {
         };
 
         // Extract integer result
-        const int_val = switch (result.layout.data.scalar.data.int) {
-            .i128 => blk: {
-                const raw_val = @as(*i128, @ptrCast(@alignCast(result.ptr))).*;
-                // Check for values that are too large to fit in i64
-                if (raw_val > std.math.maxInt(i64) or raw_val < std.math.minInt(i64)) {
-                    return error.IntegerOverflow;
-                }
-                break :blk @as(i64, @intCast(raw_val));
-            },
-            .i64 => @as(*i64, @ptrCast(@alignCast(result.ptr))).*,
-            .i32 => @as(i64, @as(*i32, @ptrCast(@alignCast(result.ptr))).*),
-            .u64 => blk: {
-                const raw_val = @as(*u64, @ptrCast(@alignCast(result.ptr))).*;
-                if (raw_val > std.math.maxInt(i64)) {
-                    return error.IntegerOverflow;
-                }
-                break :blk @as(i64, @intCast(raw_val));
-            },
-            .u32 => @as(i64, @intCast(@as(*u32, @ptrCast(@alignCast(result.ptr))).*)),
-            else => {
-                return error.UnsupportedType;
-            },
-        };
+        const int_val = eval.readIntFromMemory(@ptrCast(result.ptr), result.layout.data.scalar.data.int);
 
         try testing.expectEqual(case.expected, int_val);
     }
