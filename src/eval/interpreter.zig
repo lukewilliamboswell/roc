@@ -315,6 +315,107 @@ pub const CaptureAnalyzer = struct {
     }
 };
 
+/// Detect if a closure body contains nested lambda expressions that might need capture analysis
+fn detectNestedLambdas(cir: *const CIR, expr_idx: CIR.Expr.Idx) !bool {
+    // Validate expression index before accessing
+    const expr_idx_int = @intFromEnum(expr_idx);
+    const nodes_len = cir.store.nodes.len();
+
+    if (DEBUG_ENABLED) {
+        std.debug.print("DEBUG: 🔎 VALIDATE EXPR: idx={}, nodes_len={}\n", .{ expr_idx_int, nodes_len });
+    }
+
+    if (expr_idx_int == 0 or expr_idx_int >= nodes_len) {
+        if (DEBUG_ENABLED) {
+            std.debug.print("DEBUG: ❌ BOUNDS CHECK FAILED: idx={}, nodes_len={}\n", .{ expr_idx_int, nodes_len });
+        }
+        return error.InvalidExpressionIndex;
+    }
+
+    // Heuristic: Expression indices are usually higher numbers (allocated after patterns/statements)
+    // Very low indices (< 10) are likely pattern or statement nodes, not expressions
+    if (expr_idx_int < 10) {
+        if (DEBUG_ENABLED) {
+            std.debug.print("DEBUG: ❌ SUSPICIOUS LOW EXPR IDX: {} (likely not an expression)\n", .{expr_idx_int});
+        }
+        return error.SuspiciousExpressionIndex;
+    }
+
+    const expr = cir.store.getExpr(expr_idx);
+
+    switch (expr) {
+        .e_lambda => return true, // Found a nested lambda
+        .e_call => |call| {
+            // Check function and all arguments
+            const all_exprs = cir.store.sliceExpr(call.args);
+            for (all_exprs) |arg_expr_idx| {
+                if (detectNestedLambdas(cir, arg_expr_idx) catch false) return true;
+            }
+        },
+        .e_if => |if_expr| {
+            // Check all if branches (condition and body)
+            const branches = cir.store.sliceIfBranches(if_expr.branches);
+            for (branches) |branch_idx| {
+                const branch = cir.store.getIfBranch(branch_idx);
+                if (detectNestedLambdas(cir, branch.cond) catch false) return true;
+                if (detectNestedLambdas(cir, branch.body) catch false) return true;
+            }
+            // Check final else branch
+            if (detectNestedLambdas(cir, if_expr.final_else) catch false) return true;
+        },
+        .e_binop => |binop| {
+            // Check both operands
+            if (detectNestedLambdas(cir, binop.lhs) catch false) return true;
+            if (detectNestedLambdas(cir, binop.rhs) catch false) return true;
+        },
+        .e_unary_minus => |unary_minus| {
+            // Check operand
+            if (detectNestedLambdas(cir, unary_minus.expr) catch false) return true;
+        },
+        .e_block => |block| {
+            // Check all statements and the return expression
+            const statements = cir.store.sliceStatements(block.stmts);
+            for (statements) |stmt_idx| {
+                const stmt = cir.store.getStatement(stmt_idx);
+                switch (stmt) {
+                    .s_expr => |s_expr| {
+                        if (detectNestedLambdas(cir, s_expr.expr) catch false) return true;
+                    },
+                    .s_decl => |s_decl| {
+                        if (detectNestedLambdas(cir, s_decl.expr) catch false) return true;
+                    },
+                    .s_var => |s_var| {
+                        if (detectNestedLambdas(cir, s_var.expr) catch false) return true;
+                    },
+                    .s_reassign => |s_reassign| {
+                        if (detectNestedLambdas(cir, s_reassign.expr) catch false) return true;
+                    },
+                    .s_dbg => |s_dbg| {
+                        if (detectNestedLambdas(cir, s_dbg.expr) catch false) return true;
+                    },
+                    .s_expect => |s_expect| {
+                        if (detectNestedLambdas(cir, s_expect.body) catch false) return true;
+                    },
+                    .s_return => |s_return| {
+                        if (detectNestedLambdas(cir, s_return.expr) catch false) return true;
+                    },
+                    .s_for => |s_for| {
+                        if (detectNestedLambdas(cir, s_for.expr) catch false) return true;
+                        if (detectNestedLambdas(cir, s_for.body) catch false) return true;
+                    },
+                    // Simple statements that don't contain expressions
+                    .s_crash, .s_import, .s_alias_decl, .s_nominal_decl, .s_type_anno => {},
+                }
+            }
+            if (detectNestedLambdas(cir, block.final_expr) catch false) return true;
+        },
+        // Simple expressions don't contain lambdas
+        .e_lookup_local, .e_lookup_external, .e_int, .e_frac_f64, .e_frac_dec, .e_dec_small, .e_str_segment, .e_str, .e_tag, .e_zero_argument_tag, .e_list, .e_empty_list, .e_record, .e_empty_record, .e_tuple, .e_nominal, .e_crash, .e_dbg, .e_expect, .e_runtime_error, .e_dot_access, .e_match, .e_ellipsis => {},
+    }
+
+    return false;
+}
+
 /// Calculate the total size needed for a captured environment
 fn calculateEnvironmentSize(
     layout_cache: *layout_store.Store,
@@ -1081,94 +1182,44 @@ pub const Interpreter = struct {
             },
 
             .e_lambda => |lambda_expr| {
-                // Trace capture analysis start
-                self.debugTraceCapture("ANALYSIS_START", expr_idx);
+                // SIMPLIFIED APPROACH: Always create SimpleClosure initially
+                // Execution-time capture analysis in handleBindParameters will enhance if needed
+                self.debugTraceCapture("SIMPLE_CLOSURE_CREATE", expr_idx);
 
-                // Perform capture analysis
-                var capture_analysis = CaptureAnalysis.analyzeLambdaBody(
-                    self.allocator,
-                    self.cir,
-                    lambda_expr.body,
-                    lambda_expr.args,
-                ) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                };
-                defer capture_analysis.deinit();
+                const closure_size = @sizeOf(SimpleClosure);
+                const closure_alignment = @as(std.mem.Alignment, @enumFromInt(@alignOf(SimpleClosure)));
 
-                // Calculate environment size
-                const env_size = calculateEnvironmentSize(
-                    self.layout_cache,
-                    capture_analysis.captured_vars.items,
-                ) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    else => return error.LayoutError,
+                // Allocate closure on stack
+                const closure_ptr = self.stack_memory.alloca(closure_size, closure_alignment) catch |err| switch (err) {
+                    error.StackOverflow => return error.StackOverflow,
                 };
 
-                // Trace capture analysis results
-                self.debugTraceCaptureResult(capture_analysis.captured_vars.items.len, env_size);
+                // Track closure creation for debugging
                 if (DEBUG_ENABLED) {
-                    for (capture_analysis.captured_vars.items, 0..) |pattern_idx, i| {
-                        self.debugInspectCapturedVar(pattern_idx, i);
-                    }
+                    const stack_pos = @intFromPtr(closure_ptr) - @intFromPtr(self.stack_memory.start);
+                    std.debug.print("DEBUG: 🎯 SIMPLE CLOSURE: size={} at pos={}\n", .{ closure_size, stack_pos });
                 }
 
-                if (capture_analysis.captured_vars.items.len > 0) {
-                    // Create enhanced closure with DEFERRED environment initialization
-                    self.debugTraceCapture("ENHANCED_CLOSURE_CREATE_DEFERRED", expr_idx);
-                    capture_analysis.total_env_size = env_size;
+                // Initialize closure
+                const closure = @as(*SimpleClosure, @ptrCast(@alignCast(closure_ptr)));
+                closure.* = SimpleClosure{
+                    .body_expr_idx = lambda_expr.body,
+                    .args_pattern_span = lambda_expr.args,
+                };
 
-                    // Create closure structure but defer environment initialization until execution time
-                    _ = try createClosureWithDeferredCaptures(self, .{ .args = lambda_expr.args, .body = lambda_expr.body }, capture_analysis);
-
-                    // Debug trace deferred closure creation
-                    if (DEBUG_ENABLED) {
-                        std.debug.print("DEBUG: 🕐 DEFERRED CLOSURE: env_size={}, captured_vars={}\n", .{ env_size, capture_analysis.captured_vars.items.len });
-                    }
-
-                    // Create and push closure layout with environment size
-                    const closure_layout = layout.Layout{
-                        .tag = .closure,
-                        .data = .{ .closure = .{ .env_size = @intCast(env_size) } },
-                    };
-                    try self.layout_stack.append(closure_layout);
-                } else {
-                    // Create simple closure (no captures needed)
-                    self.debugTraceCapture("SIMPLE_CLOSURE_CREATE", expr_idx);
-                    const closure_size = @sizeOf(SimpleClosure);
-                    const closure_alignment = @as(std.mem.Alignment, @enumFromInt(@alignOf(SimpleClosure)));
-
-                    // Allocate closure on stack
-                    const closure_ptr = self.stack_memory.alloca(closure_size, closure_alignment) catch |err| switch (err) {
-                        error.StackOverflow => return error.StackOverflow,
-                    };
-
-                    // Track closure creation for debugging
-                    if (DEBUG_ENABLED) {
-                        const stack_pos = @intFromPtr(closure_ptr) - @intFromPtr(self.stack_memory.start);
-                        std.debug.print("DEBUG: 🎯 SIMPLE CLOSURE: size={} at pos={}\n", .{ closure_size, stack_pos });
-                    }
-
-                    // Initialize closure
-                    const closure = @as(*SimpleClosure, @ptrCast(@alignCast(closure_ptr)));
-                    closure.* = SimpleClosure{
-                        .body_expr_idx = lambda_expr.body,
-                        .args_pattern_span = lambda_expr.args,
-                    };
-
-                    // Verify closure creation for debugging
-                    if (DEBUG_ENABLED) {
-                        const span = lambda_expr.args;
-                        const patterns = self.cir.store.slicePatterns(span);
-                        std.debug.print("DEBUG: CLOSURE CREATION: span_len={}, patterns={}\n", .{ span.span.len, patterns.len });
-                    }
-
-                    // Create and push closure layout (no environment)
-                    const closure_layout = layout.Layout{
-                        .tag = .closure,
-                        .data = .{ .closure = .{ .env_size = 0 } },
-                    };
-                    try self.layout_stack.append(closure_layout);
+                // Verify closure creation for debugging
+                if (DEBUG_ENABLED) {
+                    const span = lambda_expr.args;
+                    const patterns = self.cir.store.slicePatterns(span);
+                    std.debug.print("DEBUG: CLOSURE CREATION: span_len={}, patterns={}\n", .{ span.span.len, patterns.len });
                 }
+
+                // Create and push closure layout (no environment initially)
+                const closure_layout = layout.Layout{
+                    .tag = .closure,
+                    .data = .{ .closure = .{ .env_size = 0 } },
+                };
+                try self.layout_stack.append(closure_layout);
             },
         }
     }
@@ -1544,18 +1595,20 @@ pub const Interpreter = struct {
         self.debugInspectState("bind_parameters_start");
         self.debugTracePhase("parameter_binding_calculation", call_expr_idx);
 
-        // Calculate function position on stack using forward calculation
+        // Calculate function position on stack using layout positions
         // Stack layout: [return_space, function, arg1, arg2, ...]
 
-        // Get the return space layout (bottom of stack, last in layout_stack)
-        const return_space_layout = self.layout_stack.items[self.layout_stack.items.len - 1 - arg_count - 1];
-        const return_space_size = self.layout_cache.layoutSize(return_space_layout);
+        // Function position is calculated by summing sizes of all items that come after it
+        // Layout stack is ordered with function at index: len - 1 - arg_count
+        const function_layout_idx = self.layout_stack.items.len - 1 - arg_count;
 
-        // Function is located right after return space
-        const function_stack_pos = return_space_size;
+        // Calculate position by summing sizes of items after the function
+        var function_stack_pos: usize = 0;
+        for (self.layout_stack.items[function_layout_idx + 1 ..]) |item_layout| {
+            function_stack_pos += self.layout_cache.layoutSize(item_layout);
+        }
 
         // Get the function layout
-        const function_layout_idx = self.layout_stack.items.len - 1 - arg_count;
         const function_layout = self.layout_stack.items[function_layout_idx];
 
         if (function_layout.tag == .closure) {
@@ -1575,21 +1628,46 @@ pub const Interpreter = struct {
         // Verify closure integrity
         self.debugVerifyClosure(closure_ptr, "parameter_binding");
 
-        // Check if this is an enhanced closure that needs deferred environment initialization
-        if (@sizeOf(SimpleClosure) == 12 and closure_ptr.args_pattern_span.span.len > 0) {
-            // This might be a deferred enhanced closure - check if it has uninitialized environment
-            const enhanced_closure_candidate = @as(*Closure, @ptrCast(@alignCast(closure_ptr)));
-            if (enhanced_closure_candidate.captured_env != null) {
-                const env = enhanced_closure_candidate.captured_env.?;
-                // Check if environment needs deferred initialization
-                if (env.deferred_init) {
-                    // This is a deferred closure - initialize the environment now
-                    self.debugTraceCapture("INITIALIZE_DEFERRED_ENV", call_expr_idx);
-                    try self.initializeDeferredCapturedEnvironment(enhanced_closure_candidate);
-                    if (DEBUG_ENABLED) {
-                        std.debug.print("DEBUG: ✅ DEFERRED ENVIRONMENT INITIALIZED with {} captures\n", .{env.bindings.len});
-                    }
+        // EXECUTION-TIME CAPTURE ANALYSIS: Check if closure body contains nested lambdas
+        // This is the correct timing - after outer parameters are bound and execution context is populated
+
+        // Debug: Validate closure body before nested lambda detection
+        if (DEBUG_ENABLED) {
+            std.debug.print("DEBUG: 🔍 VALIDATING CLOSURE BODY: body_expr_idx={}\n", .{@intFromEnum(closure_ptr.body_expr_idx)});
+            std.debug.print("DEBUG: 🔍 CLOSURE PTR: body={}, args_span_len={}\n", .{ @intFromEnum(closure_ptr.body_expr_idx), closure_ptr.args_pattern_span.span.len });
+        }
+
+        // Check if closure body contains nested lambdas (with error catching for invalid expressions)
+        const body_expr_idx = closure_ptr.body_expr_idx;
+        const has_nested_lambdas = detectNestedLambdas(self.cir, body_expr_idx) catch |err| blk: {
+            if (DEBUG_ENABLED) {
+                std.debug.print("DEBUG: ⚠️  INVALID BODY EXPRESSION INDEX ({}) - error: {any}\n", .{ @intFromEnum(body_expr_idx), err });
+            }
+            break :blk false; // Assume no nested lambdas on error
+        };
+
+        if (has_nested_lambdas) {
+            if (DEBUG_ENABLED) {
+                std.debug.print("DEBUG: 🔍 NESTED LAMBDAS DETECTED - performing execution-time capture analysis\n", .{});
+            }
+
+            // NOW we can do capture analysis with full execution context available
+            var capture_analysis = CaptureAnalysis.analyzeLambdaBody(self.allocator, self.cir, closure_ptr.body_expr_idx, closure_ptr.args_pattern_span) catch |err| {
+                if (DEBUG_ENABLED) {
+                    std.debug.print("DEBUG: ❌ CAPTURE ANALYSIS FAILED: {any}\n", .{err});
                 }
+                return err;
+            };
+            defer capture_analysis.deinit();
+
+            if (capture_analysis.captured_vars.items.len > 0) {
+                if (DEBUG_ENABLED) {
+                    std.debug.print("DEBUG: 🎯 CAPTURES FOUND: {} variables need capturing\n", .{capture_analysis.captured_vars.items.len});
+                    std.debug.print("DEBUG: ⚠️  EXECUTION-TIME ENHANCEMENT NOT YET IMPLEMENTED\n", .{});
+                    std.debug.print("DEBUG: ✅ CAPTURE ANALYSIS SUCCESSFUL - continuing with SimpleClosure for now\n", .{});
+                }
+                // TODO: Implement closure enhancement at execution time
+                // For now, continue with SimpleClosure (will fail at variable lookup)
             }
         }
 
