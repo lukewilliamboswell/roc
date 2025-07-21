@@ -4,6 +4,17 @@
 
 Based on guidance from Richard Feldman, this plan implements lambda captures by transforming closures to include captured variables as a hidden record argument. This approach reuses existing function call machinery and avoids complex memory management.
 
+## 🎯 **Current Implementation Status**
+
+**MAJOR MILESTONE ACHIEVED**: ✅ **PHASE 1 COMPLETE - CANONICALIZATION CAPTURE DETECTION**
+- **Capture Detection**: ✅ IMPLEMENTED - Function context tracking identifies captured variables during canonicalization
+- **CIR Integration**: ✅ IMPLEMENTED - Lambda expressions enhanced with capture information  
+- **Old Code Removal**: ✅ COMPLETED - All execution-time capture analysis eliminated
+- **Compilation**: ✅ VERIFIED - All code compiles and basic functionality maintained
+- **Debug Validation**: ✅ WORKING - Capture information visible in snapshot test output
+
+**NEXT PHASE**: 📋 **COMPREHENSIVE TESTING BEFORE FINAL IMPLEMENTATION**
+
 ## Core Concept: Captures as Hidden Arguments
 
 ### The Transform
@@ -35,56 +46,42 @@ result = my_fn(3)  # Interpreter automatically passes {x: 5}
 3. **Automatic**: Interpreter handles capture record creation and passing
 4. **Reuses Infrastructure**: Leverage existing parameter binding and record systems
 
-## Implementation Plan
+## Revised Implementation Plan
 
-### Phase 1: Canonicalization Capture Detection
+### ✅ Phase 1: Canonicalization Capture Detection [COMPLETED]
 
-#### 1.1 Track Current Function Context
+#### ✅ 1.1 Track Current Function Context [IMPLEMENTED]
 **File**: `roc/src/check/canonicalize.zig`
 
+**STATUS**: ✅ COMPLETE - Function context stack successfully implemented
 ```zig
 /// Context for tracking captures during canonicalization
-pub const FunctionContext = struct {
+const FunctionContext = struct {
     depth: u32,
     captures: std.ArrayList(CapturedVariable),
-    
-    pub const CapturedVariable = struct {
-        name: base.Ident,
-        pattern_idx: CIR.Pattern.Idx,
-        source_scope_depth: u32,
-    };
+    // ... implementation complete
 };
 
-/// Stack of function contexts for nested lambdas
-function_contexts: std.ArrayList(FunctionContext),
+/// Stack of function contexts for nested lambdas  
+function_contexts: std.ArrayListUnmanaged(FunctionContext),
 ```
 
-#### 1.2 Capture Detection During Variable Resolution
+#### ✅ 1.2 Capture Detection During Variable Resolution [IMPLEMENTED]
+
+**STATUS**: ✅ COMPLETE - Integrated into existing variable lookup logic
 ```zig
-/// Enhanced variable resolution that detects captures
-fn resolveVariable(self: *Self, ident: base.Ident, region: Region) !CIR.Expr.Idx {
-    const lookup_result = self.scopeLookup(.ident, ident);
-    
-    switch (lookup_result) {
-        .success => |pattern_idx| {
-            // Determine if this is a capture
-            const variable_scope_depth = self.getPatternScopeDepth(pattern_idx);
-            const current_function_depth = self.getCurrentFunctionDepth();
-            
-            if (variable_scope_depth < current_function_depth) {
-                // This is a capture! Record it for current function
-                try self.recordCapture(ident, pattern_idx, variable_scope_depth);
-            }
-            
-            return try self.can_ir.addExprAndTypeVar(CIR.Expr{
-                .e_lookup_local = .{ .pattern_idx = pattern_idx }
-            }, Content{ .flex_var = null }, region);
-        },
-        .not_found => {
-            // Handle not found case...
-        },
-    }
+// In canonicalizeExpr, within variable lookup:
+// Check if this is a capture (variable from outer function context)
+const variable_function_context = self.getPatternFunctionContext(pattern_idx);
+const current_function_context = self.getCurrentFunctionDepth();
+
+if (variable_function_context < current_function_context) {
+    // This is a capture! Record it for current function
+    try self.recordCapture(ident, pattern_idx, variable_function_context);
 }
+```
+
+**KEY INSIGHT DISCOVERED**: Pattern function context depth (not scope depth) is the correct comparison for capture detection.
 
 fn recordCapture(self: *Self, name: base.Ident, pattern_idx: CIR.Pattern.Idx, source_depth: u32) !void {
     const current_context = &self.function_contexts.items[self.function_contexts.items.len - 1];
@@ -118,11 +115,12 @@ fn exitFunctionContext(self: *Self) FunctionContext {
 }
 ```
 
-### Phase 2: Enhanced CIR Structure
+### ✅ Phase 2: Enhanced CIR Structure [COMPLETED]
 
-#### 2.1 Extended Lambda Expression
+#### ✅ 2.1 Extended Lambda Expression [IMPLEMENTED] 
 **File**: `roc/src/check/canonicalize/Expression.zig`
 
+**STATUS**: ✅ COMPLETE - CIR successfully enhanced with capture information
 ```zig
 pub const Expr = union(enum) {
     // ... existing expressions ...
@@ -130,9 +128,21 @@ pub const Expr = union(enum) {
     e_lambda: struct {
         args: Pattern.Span,
         body: Expr.Idx,
-        captures: CaptureInfo,  // NEW: Capture information
+        captures: CaptureInfo,  // ✅ IMPLEMENTED: Capture information
     },
 };
+
+/// ✅ IMPLEMENTED: Capture information structures
+pub const CaptureInfo = struct {
+    captured_vars: []const CapturedVar,
+    capture_pattern_idx: ?Pattern.Idx,
+    
+    pub const empty = CaptureInfo{
+        .captured_vars = &[_]CapturedVar{},
+        .capture_pattern_idx = null,
+    };
+};
+```
 
 pub const CaptureInfo = struct {
     /// Variables captured by this lambda
@@ -196,10 +206,12 @@ fn canonicalizeLambda(self: *Self, lambda: ast.Lambda, region: Region) !CIR.Expr
 }
 ```
 
-### Phase 3: NodeStore Integration
+### ✅ Phase 3: NodeStore Integration [COMPLETED]
 
-#### 3.1 Storage for Enhanced Lambdas
+#### ✅ 3.1 Storage for Enhanced Lambdas [IMPLEMENTED]
 **File**: `roc/src/check/canonicalize/NodeStore.zig`
+
+**STATUS**: ✅ COMPLETE - Capture information storage and retrieval working
 
 ```zig
 /// Store lambda with capture information
@@ -220,10 +232,12 @@ captured_vars: std.ArrayListUnmanaged(CapturedVar) = .{},
 capture_infos: std.ArrayListUnmanaged(CaptureInfo) = .{},
 ```
 
-### Phase 4: Interpreter Argument Transformation  
+### 🔄 Phase 4: Interpreter Argument Transformation [IN PROGRESS]
 
-#### 4.1 Lambda Creation with Effective Arguments
+#### 🔄 4.1 Lambda Creation with Effective Arguments [PARTIALLY IMPLEMENTED]
 **File**: `roc/src/eval/interpreter.zig`
+
+**STATUS**: 🔄 PARTIAL - Basic framework implemented, needs completion
 
 ```zig
 .e_lambda => |lambda_expr| {
@@ -320,9 +334,11 @@ fn buildCaptureRecord(self: *Interpreter, captures: CaptureInfo) !*anyopaque {
 }
 ```
 
-### Phase 5: Variable Lookup Simplification
+### ✅ Phase 5: Variable Lookup Simplification [COMPLETED]
 
-#### 5.1 Remove Complex Captured Environment Logic
+#### ✅ 5.1 Remove Complex Captured Environment Logic [IMPLEMENTED]
+
+**STATUS**: ✅ COMPLETE - All old execution-time analysis removed
 ```zig
 // OLD complex approach (DELETE):
 // - CapturedEnvironment structures
@@ -347,6 +363,58 @@ fn buildCaptureRecord(self: *Interpreter, captures: CaptureInfo) !*anyopaque {
 }
 ```
 
+## 📋 **CRITICAL NEXT PHASE: COMPREHENSIVE TESTING**
+
+### **Testing Strategy Before Final Implementation**
+
+**PRIORITY**: Develop comprehensive snapshot test suite to validate capture detection before completing interpreter implementation.
+
+#### **Test Categories Required**:
+
+1. **Basic Capture Scenarios**
+   ```roc
+   # Single capture
+   |x| |y| x + y
+   
+   # Multiple captures  
+   |a, b| |c| a + b + c
+   ```
+
+2. **Complex Nesting Scenarios**
+   ```roc
+   # Three-level nesting
+   |outer| |middle| |inner| outer + middle + inner
+   
+   # Mixed capture patterns
+   |a| {
+       simple = |x| x + 1,    # No captures
+       capture = |y| a + y    # Captures 'a'
+       { simple, capture }
+   }
+   ```
+
+3. **Edge Cases & Regression Prevention**
+   ```roc
+   # No captures (regression test)
+   |x| x + 1
+   
+   # Partial application scenarios
+   |x| |y| |z| x + y + z
+   ```
+
+4. **Compiler Pipeline Validation**
+   - Verify PARSE stage handles nested lambdas correctly
+   - Confirm CANONICALIZE shows capture information in debug output
+   - Ensure TYPES stage processes captures without errors
+   - Validate capture information survives all compilation phases
+
+#### **Success Criteria for Testing Phase**:
+- [ ] Comprehensive test matrix covering all capture scenarios
+- [ ] All tests show correct capture information in canonicalized output  
+- [ ] Edge cases documented and validated
+- [ ] Regression tests confirm existing lambda functionality maintained
+- [ ] Clear debugging output for capture analysis validation
+
 ## Benefits of This Approach
 
 ### 1. **Reuses Existing Infrastructure**
@@ -368,10 +436,10 @@ fn buildCaptureRecord(self: *Interpreter, captures: CaptureInfo) !*anyopaque {
 - ✅ **Debugging**: Standard argument debugging applies
 
 ### 4. **Performance Benefits**
-- ✅ **No Runtime Analysis**: All capture info computed statically
-- ✅ **Efficient Calls**: Standard function call overhead
-- ✅ **Memory Locality**: Captures passed by value in records
-- ✅ **Optimization Ready**: Standard function optimizations apply
+- ✅ **No Runtime Analysis**: All capture info computed statically at canonicalization time
+- ✅ **Efficient Calls**: Standard function call overhead (when fully implemented)
+- ✅ **Memory Locality**: Captures passed by value in records (framework ready)
+- ✅ **Optimization Ready**: Standard function optimizations apply (cleaner than execution-time analysis)
 
 ## Migration Strategy
 
@@ -395,16 +463,31 @@ fn buildCaptureRecord(self: *Interpreter, captures: CaptureInfo) !*anyopaque {
 - Optimize argument passing 
 - Add advanced features (partial application, etc.)
 
-## Test Cases
+## 📊 **Current Test Results & Validation**
 
-### Basic Capture
+### ✅ Capture Detection Validated
+**Test**: `lambda_capture_debug.md`
 ```roc
-outer = |x|
-    inner = |y| x + y  # Captures 'x'
-    inner
-
-result = outer(5)(3)  # Should be 8
+|outer_var| |inner_param| outer_var + inner_param
 ```
+**Result**: ✅ SUCCESS - Canonicalized output shows:
+```clojure
+(captures
+    (capture (name "outer_var")))
+```
+
+### ✅ Complex Nesting Validated  
+**Test**: `lambda_capture_comprehensive.md`
+```roc
+{
+    basic: |x| |y| x + y,
+    multi: |a, b| |c| a + b + c,
+    nested: |outer| |middle| |inner| outer + middle + inner,
+}
+```
+**Results**: ✅ SUCCESS - All capture scenarios correctly detected and displayed
+
+### Test Cases for Final Implementation
 
 ### Multiple Captures  
 ```roc
@@ -432,12 +515,31 @@ simple = |x| x + 1  # No captures
 result = simple(5)  # Should be 6
 ```
 
-## Implementation Timeline
+## 🗓️ **Revised Implementation Timeline**
 
-- **Week 1**: Canonicalization capture detection
-- **Week 2**: CIR enhancements and NodeStore integration  
-- **Week 3**: Interpreter argument transformation
-- **Week 4**: Testing and debugging
-- **Week 5**: Migration from old system and cleanup
+### ✅ **COMPLETED** (Previous Sessions)
+- **✅ Week 1-2**: Canonicalization capture detection & CIR enhancements
+- **✅ Week 3**: NodeStore integration & old system cleanup  
+- **✅ Week 4**: Basic interpreter framework setup
 
-This approach should resolve our current stack position issues while providing a much simpler and more maintainable foundation for lambda captures.
+### 📋 **CURRENT PHASE** (Next Session)
+- **📋 Week 5**: Comprehensive snapshot test development
+  - Develop systematic test matrix for all capture scenarios
+  - Validate PARSE → CANONICALIZE → TYPES pipeline
+  - Document edge cases and regression tests
+  - Ensure robust debugging and validation infrastructure
+
+### 🔄 **REMAINING WORK** (Future Sessions)  
+- **🔄 Week 6**: Complete interpreter argument transformation
+- **🔄 Week 7**: End-to-end integration testing and validation
+- **🔄 Week 8**: Performance optimization and final polish
+
+## 🎯 **Key Lessons Learned**
+
+1. **Timing Is Critical**: Capture analysis must happen when both definitions and references are available (canonicalization time)
+2. **Function Context vs Scope**: Variables are captured based on function context depth, not general scope depth  
+3. **Test-Driven Validation**: Snapshot tests provide reliable validation of each compiler phase independently
+4. **Incremental Approach Works**: Systematic refactoring maintains functionality while evolving architecture
+5. **Debug Output Essential**: Rich debugging with visual indicators (🎯) crucial for complex compiler features
+
+This methodical approach has successfully moved capture analysis to canonicalization time, providing a much simpler and more maintainable foundation for lambda captures.

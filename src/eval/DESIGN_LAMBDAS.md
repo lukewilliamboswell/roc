@@ -12,6 +12,8 @@ This design supports evaluating functions in Roc, treating functions as values t
 
 ## 🎯 Current Implementation Status
 
+**MAJOR MILESTONE ACHIEVED**: ✅ **CAPTURE ANALYSIS MOVED TO CANONICALIZATION**
+
 ### ✅ **COMPLETED AND VERIFIED**
 - **ExecutionContext Stack**: ✅ IMPLEMENTED - Proper scope chain management with parent context traversal
 - **Unified Closure Architecture**: ✅ IMPLEMENTED - `Closure` structure with `CapturedEnvironment` support
@@ -26,19 +28,35 @@ This design supports evaluating functions in Roc, treating functions as values t
 </text>
 
 <old_text line=22>
-### ✅ **TIMING ISSUE RESOLVED - EXECUTION-TIME CAPTURE ANALYSIS IMPLEMENTED**
-- **Variable Capture Execution**: ✅ IMPLEMENTED - Execution-time capture analysis working
-  - **Solution**: Capture analysis now happens during `handleBindParameters` after variables are bound
-  - **Implementation**: `detectNestedLambdas` function detects nested lambdas at execution time
-  - **Result**: No more crashes or "pattern not found" errors - closures with invalid data handled gracefully
-  - **Status**: Ready for final closure enhancement step (convert `SimpleClosure` to `Closure` with captured environment)
+### ✅ **PHASE 2 STARTED: INTERPRETER REFACTORING**
 
-### ✅ **TIMING ISSUE RESOLVED - EXECUTION-TIME CAPTURE ANALYSIS IMPLEMENTED**
-- **Variable Capture Execution**: ✅ IMPLEMENTED - Execution-time capture analysis working
-  - **Solution**: Capture analysis now happens during `handleBindParameters` after variables are bound
-  - **Implementation**: `detectNestedLambdas` function detects nested lambdas at execution time
-  - **Result**: No more crashes or "pattern not found" errors - closures with invalid data handled gracefully
-  - **Status**: Ready for final closure enhancement step (convert `SimpleClosure` to `Closure` with captured environment)
+**Status**: 🔄 IN PROGRESS - MAJOR CLEANUP COMPLETED
+- **Old Code Removal**: Execution-time capture analysis completely removed
+- **Lambda Creation**: Updated to use canonicalized capture information
+- **Capture Arguments**: Basic framework for "captures as function arguments" implemented
+- **Compilation**: All code compiles and basic functionality maintained
+### ✅ **PHASE 2 STARTED: INTERPRETER REFACTORING**
+- **Old Code Removal**: ✅ COMPLETED - Execution-time capture analysis completely removed
+  - **Cleanup**: Removed `CaptureAnalysis`, `CaptureAnalyzer`, `detectNestedLambdas` functions
+  - **Simplification**: Eliminated complex execution-time analysis and registry management
+  - **Architecture**: Cleaner separation between canonicalization and execution phases
+- **Lambda Creation Update**: ✅ COMPLETED - Uses canonicalized capture information
+  - **New Approach**: Lambda creation reads capture info from CIR instead of runtime analysis
+  - **Debugging**: Enhanced debug output shows captured variables during lambda creation
+  - **Memory Efficiency**: No longer allocates complex capture environments at runtime
+
+### 📋 **NEXT PHASE: COMPREHENSIVE TESTING BEFORE FINAL IMPLEMENTATION**
+
+**Immediate Priority**: Develop comprehensive snapshot test suite before continuing with interpreter implementation
+### 🔄 **PHASE 2 IN PROGRESS: CAPTURES AS FUNCTION ARGUMENTS**
+- **Framework Implementation**: ✅ PARTIALLY COMPLETED - Basic structure in place
+  - **handleCaptureArguments**: Function framework created for capture record generation
+  - **Function Call Integration**: Capture handling integrated into call processing pipeline
+  - **Layout Management**: Basic capture record layout creation (placeholder implementation)
+- **Remaining Work**: 📋 NEXT STEPS
+  - **Capture Record Creation**: Complete implementation of capture value collection
+  - **Parameter Binding Enhancement**: Update binding to handle capture records as hidden arguments
+  - **Integration Testing**: End-to-end validation of capture argument passing
 
 ### 🔄 **NEW ARCHITECTURAL APPROACH: CAPTURES AS FUNCTION ARGUMENTS**
 
@@ -155,9 +173,18 @@ if (DEBUG_ENABLED) {
 - ❌ Multi-parameter currying: `(|a| |b| a + b)(1)(2)` → not yet implemented
 - ❌ Recursive functions: not yet implemented
 
-## 🎯 Next Steps - Revised Priority
+## 🎯 Next Steps - Comprehensive Testing & Final Implementation
 
-### **Critical Priority: Fix Stack Position Bug**
+### **Phase 1: Comprehensive Snapshot Test Development** [IMMEDIATE PRIORITY]
+
+**Goal**: Develop robust test suite to validate each compiler stage before implementing final interpreter changes.
+
+**Test Categories Needed**:
+1. **Basic Capture Detection** (canonicalization validation)
+2. **Complex Nesting Scenarios** (multi-level captures)  
+3. **Edge Cases** (no captures, mixed scenarios)
+4. **Type System Integration** (ensure capture info doesn't break type checking)
+5. **Regression Prevention** (ensure existing lambda features still work)
 
 **Immediate Issue**: Multi-parameter lambdas fail due to stack position calculation mismatch
 - **Symptom**: `(|x, y| x + y)(3, 4)` → ArityMismatch (reads span_len=0 instead of 2)
@@ -166,7 +193,15 @@ if (DEBUG_ENABLED) {
 
 **Temporary Workaround**: Hardcoded position 16 works but indicates architectural problem
 
-### **New Solution: Captures as Function Arguments**
+### **Phase 2: Complete Interpreter Implementation** [AFTER TESTING]
+
+**New Solution: Captures as Function Arguments** [PARTIALLY IMPLEMENTED]
+
+**Remaining Work**:
+1. **Argument Transformation**: Complete the capture record creation and passing
+2. **Parameter Binding**: Update binding logic to handle capture records as hidden arguments  
+3. **Stack Position Fix**: Should be naturally resolved with argument-based approach
+4. **Memory Management**: Simplified approach using standard parameter binding
 
 **Phase 1: Canonicalization Capture Detection**
 1. 🔧 **TODO**: Track captures during variable resolution in canonicalization
@@ -347,65 +382,98 @@ test "nested closures with mixed capture patterns" {
 
 ### **CRITICAL INSIGHTS DISCOVERED**
 
-#### ❌ **FUNDAMENTAL ARCHITECTURE ISSUE**
-- **Stack Position Mismatch**: Closures created at absolute positions but calculations assume relative positioning
-- **Timing Problems**: Capture analysis after closure creation requires complex retrofitting
-- **Memory Layout Confusion**: Layout stack tracking doesn't match actual memory allocation
+#### ✅ **MAJOR ARCHITECTURAL BREAKTHROUGH: CANONICALIZATION-TIME CAPTURE ANALYSIS**
+- **Compile-Time Detection**: Moving capture analysis to canonicalization eliminates execution-time complexity
+- **Function Context Tracking**: Pattern function context depth comparison provides reliable capture detection
+- **Clean Phase Separation**: Canonicalization handles WHAT to capture, interpreter handles HOW to pass it
+- **Memory Safety**: No complex pointer management or execution-time analysis needed
 
 #### ✅ **PROVEN WORKING PATTERNS**
-- ✅ **ExecutionContext Stack**: Reliable scope chain management
-- ✅ **Single-Block Allocation**: Clean memory management for closures
-- ✅ **7-Phase Calling Convention**: Robust function call handling
-- ✅ **Debug Tracing with Emojis**: Essential for debugging complex capture flows
-- ✅ **Closure Enhancement Infrastructure**: Complete implementation ready for use
+- ✅ **Function Context Stack**: Reliable nested lambda tracking during canonicalization
+- ✅ **Pattern Scope Tracking**: Recording pattern creation depth enables accurate capture detection
+- ✅ **CIR Enhancement**: Capture information seamlessly integrates into existing expression structure
+- ✅ **Display Integration**: Capture info properly shows in canonicalized output for debugging
+- ✅ **Incremental Development**: Systematic refactor approach maintains functionality while evolving architecture
+
+#### 📚 **CRITICAL LESSONS LEARNED**
+- **Timing Is Everything**: Capture analysis MUST happen when both variable definitions and references are available
+- **Scope Depth vs Function Depth**: Variables are captured when defined in outer function contexts, not just outer scopes  
+- **Memory Management Simplification**: Captures-as-arguments eliminates complex capture environment lifecycle management
+- **Debugging is Essential**: Rich debug output with clear indicators (🎯 for captures) crucial for complex compiler features
+- **Test-Driven Validation**: Snapshot tests provide reliable validation of each compiler phase independently
 - ✅ **Variable Lookup Integration**: Captured environment lookup working
 
 #### 🔑 **KEY ARCHITECTURAL INSIGHT**
 > **Captures should be function arguments, not special memory structures.** Richard Feldman's approach of transforming `|args|` → `|args, capture_record|` eliminates all the complex memory management, stack positioning, and timing issues by reusing the existing, proven function call infrastructure.
 
-## 🎯 Revised Success Criteria
+## 🎯 Updated Success Criteria - Current Progress & Next Steps
 
-### **Phase 1: Stack Position Fix (Immediate)**
-1. 🔧 **Multi-Parameter Bug**: Fix stack position calculation to resolve `(|x, y| x + y)(3, 4)` ArityMismatch
-2. 🔧 **Position Determinism**: Ensure closure read positions match creation positions
-3. 🔧 **Test Validation**: All single and multi-parameter lambdas work correctly
+### **Phase 1: Comprehensive Testing Suite Development (IMMEDIATE)** ✅ STARTED
+1. 🔧 **Canonicalization Validation**: Develop tests to verify capture detection accuracy
+   - ✅ Basic capture detection working (`lambda_capture_debug.md` shows captures)
+   - 📋 TODO: Complex nesting scenarios, edge cases, regression prevention
+2. 🔧 **Parsing & CIR Validation**: Ensure each compiler stage handles captures correctly
+   - ✅ Parse stage handles nested lambdas correctly
+   - ✅ Canonicalization shows capture information in debug output
+   - 📋 TODO: Type system integration validation
+3. 🔧 **Test Infrastructure**: Build reliable snapshot test suite before implementation
+   - ✅ Basic framework established with debug output validation
+   - 📋 TODO: Comprehensive test matrix covering all capture scenarios
 
-### **Phase 2: Captures as Arguments Implementation (Medium-term)**
-1. 🔧 **Enhanced CIR**: Add capture info to `e_lambda` expressions
-2. 🔧 **Canonicalization**: Detect captures during variable resolution
-3. 🔧 **Interpreter Transform**: Convert lambdas to include capture record arguments
+### **Phase 2: Complete Interpreter Implementation (AFTER TESTING)**
+1. ✅ **Enhanced CIR**: Capture info successfully added to `e_lambda` expressions
+2. ✅ **Canonicalization**: Capture detection implemented during variable resolution  
+3. 🔄 **Interpreter Transform**: Convert lambdas to include capture record arguments (PARTIALLY IMPLEMENTED)
+   - ✅ Basic framework in place (`handleCaptureArguments`)
+   - 📋 TODO: Complete capture record creation and value collection
+   - 📋 TODO: Update parameter binding to handle capture records
 
-### **Phase 3: Full Implementation (Long-term)**
+### **Phase 3: Integration & Cleanup (FINAL)**
 1. 🔧 **Automatic Capture Passing**: Function calls automatically include capture records
-2. 🔧 **Infrastructure Cleanup**: Remove old execution-time analysis and captured environments
+2. ✅ **Infrastructure Cleanup**: Old execution-time analysis completely removed
 3. 🔧 **End-to-End Testing**: `((|x| (|y| x + y))(5))(3) == 8` with arguments approach
 
-### **Definition of Done (Phase 1)**
-- [ ] Multi-parameter lambda test `(|x, y| x + y)(3, 4) == 7` passes
-- [ ] Stack position calculations are deterministic and correct
-- [ ] Test pass rate maintains 99%+ (483+ out of 486 tests)
-- [ ] No hardcoded position workarounds in production code
+### **Definition of Done (Phase 1 - Testing)**
+- [ ] Comprehensive snapshot test suite covering all capture scenarios
+- [ ] Tests validate PARSE → CANONICALIZE → TYPES pipeline for captures
+- [ ] Edge cases documented and tested (no captures, complex nesting, mixed scenarios)
+- [ ] Regression tests ensure existing lambda functionality maintained
+- [ ] All tests show proper capture information in canonicalized output
 
 ### **Definition of Done (Final)**
-- [ ] Captures-as-arguments approach implemented in canonicalization
-- [ ] All lambda tests passing with argument transformation
-- [ ] Nested closure test `((|x| (|y| x + y))(5))(3) == 8` passes  
+- [ ] Captures-as-arguments approach fully implemented in interpreter
+- [ ] All lambda tests passing with automatic capture record passing
+- [ ] Nested closure test `((|x| (|y| x + y))(5))(3) == 8` passes
+- [ ] Performance equivalent or better than original approach (no execution-time analysis overhead)
+- [ ] Clean, maintainable code with excellent debugging support
 - [ ] Complex capture infrastructure removed and simplified
 
 ## 🏆 **Current Achievement Status**
-- ✅ **Architectural Direction Clear**: Richard Feldman's captures-as-arguments approach adopted
-- ✅ **Crash-Free Execution**: 99.4% test pass rate (483/486 tests)
-- ✅ **Memory Safety**: Stack corruption and bus errors eliminated
-- ✅ **Debug Infrastructure**: Comprehensive tracing and error handling in place
-- 🔄 **Infrastructure Pivot**: Moving from complex capture environments to simple argument transformation
+- ✅ **MAJOR MILESTONE**: Capture analysis successfully moved to canonicalization
+- ✅ **Architectural Direction Clear**: Richard Feldman's captures-as-arguments approach adopted and partially implemented
+- ✅ **Execution-Time Analysis Eliminated**: All old capture analysis code removed, simplifying interpreter
+- ✅ **Canonicalization Enhanced**: Function context tracking and capture detection working correctly
+- ✅ **CIR Integration Complete**: Capture information seamlessly integrated into lambda expressions
+- ✅ **Debug Validation**: Snapshot tests show capture information correctly in canonicalized output
+- ✅ **Compilation Maintained**: All code compiles and basic lambda functionality preserved
+- 🔄 **Interpreter Framework**: Basic captures-as-arguments framework implemented, needs completion
 
 ## 🚀 **Next Session Implementation Plan**
 
-**Immediate Action Items**:
-1. **Implement `enhanceClosureWithCaptures` function** - Convert SimpleClosure to Closure with captured environment
-2. **Debug multi-parameter binding issue** - Fix ArityMismatch for `(|x, y| x + y)` cases
-3. **Test end-to-end nested closure execution** - Verify `((|x| (|y| x + y))(5))(3) == 8`
+**PRIORITY 1: Comprehensive Snapshot Test Development** [BEFORE Implementation]
+1. **Create Test Matrix**: Develop systematic tests covering all capture scenarios
+   - Basic captures: `|x| |y| x + y`
+   - Complex nesting: `|a| |b| |c| a + b + c`  
+   - Edge cases: No captures, mixed scenarios
+   - Regression: Ensure existing lambdas still work
+2. **Validate Compiler Pipeline**: Ensure PARSE → CANONICALIZE → TYPES all handle captures correctly
+3. **Debug Output Verification**: Confirm capture information appears correctly in canonicalized output
 
-**Success Metric**: When all 3 items complete, true closures will be functional in Roc! 🚀
+**PRIORITY 2: Complete Interpreter Implementation** [AFTER Testing Validated]
+1. **Complete Capture Record Creation**: Finish `handleCaptureArguments` implementation
+2. **Enhance Parameter Binding**: Update binding logic to handle capture records as hidden arguments
+3. **End-to-End Integration**: Test complete capture argument passing pipeline
 
-**Estimated Effort**: 1-2 focused implementation sessions to complete closure enhancement.
+**Success Metric**: Comprehensive test suite validates capture detection before any interpreter changes.
+
+**Estimated Effort**: 1 session for testing development, 1-2 sessions for final interpreter implementation.
