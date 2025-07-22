@@ -458,8 +458,6 @@ pub const Interpreter = struct {
     current_closure_size: u32,
 
     // Debug tracing state
-    /// Name/identifier for the current trace session
-    trace_name: ?[]const u8,
     /// Indentation level for nested debug output
     trace_indent: u32,
     /// Writer interface for trace output (null when no trace active)
@@ -485,8 +483,6 @@ pub const Interpreter = struct {
             .current_context = null,
             .current_closure_ptr = null,
             .current_closure_size = 0,
-
-            .trace_name = null,
             .trace_indent = 0,
             .trace_writer = null,
         };
@@ -794,66 +790,6 @@ pub const Interpreter = struct {
                     }
                 }
 
-                // Second, check captured variables if we're in a closure
-                if (self.current_closure_ptr) |closure_ptr| {
-                    if (self.lookupCapturedVariable(closure_ptr, self.current_closure_size, lookup.pattern_idx)) |capture_result| {
-                        // Found in captures - copy to stack
-                        const value_size = self.layout_cache.layoutSize(capture_result.layout);
-                        const value_alignment = capture_result.layout.alignment(target.TargetUsize.native);
-
-                        const ptr = self.stack_memory.alloca(value_size, value_alignment) catch |err| switch (err) {
-                            error.StackOverflow => return error.StackOverflow,
-                        };
-
-                        // Copy the captured value
-                        const src_ptr = @as([*]const u8, @ptrCast(capture_result.ptr));
-                        const dst_ptr = @as([*]u8, @ptrCast(ptr));
-                        @memcpy(dst_ptr[0..value_size], src_ptr[0..value_size]);
-
-                        if (DEBUG_ENABLED) {
-                            self.traceInfo("Retrieved captured value (pattern {})", .{@intFromEnum(lookup.pattern_idx)});
-                            if (capture_result.layout.tag == .scalar and capture_result.layout.data.scalar.tag == .int) {
-                                const precision = capture_result.layout.data.scalar.data.int;
-                                const retrieved_value = readIntFromMemory(dst_ptr, precision);
-                                self.traceInfo("Retrieved captured value = {}", .{retrieved_value});
-                            }
-                        }
-
-                        try self.layout_stack.append(capture_result.layout);
-                        return;
-                    }
-                }
-
-                // Second, check captured variables if we're in a closure
-                if (self.current_closure_ptr) |closure_ptr| {
-                    if (self.lookupCapturedVariable(closure_ptr, self.current_closure_size, lookup.pattern_idx)) |capture_result| {
-                        // Found in captures - copy to stack
-                        const value_size = self.layout_cache.layoutSize(capture_result.layout);
-                        const value_alignment = capture_result.layout.alignment(target.TargetUsize.native);
-
-                        const ptr = self.stack_memory.alloca(value_size, value_alignment) catch |err| switch (err) {
-                            error.StackOverflow => return error.StackOverflow,
-                        };
-
-                        // Copy the captured value
-                        const src_ptr = @as([*]const u8, @ptrCast(capture_result.ptr));
-                        const dst_ptr = @as([*]u8, @ptrCast(ptr));
-                        @memcpy(dst_ptr[0..value_size], src_ptr[0..value_size]);
-
-                        if (DEBUG_ENABLED) {
-                            self.traceInfo("Retrieved captured value (pattern {})", .{@intFromEnum(lookup.pattern_idx)});
-                            if (capture_result.layout.tag == .scalar and capture_result.layout.data.scalar.tag == .int) {
-                                const precision = capture_result.layout.data.scalar.data.int;
-                                const retrieved_value = readIntFromMemory(dst_ptr, precision);
-                                self.traceInfo("Retrieved captured value = {}", .{retrieved_value});
-                            }
-                        }
-
-                        try self.layout_stack.append(capture_result.layout);
-                        return;
-                    }
-                }
-
                 // If not found in parameters, fall back to global definitions lookup
                 const defs = self.cir.store.sliceDefs(self.cir.all_defs);
                 for (defs) |def_idx| {
@@ -867,6 +803,7 @@ pub const Interpreter = struct {
                         return;
                     }
                 }
+
                 return error.LayoutError; // Pattern not found
             },
 
@@ -2356,12 +2293,11 @@ pub const Interpreter = struct {
 
     /// Start a debug trace session with a given name and writer
     /// Only has effect if DEBUG_ENABLED is true
-    pub fn startTrace(self: *Interpreter, trace_name: []const u8, writer: std.io.AnyWriter) void {
+    pub fn startTrace(self: *Interpreter, writer: std.io.AnyWriter) void {
         if (!DEBUG_ENABLED) return;
-        self.trace_name = trace_name;
         self.trace_indent = 0;
         self.trace_writer = writer;
-        writer.print("\n🚀 TRACE START: {s}\n", .{trace_name}) catch {};
+        writer.print("\n🚀 TRACE START\n", .{}) catch {};
         writer.print("═══════════════════════════════════════\n", .{}) catch {};
     }
 
@@ -2371,13 +2307,8 @@ pub const Interpreter = struct {
         if (!DEBUG_ENABLED) return;
         if (self.trace_writer) |writer| {
             writer.print("═══════════════════════════════════════\n", .{}) catch {};
-            if (self.trace_name) |name| {
-                writer.print("✅ TRACE END: {s}\n\n", .{name}) catch {};
-            } else {
-                writer.print("✅ TRACE END\n\n", .{}) catch {};
-            }
+            writer.print("✅ TRACE END\n\n", .{}) catch {};
         }
-        self.trace_name = null;
         self.trace_indent = 0;
         self.trace_writer = null;
     }
@@ -2642,7 +2573,7 @@ pub fn readIntFromMemory(ptr: [*]u8, precision: types.Num.Int.Precision) i128 {
 }
 
 test {
-    _ = @import("eval_test.zig");
+    _ = @import("test/eval_test.zig");
 }
 
 test "stack-based binary operations" {
