@@ -275,10 +275,19 @@ pub const Closure = struct {
 /// Call frame marker that stores function position and metadata during calls
 /// This eliminates the need to calculate closure positions dynamically
 pub const CallFrame = struct {
-    function_pos: u32, // Stack position where the function closure is stored
-    function_layout: layout.Layout, // Layout of the function closure
-    return_layout_idx: u32, // Index in layout_stack of the return value layout
-    arg_count: u32, // Number of arguments in this call
+    /// this functions body epxression
+    function_body_expr_idx: CIR.Expr.Idx,
+
+    function_start_idx_value_stack: u32,
+    function_start_idx_layout_stack: u32,
+    function_start_idx_work_items: u32,
+
+    // where does this functions bindings start
+    // bindings tell use where to go from a pattern_idx to
+    // get the actual value lower down in our value stack
+    //
+    // number of arguments == top of bidings stack - start
+    functions_start_idx_bindings_stack: u32,
 
     /// Write call frame to memory in a serialized format
     pub fn write(self: *const CallFrame, memory: []u8) void {
@@ -362,7 +371,11 @@ pub const Interpreter = struct {
     /// Work queue for iterative expression evaluation (LIFO stack)
     work_stack: std.ArrayList(WorkItem),
     /// Parallel stack tracking type layouts of values in stack_memory
-    layout_stack: std.ArrayList(layout.Layout),
+    layout_stack: std.ArrayList(Layout),
+    /// Active parameter bindings for current function call(s)
+    bindings_stack: std.ArrayList(ParameterBinding),
+    /// Function stack
+    frame_stack: std.ArrayList(CallFrame),
 
     // Debug tracing state
     /// Indentation level for nested debug output
@@ -433,11 +446,13 @@ pub const Interpreter = struct {
 
                 // Function call work items
 
+                // THESE SHOULD BE TOGETHER
                 .w_func_alloc_return_space => try self.handleAllocReturnSpace(work.expr_idx),
                 .w_func_push_call_frame => try self.handlePushCallFrame(work.expr_idx),
                 .w_func_call_function => try self.handleCallFunction(work.expr_idx),
                 .w_func_bind_parameters => try self.handleBindParameters(work.expr_idx),
                 .w_func_eval_function_body => try self.handleEvalFunctionBody(work.expr_idx),
+
                 .w_func_copy_result_to_return_space => try self.handleCopyResultToReturnSpace(work.expr_idx),
                 .w_func_cleanup_function => try self.handleCleanupFunction(work.expr_idx),
             }
@@ -472,18 +487,18 @@ pub const Interpreter = struct {
     fn schedule_work(self: *Interpreter, work: WorkItem) void {
         if (self.trace_writer) |writer| {
             const expr = self.cir.store.getExpr(work.expr_idx);
-            const region = self.cir.store.getExprRegion(work.expr_idx);
-            const regionInfo = self.cir.calcRegionInfo(region);
+            // const region = self.cir.store.getExprRegion(work.expr_idx);
+            // const regionInfo = self.cir.calcRegionInfo(region);
             self.printTraceIndent();
             writer.print(
-                "🏗️  scheduling {s} for ({s} @{}.{}-{}.{})\n",
+                "🏗️  scheduling {s} for ({s})\n",
                 .{
                     work.kind.toStr(),
                     @tagName(expr),
-                    regionInfo.start_line_idx,
-                    regionInfo.start_col_idx,
-                    regionInfo.end_line_idx,
-                    regionInfo.end_col_idx,
+                    // regionInfo.start_line_idx,
+                    // regionInfo.start_col_idx,
+                    // regionInfo.end_line_idx,
+                    // regionInfo.end_col_idx,
                 },
             ) catch {};
         }
@@ -496,18 +511,18 @@ pub const Interpreter = struct {
         if (self.trace_writer) |writer| {
             if (maybe_work) |work| {
                 const expr = self.cir.store.getExpr(work.expr_idx);
-                const region = self.cir.store.getExprRegion(work.expr_idx);
-                const regionInfo = self.cir.calcRegionInfo(region);
+                // const region = self.cir.store.getExprRegion(work.expr_idx);
+                // const regionInfo = self.cir.calcRegionInfo(region);
                 self.printTraceIndent();
                 writer.print(
-                    "🏗️  starting {s} for ({s} @{}.{}-{}.{})\n",
+                    "🏗️  starting {s} for ({s})\n",
                     .{
                         work.kind.toStr(),
                         @tagName(expr),
-                        regionInfo.start_line_idx,
-                        regionInfo.start_col_idx,
-                        regionInfo.end_line_idx,
-                        regionInfo.end_col_idx,
+                        // regionInfo.start_line_idx,
+                        // regionInfo.start_col_idx,
+                        // regionInfo.end_line_idx,
+                        // regionInfo.end_col_idx,
                     },
                 ) catch {};
             }
@@ -852,11 +867,18 @@ pub const Interpreter = struct {
     }
 
     fn completeBinop(self: *Interpreter, kind: WorkKind) EvalError!void {
+        self.traceEnter("completeBinop {s}", .{@tagName(kind)});
+        defer self.traceExit("", .{});
+
         const lhs = try self.popStackValue();
+        self.traceInfo("\tLeft layout: tag={}", .{lhs.layout.tag});
+
         const rhs = try self.popStackValue();
+        self.traceInfo("\tRight layout: tag={}", .{rhs.layout.tag});
 
         // For now, only support integer operations
         if (lhs.layout.tag != .scalar or rhs.layout.tag != .scalar) {
+            self.traceError("expected scaler tags to eval binop", .{});
             return error.LayoutError;
         }
 
@@ -869,10 +891,7 @@ pub const Interpreter = struct {
         const rhs_val = readIntFromMemory(@ptrCast(lhs.ptr.?), rhs.layout.data.scalar.data.int);
 
         // Debug: Values read from memory
-        self.tracePrint("completeBinop {s}", .{@tagName(kind)});
         self.traceInfo("\tRead values - left = {}, right = {}", .{ lhs_val, rhs_val });
-        self.traceInfo("\tLeft layout: tag={}, precision={}", .{ lhs.layout.tag, lhs.layout.data.scalar.data.int });
-        self.traceInfo("\tRight layout: tag={}, precision={}", .{ rhs.layout.tag, rhs.layout.data.scalar.data.int });
 
         // Determine result layout
         const result_layout = switch (kind) {
