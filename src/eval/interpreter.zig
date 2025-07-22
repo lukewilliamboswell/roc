@@ -33,6 +33,7 @@ const layout_store = @import("../layout/store.zig");
 const stack = @import("stack.zig");
 const collections = @import("collections");
 
+const SExprTree = base.SExprTree;
 const types_store = types.store;
 const target = base.target;
 
@@ -408,20 +409,6 @@ const ExecutionContext = struct {
     }
 };
 
-/// The Roc expression interpreter.
-///
-/// This evaluates Roc expressions using an iterative work queue
-/// approach with stack-based memory management.
-///
-/// # Architecture
-///
-/// ## Work Queue System
-/// Uses a LIFO work stack to break complex expressions into atomic operations.
-/// This avoids recursion limits and provides better debugging visibility.
-///
-/// ## Memory Management
-/// - **Stack Memory**: All values stored in a single stack for automatic cleanup
-/// - **Layout Stack**: Tracks type information parallel to value stack
 /// Result of looking up a variable value
 const VariableLookupResult = struct {
     /// Pointer to the variable's value in memory
@@ -511,7 +498,7 @@ pub const Interpreter = struct {
 
         // We'll calculate the result pointer at the end based on the final layout
 
-        // Push initial work item
+        self.traceInfo("SCHEDULING .eval_expr FOR expr_idx={}", .{@intFromEnum(expr_idx)});
         try self.work_stack.append(.{
             .kind = .eval_expr,
             .expr_idx = expr_idx,
@@ -594,7 +581,7 @@ pub const Interpreter = struct {
         }
 
         // Get the type variable for this expression
-        const expr_var = @as(types.Var, @enumFromInt(@intFromEnum(expr_idx)));
+        const expr_var: types.Var = @enumFromInt(@intFromEnum(expr_idx));
 
         // Get the real layout from the type checker
         const layout_idx = self.layout_cache.addTypeVar(expr_var) catch |err| switch (err) {
@@ -708,12 +695,9 @@ pub const Interpreter = struct {
             // If expressions
             .e_if => |if_expr| {
                 if (if_expr.branches.span.len > 0) {
-                    // Push work to check condition after it's evaluated
-                    // Encode branch index (0) in upper 16 bits
-                    const encoded_idx: CIR.Expr.Idx = @enumFromInt(@intFromEnum(expr_idx));
                     try self.work_stack.append(.{
                         .kind = .if_check_condition,
-                        .expr_idx = encoded_idx,
+                        .expr_idx = expr_idx,
                     });
 
                     // Push work to evaluate the first condition
@@ -735,6 +719,9 @@ pub const Interpreter = struct {
 
             // Pattern lookup
             .e_lookup_local => |lookup| {
+                self.traceInfo("evalExpr e_lookup_local pattern_idx={}", .{@intFromEnum(lookup.pattern_idx)});
+                self.tracePattern(lookup.pattern_idx);
+
                 // First, check parameter bindings (most recent function call)
                 for (self.parameter_bindings.items) |binding| {
                     // Check if this binding matches the pattern we're looking for
@@ -917,8 +904,8 @@ pub const Interpreter = struct {
             .e_lambda => |lambda_expr| {
                 if (DEBUG_ENABLED) {
                     self.traceEnter("LAMBDA CREATION (expr_idx={})", .{@intFromEnum(expr_idx)});
-                    self.traceInfo("LAMBDA EXPR DETAILS: expr={}, captures.captured_vars.len={}", .{
-                        @intFromEnum(expr_idx), lambda_expr.captures.captured_vars.len,
+                    self.traceInfo("LAMBDA EXPR DETAILS: expr={}, captures.span.len={}", .{
+                        @intFromEnum(expr_idx), lambda_expr.captures.span.len,
                     });
                 }
 
@@ -1743,13 +1730,13 @@ pub const Interpreter = struct {
         // Read closure from the calculated/retrieved position
         const closure_memory_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + function_pos;
 
-        if (DEBUG_ENABLED) {
-            self.traceInfo("Reading closure from position {}, first 20 bytes:", .{function_pos});
-            const dump_size = @min(20, self.stack_memory.used - function_pos);
-            for (0..dump_size) |i| {
-                self.traceInfo("  [{}]: {x:0>2}", .{ function_pos + i, closure_memory_ptr[i] });
-            }
-        }
+        // if (DEBUG_ENABLED) {
+        //     self.traceInfo("Reading closure from position {}, first 20 bytes:", .{function_pos});
+        //     const dump_size = @min(20, self.stack_memory.used - function_pos);
+        //     for (0..dump_size) |i| {
+        //         self.traceInfo("  [{}]: {x:0>2}", .{ function_pos + i, closure_memory_ptr[i] });
+        //     }
+        // }
 
         // Read closure header
         const closure = Closure.read(closure_memory_ptr[0..Closure.HEADER_SIZE]);
@@ -1862,8 +1849,8 @@ pub const Interpreter = struct {
     }
 
     fn handleEvalFunctionBody(self: *Interpreter, call_expr_idx: CIR.Expr.Idx) EvalError!void {
-        self.traceEnter("EVAL FUNCTION BODY (expr_idx={})", .{@intFromEnum(call_expr_idx)});
-        defer self.traceExit("EVAL FUNCTION BODY completed", .{});
+        self.traceEnter("EVAL FUNCTION BODY (expr_idx={}) START", .{@intFromEnum(call_expr_idx)});
+        defer self.traceExit("EVAL FUNCTION BODY (expr_idx={}) END", .{@intFromEnum(call_expr_idx)});
 
         // Evaluate the function body and copy the result to the return space (landing pad)
 
@@ -1902,11 +1889,7 @@ pub const Interpreter = struct {
             },
         };
 
-        // Push work to evaluate the lambda's body expression
-        // Note: copy_result_to_return_space is already scheduled by handleCallFunction
-        if (DEBUG_ENABLED) {
-            self.traceInfo("SCHEDULING (handleEvalFunctionBody): eval_expr for lambda body expr_idx={}", .{@intFromEnum(lambda_body)});
-        }
+        self.traceInfo("SCHEDULING .eval_expr FOR lambda_body={}", .{@intFromEnum(lambda_body)});
         try self.work_stack.append(.{
             .kind = .eval_expr,
             .expr_idx = lambda_body,
@@ -1959,25 +1942,25 @@ pub const Interpreter = struct {
         self.traceInfo("Body result layout = {}, size = {}", .{ body_result_layout.tag, body_result_size });
 
         // Debug: Show actual stack state before calculating position
-        if (DEBUG_ENABLED) {
-            self.traceInfo("DEBUG: Stack state before body result position calc:", .{});
-            self.traceInfo("  stack.used = {}", .{self.stack_memory.used});
-            self.traceInfo("  body_result_size from layout = {}", .{body_result_size});
+        // if (DEBUG_ENABLED) {
+        //     self.traceInfo("DEBUG: Stack state before body result position calc:", .{});
+        //     self.traceInfo("  stack.used = {}", .{self.stack_memory.used});
+        //     self.traceInfo("  body_result_size from layout = {}", .{body_result_size});
 
-            // Dump last 64 bytes of stack to see what's there
-            const dump_start = if (self.stack_memory.used > 64) self.stack_memory.used - 64 else 0;
-            self.traceInfo("  Stack dump from position {} to {}:", .{ dump_start, self.stack_memory.used });
-            const stack_ptr = @as([*]u8, @ptrCast(self.stack_memory.start));
-            var pos = dump_start;
-            while (pos < self.stack_memory.used) : (pos += 16) {
-                self.tracePrint("    [{}]: ", .{pos});
-                const end = @min(pos + 16, self.stack_memory.used);
-                for (pos..end) |i| {
-                    self.tracePrint("{x:0>2} ", .{stack_ptr[i]});
-                }
-                self.tracePrint("\n", .{});
-            }
-        }
+        //     // Dump last 64 bytes of stack to see what's there
+        //     const dump_start = if (self.stack_memory.used > 64) self.stack_memory.used - 64 else 0;
+        //     self.traceInfo("  Stack dump from position {} to {}:", .{ dump_start, self.stack_memory.used });
+        //     const stack_ptr = @as([*]u8, @ptrCast(self.stack_memory.start));
+        //     var pos = dump_start;
+        //     while (pos < self.stack_memory.used) : (pos += 16) {
+        //         self.tracePrint("    [{}]: ", .{pos});
+        //         const end = @min(pos + 16, self.stack_memory.used);
+        //         for (pos..end) |i| {
+        //             self.tracePrint("{x:0>2} ", .{stack_ptr[i]});
+        //         }
+        //         self.tracePrint("\n", .{});
+        //     }
+        // }
 
         // Calculate position of body result
         const body_result_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + self.stack_memory.used - body_result_size;
@@ -2005,18 +1988,18 @@ pub const Interpreter = struct {
 
         const return_space_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + return_space_pos;
 
-        if (DEBUG_ENABLED) {
-            self.traceInfo("Final return space position = {}", .{return_space_pos});
-            self.traceInfo("Copying {} bytes from {} to {}", .{ body_result_size, self.stack_memory.used - body_result_size, return_space_pos });
+        // if (DEBUG_ENABLED) {
+        //     self.traceInfo("Final return space position = {}", .{return_space_pos});
+        //     self.traceInfo("Copying {} bytes from {} to {}", .{ body_result_size, self.stack_memory.used - body_result_size, return_space_pos });
 
-            // Verify the copy source data before copying
-            const source_bytes = @as([*]u8, @ptrCast(body_result_ptr));
-            self.tracePrint("Source bytes: ", .{});
-            for (0..@min(body_result_size, 16)) |i| {
-                self.traceInfo("{x:0>2} ", .{source_bytes[i]});
-            }
-            self.tracePrint("\n", .{});
-        }
+        //     // Verify the copy source data before copying
+        //     const source_bytes = @as([*]u8, @ptrCast(body_result_ptr));
+        //     self.tracePrint("Source bytes: ", .{});
+        //     for (0..@min(body_result_size, 16)) |i| {
+        //         self.traceInfo("{x:0>2} ", .{source_bytes[i]});
+        //     }
+        //     self.tracePrint("\n", .{});
+        // }
 
         // Copy the result (check for overlap first)
         const src_start = @intFromPtr(body_result_ptr);
@@ -2046,14 +2029,14 @@ pub const Interpreter = struct {
         }
 
         // Verify the copy destination data after copying
-        if (DEBUG_ENABLED) {
-            const dest_bytes = @as([*]u8, @ptrCast(return_space_ptr));
-            self.tracePrint("Dest bytes after copy: ", .{});
-            for (0..@min(body_result_size, 16)) |i| {
-                self.traceInfo("{x:0>2} ", .{dest_bytes[i]});
-            }
-            self.tracePrint("\n", .{});
-        }
+        // if (DEBUG_ENABLED) {
+        //     const dest_bytes = @as([*]u8, @ptrCast(return_space_ptr));
+        //     self.tracePrint("Dest bytes after copy: ", .{});
+        //     for (0..@min(body_result_size, 16)) |i| {
+        //         self.traceInfo("{x:0>2} ", .{dest_bytes[i]});
+        //     }
+        //     self.tracePrint("\n", .{});
+        // }
 
         // Pop the body result from stack
         self.stack_memory.used -= @as(u32, @intCast(body_result_size));
@@ -2196,23 +2179,23 @@ pub const Interpreter = struct {
         const source_ptr = @as([*]u8, @ptrCast(self.stack_memory.start)) + return_value_current_pos;
         const dest_ptr = @as([*]u8, @ptrCast(self.stack_memory.start));
 
-        if (DEBUG_ENABLED) {
-            self.traceInfo("Source data before move (first 16 bytes):", .{});
-            const dump_size = @min(16, return_size);
-            for (0..dump_size) |i| {
-                self.traceInfo("  [{}]: {x:0>2}", .{ return_value_current_pos + i, source_ptr[i] });
-            }
-        }
+        // if (DEBUG_ENABLED) {
+        //     self.traceInfo("Source data before move (first 16 bytes):", .{});
+        //     const dump_size = @min(16, return_size);
+        //     for (0..dump_size) |i| {
+        //         self.traceInfo("  [{}]: {x:0>2}", .{ return_value_current_pos + i, source_ptr[i] });
+        //     }
+        // }
 
         std.mem.copyForwards(u8, dest_ptr[0..return_size], source_ptr[0..return_size]);
 
-        if (DEBUG_ENABLED) {
-            self.traceInfo("Destination data after move (first 16 bytes):", .{});
-            const dump_size = @min(16, return_size);
-            for (0..dump_size) |i| {
-                self.traceInfo("  [{}]: {x:0>2}", .{ i, dest_ptr[i] });
-            }
-        }
+        // if (DEBUG_ENABLED) {
+        //     self.traceInfo("Destination data after move (first 16 bytes):", .{});
+        //     const dump_size = @min(16, return_size);
+        //     for (0..dump_size) |i| {
+        //         self.traceInfo("  [{}]: {x:0>2}", .{ i, dest_ptr[i] });
+        //     }
+        // }
 
         // Update stack to contain only the return value
         self.stack_memory.used = @as(u32, @intCast(return_size));
@@ -2377,6 +2360,25 @@ pub const Interpreter = struct {
         if (self.trace_writer) |writer| {
             self.printTraceIndent();
             writer.print("❌ " ++ fmt ++ "\n", args) catch {};
+        }
+    }
+
+    /// Helper to pretty print a CIR.Pattern in a trace
+    pub fn tracePattern(self: *const Interpreter, pattern_idx: CIR.Pattern.Idx) void {
+        if (!DEBUG_ENABLED) return;
+        if (self.trace_writer) |writer| {
+            const pattern = self.cir.store.getPattern(pattern_idx);
+
+            var tree = SExprTree.init(self.cir.env.gpa);
+            defer tree.deinit();
+
+            pattern.pushToSExprTree(self.cir, &tree, pattern_idx) catch {};
+
+            self.printTraceIndent();
+
+            tree.toStringPretty(writer) catch {};
+
+            writer.print("\n", .{}) catch {};
         }
     }
 

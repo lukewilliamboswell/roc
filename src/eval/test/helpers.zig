@@ -15,7 +15,7 @@ const layout = @import("../../layout/layout.zig");
 const test_allocator = testing.allocator;
 
 /// Helper function to run an expression and expect a specific error.
-pub fn runExpectError(src: []const u8, expected_error: eval.EvalError, trace: enum { trace, no_trace }) !void {
+pub fn runExpectError(src: []const u8, expected_error: eval.EvalError, should_trace: enum { trace, no_trace }) !void {
     const resources = try parseAndCanonicalizeExpr(test_allocator, src);
     defer cleanupParseAndCanonical(test_allocator, resources);
 
@@ -34,23 +34,21 @@ pub fn runExpectError(src: []const u8, expected_error: eval.EvalError, trace: en
     );
     defer interpreter.deinit();
 
-    switch (trace) {
-        .trace => {
-            interpreter.startTrace(std.io.getStdErr().writer().any());
-            defer interpreter.endTrace();
-        },
-        .no_trace => {
-            // no tracing for this test
-        },
+    if (should_trace == .trace) {
+        interpreter.startTrace(std.io.getStdErr().writer().any());
     }
 
     const result = interpreter.eval(resources.expr_idx);
+
+    if (should_trace == .trace) {
+        interpreter.endTrace();
+    }
 
     try testing.expectError(expected_error, result);
 }
 
 /// Helpers to setup and run an interpeter expecting an integer result.
-pub fn runExpectInt(src: []const u8, expected_int: i128, trace: enum { trace, no_trace }) !void {
+pub fn runExpectInt(src: []const u8, expected_int: i128, should_trace: enum { trace, no_trace }) !void {
     const resources = try parseAndCanonicalizeExpr(test_allocator, src);
     defer cleanupParseAndCanonical(test_allocator, resources);
 
@@ -69,17 +67,15 @@ pub fn runExpectInt(src: []const u8, expected_int: i128, trace: enum { trace, no
     );
     defer interpreter.deinit();
 
-    switch (trace) {
-        .trace => {
-            interpreter.startTrace(std.io.getStdErr().writer().any());
-            defer interpreter.endTrace();
-        },
-        .no_trace => {
-            // no tracing for this test
-        },
+    if (should_trace == .trace) {
+        interpreter.startTrace(std.io.getStdErr().writer().any());
     }
 
     const result = try interpreter.eval(resources.expr_idx);
+
+    if (should_trace == .trace) {
+        interpreter.endTrace();
+    }
 
     // Verify we got a scalar layout
     try testing.expect(result.layout.tag == .scalar);
