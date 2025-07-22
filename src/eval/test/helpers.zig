@@ -98,6 +98,9 @@ fn parseAndCanonicalizeExpr(allocator: std.mem.Allocator, source: []const u8) st
     const module_env = try allocator.create(base.ModuleEnv);
     module_env.* = try base.ModuleEnv.init(allocator, source);
 
+    module_env.source = source;
+    try module_env.calcLineStarts();
+
     // Parse the source code as an expression
     const parse_ast = try allocator.create(parse.AST);
     parse_ast.* = try parse.parseExpr(module_env);
