@@ -618,9 +618,8 @@ pub const Interpreter = struct {
                 }
 
                 // search for the binding in reverse order (most recent scope first)
-                for (self.bindings_stack.items.len..0) |i| {
-                    const binding = self.bindings_stack.items[i];
-
+                var reversed_bindings = std.mem.reverseIterator(self.bindings_stack.items);
+                while (reversed_bindings.next()) |binding| {
                     if (binding.pattern_idx == lookup.pattern_idx) {
                         _ = try self.pushStackValue(binding.layout);
                         return;
