@@ -82,7 +82,9 @@ pub fn runExpectInt(src: []const u8, expected_int: i128, should_trace: enum { tr
     try testing.expect(result.layout.data.scalar.tag == .int);
 
     // Read the result
-    const int_val = eval.readIntFromMemory(@ptrCast(result.ptr), result.layout.data.scalar.data.int);
+    const precision = result.layout.data.scalar.data.int;
+    const int_val = eval.readIntFromMemory(@ptrCast(result.ptr.?), precision);
+
     try testing.expectEqual(expected_int, int_val);
 }
 
@@ -249,20 +251,10 @@ test "eval binop - basic implementation" {
     try testing.expect(result.layout.data.scalar.tag == .int);
 
     // Read the result
-    const int_val = switch (result.layout.data.scalar.data.int) {
-        .i64 => @as(i64, @as(*i64, @ptrCast(@alignCast(result.ptr))).*),
-        .i32 => @as(i64, @as(*i32, @ptrCast(@alignCast(result.ptr))).*),
-        .i16 => @as(i64, @as(*i16, @ptrCast(@alignCast(result.ptr))).*),
-        .i8 => @as(i64, @as(*i8, @ptrCast(@alignCast(result.ptr))).*),
-        .u64 => @as(i64, @intCast(@as(*u64, @ptrCast(@alignCast(result.ptr))).*)),
-        .u32 => @as(i64, @intCast(@as(*u32, @ptrCast(@alignCast(result.ptr))).*)),
-        .u16 => @as(i64, @intCast(@as(*u16, @ptrCast(@alignCast(result.ptr))).*)),
-        .u8 => @as(i64, @intCast(@as(*u8, @ptrCast(@alignCast(result.ptr))).*)),
-        .u128 => @as(i64, @intCast(@as(*u128, @ptrCast(@alignCast(result.ptr))).*)),
-        .i128 => @as(i64, @intCast(@as(*i128, @ptrCast(@alignCast(result.ptr))).*)),
-    };
+    const precision = result.layout.data.scalar.data.int;
+    const int_val = eval.readIntFromMemory(@ptrCast(result.ptr.?), precision);
 
-    try testing.expectEqual(@as(i64, 8), int_val);
+    try testing.expectEqual(@as(i128, 8), int_val);
 }
 
 test "eval if expression with boolean tags" {
@@ -289,7 +281,7 @@ test "eval if expression with boolean tags" {
         // Verify the result
         try testing.expect(result.layout.tag == .scalar);
         try testing.expect(result.layout.data.scalar.tag == .int);
-        const value = @as(*i128, @ptrCast(@alignCast(result.ptr))).*;
+        const value = eval.readIntFromMemory(@ptrCast(result.ptr.?), result.layout.data.scalar.data.int);
         try testing.expectEqual(test_case.expected, value);
     }
 }
@@ -368,7 +360,7 @@ test "interpreter reuse across multiple evaluations" {
         // Verify the result
         try testing.expect(result.layout.tag == .scalar);
         try testing.expect(result.layout.data.scalar.tag == .int);
-        const value = @as(*i128, @ptrCast(@alignCast(result.ptr))).*;
-        try testing.expectEqual(expected_value, value);
+        const value: *i128 = @ptrCast(@alignCast(result.ptr.?));
+        try testing.expectEqual(expected_value, value.*);
     }
 }
