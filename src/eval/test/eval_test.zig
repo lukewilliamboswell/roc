@@ -57,38 +57,34 @@ test "record literal" {
 }
 
 test "simple lambdas" {
-    try runExpectInt("(|x| x + 1)(5)", 6, .trace);
-    // try runExpectInt("(|x| x + 1)(5)", 6, .no_trace);
-    // try runExpectInt("(|x| x * 2 + 1)(10)", 21, .no_trace);
-    // try runExpectInt("(|x| x - 3)(8)", 5, .no_trace);
-    // try runExpectInt("(|x| 100 - x)(25)", 75, .no_trace);
-    // try runExpectInt("(|x| 5)(99)", 5, .no_trace);
-    // try runExpectInt("(|x| x + x)(7)", 14, .no_trace);
+    try runExpectInt("(|x| x + 1)(5)", 6, .no_trace);
+    try runExpectInt("(|x| x * 2 + 1)(10)", 21, .no_trace);
+    try runExpectInt("(|x| x - 3)(8)", 5, .no_trace);
+    try runExpectInt("(|x| 100 - x)(25)", 75, .no_trace);
+    try runExpectInt("(|x| 5)(99)", 5, .no_trace);
+    try runExpectInt("(|x| x + x)(7)", 14, .no_trace);
 }
 
 test "multi-parameter lambdas" {
-    // try runExpectInt("(|x, y| x + y)(3, 4)", 7, .no_trace);
-    // try runExpectInt("(|x, y| x * y)(10, 20)", 200, .no_trace);
-    // try runExpectInt("(|a, b, c| a + b + c)(1, 2, 3)", 6, .no_trace);
-    return error.SkipZigTest;
+    try runExpectInt("(|x, y| x + y)(3, 4)", 7, .no_trace);
+    try runExpectInt("(|x, y| x * y)(10, 20)", 200, .no_trace);
+    try runExpectInt("(|a, b, c| a + b + c)(1, 2, 3)", 6, .no_trace);
 }
 
 test "lambdas with if-then bodies" {
-    // try runExpectInt("(|x| if x > 0 x else 0)(5)", 5, .no_trace);
-    // try runExpectInt("(|x| if x > 0 x else 0)(-3)", 0, .no_trace);
-    // try runExpectInt("(|x| if x == 0 1 else x)(0)", 1, .no_trace);
-    // try runExpectInt("(|x| if x == 0 1 else x)(42)", 42, .no_trace);
-    return error.SkipZigTest;
+    try runExpectInt("(|x| if x > 0 x else 0)(5)", 5, .no_trace);
+    try runExpectInt("(|x| if x > 0 x else 0)(-3)", 0, .no_trace);
+    try runExpectInt("(|x| if x == 0 1 else x)(0)", 1, .no_trace);
+    try runExpectInt("(|x| if x == 0 1 else x)(42)", 42, .no_trace);
 }
 
 test "lambdas with unary minus" {
-    // try runExpectInt("(|x| -x)(5)", -5, .no_trace);
-    // try runExpectInt("(|x| -x)(0)", 0, .no_trace);
-    // try runExpectInt("(|x| -x)(-3)", 3, .no_trace);
-    // try runExpectInt("(|x| -5)(999)", -5, .no_trace);
-    // try runExpectInt("(|x| if True -x else 0)(5)", -5, .no_trace);
-    // try runExpectInt("(|x| if True -10 else x)(999)", -10, .no_trace);
-    return error.SkipZigTest;
+    try runExpectInt("(|x| -x)(5)", -5, .no_trace);
+    try runExpectInt("(|x| -x)(0)", 0, .no_trace);
+    try runExpectInt("(|x| -x)(-3)", 3, .no_trace);
+    try runExpectInt("(|x| -5)(999)", -5, .no_trace);
+    try runExpectInt("(|x| if True -x else 0)(5)", -5, .no_trace);
+    try runExpectInt("(|x| if True -10 else x)(999)", -10, .no_trace);
 }
 
 test "lambdas closures" {
