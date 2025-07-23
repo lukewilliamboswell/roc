@@ -292,7 +292,7 @@ pub const Layout = packed struct {
             .list, .list_of_zst => target_usize.alignment(),
             .record => self.data.record.alignment,
             .tuple => self.data.tuple.alignment,
-            .closure => target_usize.alignment(),
+            .closure => std.mem.Alignment.@"16",
         };
     }
 
