@@ -15,7 +15,7 @@ test "eval simple number" {
 test "if-else" {
     try runExpectInt("if (1 == 1) 42 else 99", 42, .no_trace);
     try runExpectInt("if (1 == 2) 42 else 99", 99, .no_trace);
-    try runExpectInt("if (5 > 3) 100 else 200", 100, .trace);
+    try runExpectInt("if (5 > 3) 100 else 200", 100, .no_trace);
     try runExpectInt("if (3 > 5) 100 else 200", 200, .no_trace);
 }
 
@@ -57,7 +57,7 @@ test "record literal" {
 }
 
 test "simple lambdas" {
-    // try runExpectInt("(|x| x + 1)(5)", 6, .trace);
+    try runExpectInt("(|x| x + 1)(5)", 6, .trace);
     // try runExpectInt("(|x| x + 1)(5)", 6, .no_trace);
     // try runExpectInt("(|x| x * 2 + 1)(10)", 21, .no_trace);
     // try runExpectInt("(|x| x - 3)(8)", 5, .no_trace);

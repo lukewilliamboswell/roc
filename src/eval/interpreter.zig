@@ -274,6 +274,12 @@ const Binding = struct {
     layout: Layout,
 };
 
+const Closure = struct {
+    body_idx: CIR.Expr.Idx,
+    params: CIR.Pattern.Span,
+    captures: CIR.Expr.Capture.Span,
+};
+
 /// - **No Heap Allocation**: Values are stack-only for performance and safety
 pub const Interpreter = struct {
     /// Memory allocator for dynamic data structures
@@ -348,7 +354,10 @@ pub const Interpreter = struct {
         self.traceInfo("══ EXPRESSION ══", .{});
         self.traceExpression(expr_idx);
 
-        self.schedule_work(WorkItem{ .kind = .w_eval_expr, .expr_idx = expr_idx });
+        self.schedule_work(WorkItem{
+            .kind = .w_eval_expr,
+            .expr_idx = expr_idx,
+        });
 
         // Main evaluation loop
         while (self.take_work()) |work| {
@@ -683,48 +692,26 @@ pub const Interpreter = struct {
             },
 
             .e_lambda => |lambda_expr| {
-                // Schedule evaluation of the lambda expression itself
-                self.schedule_work(.{
-                    .kind = .w_eval_expr,
-                    .expr_idx = expr_idx,
-                });
+                const arg_count = lambda_expr.args.span.len;
+                const capture_count = lambda_expr.captures.span.len;
 
-                // Schedule evaluation of all arguments (in order)
-                const arg_idxs = self.cir.store.slicePatterns(lambda_expr.args);
-                for (arg_idxs) |arg_idx| {
-                    const arg_expr = self.cir.store.getPattern(arg_idx);
+                // TODO how to caldulate env size for now it's 1 usize per capture
+                const env_size: u16 = @intCast(capture_count * target_usize.size());
 
-                    // TODO should we throw an error if the argument is not an assignment? what does that mean?
-                    std.debug.assert(arg_expr == .assign);
+                const closure: *Closure = @ptrCast(@alignCast(try self.pushStackValue(Layout.closure(env_size))));
 
-                    var def_expr: ?CIR.Expr.Idx = null;
+                // write the closure data to stack memory
+                closure.* = Closure{
+                    .body_idx = lambda_expr.body,
+                    .params = lambda_expr.args,
+                    .captures = lambda_expr.captures,
+                };
 
-                    // look in the list of all definitions
-                    for (self.cir.store.sliceDefs(self.cir.all_defs)) |def_idx| {
-                        const def = self.cir.store.getDef(def_idx);
-                        if (@intFromEnum(def.pattern) == @intFromEnum(arg_idx)) {
-                            // Found the definition, evaluate its expression
-                            def_expr = def.expr;
-                            break;
-                        }
-                    }
-
-                    if (def_expr == null) {
-                        self.traceError("unable to find argument definition for {}", .{arg_expr});
-                        return error.PatternNotFound;
-                    }
-
-                    try self.work_stack.append(.{
-                        .kind = .w_eval_expr,
-                        .expr_idx = def_expr.?,
-                    });
-                }
-
-                // Schedule the actual function call work
+                // schedule the actual function call work
                 self.schedule_work(.{
                     .kind = .w_lambda_call,
                     .expr_idx = expr_idx,
-                    .extra = @intCast(arg_idxs.len),
+                    .extra = arg_count,
                 });
             },
         }
@@ -1475,7 +1462,7 @@ pub const Interpreter = struct {
         if (!DEBUG_ENABLED) return;
         if (self.trace_writer) |writer| {
             self.printTraceIndent();
-            writer.print("❌ " ++ fmt ++ "\n", args) catch {};
+            writer.print("🔴 " ++ fmt ++ "\n", args) catch {};
         }
     }
 
@@ -1510,6 +1497,8 @@ pub const Interpreter = struct {
             pattern.pushToSExprTree(self.cir, &tree, pattern_idx) catch {};
 
             self.printTraceIndent();
+
+            writer.print("🖼️\t", .{}) catch {};
 
             tree.toStringPretty(writer) catch {};
 

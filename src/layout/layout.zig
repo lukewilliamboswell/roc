@@ -360,6 +360,13 @@ pub const Layout = packed struct {
     pub fn tuple(tuple_alignment: std.mem.Alignment, tuple_idx: TupleIdx) Layout {
         return Layout{ .data = .{ .tuple = .{ .alignment = tuple_alignment, .idx = tuple_idx } }, .tag = .tuple };
     }
+
+    pub fn closure(env_size: u16) Layout {
+        return Layout{
+            .data = .{ .closure = .{ .env_size = env_size } },
+            .tag = .closure,
+        };
+    }
 };
 
 test "Size of Layout type" {
