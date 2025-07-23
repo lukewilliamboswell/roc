@@ -13,6 +13,8 @@ const layout_store = @import("../../layout/store.zig");
 const layout = @import("../../layout/layout.zig");
 
 const test_allocator = testing.allocator;
+const Layout = layout.Layout;
+const Closure = eval.Closure;
 
 /// Helper function to run an expression and expect a specific error.
 pub fn runExpectError(src: []const u8, expected_error: eval.EvalError, should_trace: enum { trace, no_trace }) !void {
