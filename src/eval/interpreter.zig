@@ -621,7 +621,13 @@ pub const Interpreter = struct {
                 var reversed_bindings = std.mem.reverseIterator(self.bindings_stack.items);
                 while (reversed_bindings.next()) |binding| {
                     if (binding.pattern_idx == lookup.pattern_idx) {
-                        _ = try self.pushStackValue(binding.layout);
+                        const dest_ptr = try self.pushStackValue(binding.layout);
+                        if (dest_ptr) |dest| {
+                            const binding_size = self.layout_cache.layoutSize(binding.layout);
+                            if (binding_size > 0) {
+                                std.mem.copyForwards(u8, @as([*]u8, @ptrCast(dest))[0..binding_size], @as([*]const u8, @ptrCast(binding.value_ptr))[0..binding_size]);
+                            }
+                        }
                         return;
                     }
                 }
