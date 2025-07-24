@@ -74,9 +74,13 @@ pub const EvalError = error{
     InvalidStackState,
     NoCapturesProvided,
     CaptureBindingFailed,
+    CaptureNotFound,
     PatternNotFound,
     GlobalDefinitionNotSupported,
 };
+
+/// Maximum number of capture fields allowed in a closure
+const MAX_CAPTURE_FIELDS = 256;
 
 // Work item for the iterative evaluation stack
 const WorkKind = enum {
@@ -628,225 +632,7 @@ pub const Interpreter = struct {
                 });
             },
 
-            .e_lambda => |lambda_expr| {
-                // Create a record layout for captures
-                var field_layouts: [256]Layout = undefined;
-                var field_names: [256]base.Ident.Idx = undefined;
-                var field_count: usize = 0;
-
-                // Create a list of destructuring patterns for the captures
-                var destructures = std.ArrayList(CIR.Pattern.RecordDestruct.Idx).init(self.allocator);
-                defer destructures.deinit();
-
-                // Recursively find all captures from this lambda and any nested lambdas.
-                var all_captures = std.ArrayList(CIR.Expr.Capture).init(self.allocator);
-                defer all_captures.deinit();
-                try self.collectNestedCaptures(expr_idx, &all_captures);
-
-                // Get the parameters of the current lambda to filter them out from the capture list.
-                const params = self.cir.store.slicePatterns(lambda_expr.args);
-                var param_set = std.ArrayList(CIR.Pattern.Idx).init(self.allocator);
-                defer param_set.deinit();
-                for (params) |param_idx| {
-                    try param_set.append(param_idx);
-                }
-
-                var final_captures = std.ArrayList(CIR.Expr.Capture).init(self.allocator);
-                defer final_captures.deinit();
-
-                var seen_captures = std.ArrayList(CIR.Pattern.Idx).init(self.allocator);
-                defer seen_captures.deinit();
-
-                for (all_captures.items) |capture| {
-                    // A variable is a capture if it's not a parameter of the current lambda.
-                    const is_param = blk: {
-                        for (param_set.items) |param_idx| {
-                            if (param_idx == capture.pattern_idx) {
-                                break :blk true;
-                            }
-                        }
-                        break :blk false;
-                    };
-
-                    const is_seen = blk: {
-                        for (seen_captures.items) |seen_idx| {
-                            if (seen_idx == capture.pattern_idx) {
-                                break :blk true;
-                            }
-                        }
-                        break :blk false;
-                    };
-
-                    if (!is_param and !is_seen) {
-                        try final_captures.append(capture);
-                        try seen_captures.append(capture.pattern_idx);
-                    }
-                }
-
-                self.traceInfo("Creating closure with {} captures", .{final_captures.items.len});
-                for (final_captures.items) |capture| {
-                    self.traceInfo("Processing capture: pattern_idx={}, name={s}", .{ @intFromEnum(capture.pattern_idx), self.cir.getIdentText(capture.name) });
-
-                    // Get the layout for this capture
-                    const capture_var: types.Var = @enumFromInt(@intFromEnum(capture.pattern_idx));
-                    const capture_layout_idx = self.layout_cache.addTypeVar(capture_var) catch |err| switch (err) {
-                        error.ZeroSizedType => return error.ZeroSizedType,
-                        error.BugUnboxedRigidVar => return error.BugUnboxedFlexVar,
-                        else => |e| return e,
-                    };
-                    const capture_layout = self.layout_cache.getLayout(capture_layout_idx);
-
-                    // Add to field layouts and names
-                    field_layouts[field_count] = capture_layout;
-                    field_names[field_count] = capture.name;
-                    field_count += 1;
-
-                    // Create a destructure for this capture
-                    const destruct_idx = try self.cir.store.addRecordDestruct(.{
-                        .label = capture.name,
-                        .ident = capture.name,
-                        .kind = .{ .Required = capture.pattern_idx },
-                    }, self.cir.store.getExprRegion(expr_idx));
-                    try destructures.append(destruct_idx);
-                }
-
-                // Create the record destructure pattern for all captures
-                const destructs_start = self.cir.store.scratchRecordDestructTop();
-                for (destructures.items) |destruct_idx| {
-                    try self.cir.store.addScratchRecordDestruct(destruct_idx);
-                }
-                const destructs_span = try self.cir.store.recordDestructSpanFrom(destructs_start);
-
-                const whole_var = try self.cir.env.types.fresh();
-                const ext_var = try self.cir.env.types.fresh();
-                const captures_pattern_idx = try self.cir.store.addPattern(.{
-                    .record_destructure = .{
-                        .whole_var = whole_var,
-                        .ext_var = ext_var,
-                        .destructs = destructs_span,
-                    },
-                }, self.cir.store.getExprRegion(expr_idx));
-
-                // Create the record layout for captures
-                const captures_layout_idx = try self.layout_cache.putRecord(
-                    field_layouts[0..field_count],
-                    field_names[0..field_count],
-                );
-
-                // Variable-Sized Closure Allocation
-                const closure_layout = Layout.closure();
-                const captures_record_layout = self.layout_cache.getLayout(captures_layout_idx);
-                const captures_size = self.layout_cache.layoutSize(captures_record_layout);
-
-                // Allocate space for the closure header AND the captured values together.
-                const total_size = @sizeOf(Closure) + captures_size;
-                const captures_alignment = captures_record_layout.alignment(target_usize);
-                const closure_alignment = std.mem.Alignment.fromByteUnits(@alignOf(Closure));
-                const total_alignment = std.mem.Alignment.max(closure_alignment, captures_alignment);
-                const closure_ptr = try self.stack_memory.alloca(total_size, total_alignment);
-
-                // Manually push the layout onto the value stack, since we did a custom allocation.
-                try self.value_stack.append(Value{
-                    .layout = closure_layout,
-                    .offset = @as(u32, @truncate(@intFromPtr(closure_ptr) - @intFromPtr(@as(*const u8, @ptrCast(self.stack_memory.start))))),
-                });
-
-                // Write the closure header
-                const closure: *Closure = @ptrCast(@alignCast(closure_ptr));
-                closure.* = Closure{
-                    .body_idx = lambda_expr.body,
-                    .params = lambda_expr.args,
-                    .captures_pattern_idx = captures_pattern_idx,
-                    .captures_layout_idx = captures_layout_idx,
-                };
-
-                // Actually capture the values into the memory immediately following the header
-                if (field_count > 0) {
-                    const captures_ptr = @as([*]u8, @ptrCast(closure_ptr)) + @sizeOf(Closure);
-
-                    // For each capture, find its value and copy it to the correct offset in the captures area
-                    for (final_captures.items, 0..) |capture, i| {
-                        // Look up the captured value in the current environment
-                        var found_binding: ?Binding = null;
-                        var reversed_bindings = std.mem.reverseIterator(self.bindings_stack.items);
-                        while (reversed_bindings.next()) |binding| {
-                            if (binding.pattern_idx == capture.pattern_idx) {
-                                found_binding = binding;
-                                break;
-                            }
-                        }
-
-                        var copied = false;
-                        if (found_binding) |binding| {
-                            self.traceInfo("Found binding for capture '{s}' at address {}", .{ self.cir.getIdentText(capture.name), @intFromPtr(binding.value_ptr) });
-                            const binding_size = self.layout_cache.layoutSize(binding.layout);
-                            if (binding_size > 0) {
-                                const capture_name_text = self.cir.getIdentText(capture.name);
-                                const field_offset = self.layout_cache.getRecordFieldOffsetByName(
-                                    captures_record_layout.data.record.idx,
-                                    capture_name_text,
-                                ) catch return error.CaptureBindingFailed;
-
-                                const dest_ptr = captures_ptr + field_offset;
-                                const src_ptr = @as([*]const u8, @ptrCast(binding.value_ptr));
-                                self.traceInfo("Copying {} bytes from {} to {}", .{ binding_size, @intFromPtr(src_ptr), @intFromPtr(dest_ptr) });
-                                std.mem.copyForwards(u8, dest_ptr[0..binding_size], src_ptr[0..binding_size]);
-                            }
-                            copied = true;
-                        }
-
-                        // If not found in local bindings, search up the call stack for a closure that has the binding.
-                        if (!copied) {
-                            var frame_idx = self.frame_stack.items.len;
-                            while (frame_idx > 0) {
-                                frame_idx -= 1;
-                                const frame = self.frame_stack.items[frame_idx];
-                                const outer_closure_val = self.value_stack.items[frame.value_base];
-
-                                if (outer_closure_val.layout.tag == .closure) {
-                                    const outer_closure_ptr = &self.stack_memory.start[outer_closure_val.offset];
-                                    const outer_closure: *const Closure = @ptrCast(@alignCast(outer_closure_ptr));
-                                    const outer_captures_layout = self.layout_cache.getLayout(outer_closure.captures_layout_idx);
-                                    const outer_captures_ptr = @as([*]u8, @ptrCast(outer_closure_ptr)) + @sizeOf(Closure);
-                                    const capture_name_text = self.cir.getIdentText(capture.name);
-
-                                    const record_data = self.layout_cache.getRecordData(outer_captures_layout.data.record.idx);
-                                    if (record_data.fields.count > 0) {
-                                        const src_field_offset = self.layout_cache.getRecordFieldOffsetByName(
-                                            outer_captures_layout.data.record.idx,
-                                            capture_name_text,
-                                        ) catch continue; // Not in this closure's captures, try the next one up.
-
-                                        const capture_layout = field_layouts[i];
-                                        const capture_size = self.layout_cache.layoutSize(capture_layout);
-
-                                        if (capture_size > 0) {
-                                            const dest_field_offset = self.layout_cache.getRecordFieldOffsetByName(
-                                                captures_record_layout.data.record.idx,
-                                                capture_name_text,
-                                            ) catch return error.CaptureBindingFailed;
-
-                                            const src_ptr = outer_captures_ptr + src_field_offset;
-                                            const dest_ptr = captures_ptr + dest_field_offset;
-                                            self.traceInfo("Copying capture-of-capture '{s}' ({} bytes) from {} to {}", .{ capture_name_text, capture_size, @intFromPtr(src_ptr), @intFromPtr(dest_ptr) });
-                                            std.mem.copyForwards(u8, dest_ptr[0..capture_size], src_ptr[0..capture_size]);
-                                            copied = true;
-                                            break; // Found it, stop searching up the stack.
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        if (!copied) {
-                            // TODO: Handle captures from global scope
-                            self.traceWarn("Capture not found in local bindings or outer closures: {s}", .{self.cir.getIdentText(capture.name)});
-                        }
-                    }
-                }
-
-                self.traceInfo("Closure created with captures layout idx {}, final stack used: {}", .{ captures_layout_idx, self.stack_memory.used });
-            },
+            .e_lambda => |lambda_expr| try self.createClosure(expr_idx, lambda_expr),
 
             .e_tuple => |tuple_expr| {
                 const layout_idx = try self.getLayoutIdx(expr_idx);
@@ -1668,7 +1454,301 @@ pub const Interpreter = struct {
         return StackValue{ .layout = value.layout, .ptr = @as(*anyopaque, @ptrCast(ptr)) };
     }
 
-    fn collectNestedCaptures(self: *Interpreter, expr_idx: CIR.Expr.Idx, captures_list: *std.ArrayList(CIR.Expr.Capture)) !void {
+    /// Creates a closure from a lambda expression with proper capture handling
+    fn createClosure(self: *Interpreter, expr_idx: CIR.Expr.Idx, lambda_expr: CIR.Expr.Lambda) EvalError!void {
+        self.traceEnter("createClosure for lambda expr_idx={}", .{expr_idx});
+        defer self.traceExit("", .{});
+
+        // Collect and filter captures
+        var final_captures = std.ArrayList(CIR.Capture).init(self.allocator);
+        defer final_captures.deinit();
+
+        try self.collectAndFilterCaptures(expr_idx, lambda_expr, &final_captures);
+
+        // Create closure layout for captures
+        const captures_layout_idx = try self.createClosureLayout(&final_captures);
+
+        // Allocate and initialize closure
+        const closure_layout = Layout.closure();
+        const captures_record_layout = self.layout_cache.getLayout(captures_layout_idx);
+        const captures_size = self.layout_cache.layoutSize(captures_record_layout);
+
+        // Variable-Sized Closure Allocation with bounds checking
+        const total_size = @sizeOf(Closure) + captures_size;
+        if (DEBUG_ENABLED and total_size > self.stack_memory.capacity - self.stack_memory.used) {
+            self.traceWarn("Closure allocation may exceed stack capacity: {} bytes requested, {} available", .{ total_size, self.stack_memory.capacity - self.stack_memory.used });
+        }
+
+        const captures_alignment = captures_record_layout.alignment(target_usize);
+        const closure_alignment = std.mem.Alignment.fromByteUnits(@alignOf(Closure));
+        const total_alignment = std.mem.Alignment.max(closure_alignment, captures_alignment);
+        const closure_ptr = try self.stack_memory.alloca(total_size, total_alignment);
+
+        // Manually push the layout onto the value stack
+        try self.value_stack.append(Value{
+            .layout = closure_layout,
+            .offset = @as(u32, @truncate(@intFromPtr(closure_ptr) - @intFromPtr(@as(*const u8, @ptrCast(self.stack_memory.start))))),
+        });
+
+        // Create captures pattern
+        const captures_pattern_idx = try self.createCapturesPattern(&final_captures, expr_idx);
+
+        // Write the closure header
+        const closure: *Closure = @ptrCast(@alignCast(closure_ptr));
+        closure.* = Closure{
+            .body_idx = lambda_expr.body,
+            .params = lambda_expr.args,
+            .captures_pattern_idx = captures_pattern_idx,
+            .captures_layout_idx = captures_layout_idx,
+        };
+
+        // Copy captures to closure memory
+        if (final_captures.items.len > 0) {
+            try self.copyCapturesToClosure(closure_ptr, &final_captures, captures_record_layout);
+        }
+
+        self.traceInfo("Closure created with {} captures, total size: {} bytes", .{ final_captures.items.len, total_size });
+    }
+
+    /// Collects and filters captures for a lambda expression
+    fn collectAndFilterCaptures(
+        self: *Interpreter,
+        expr_idx: CIR.Expr.Idx,
+        lambda_expr: anytype,
+        final_captures: *std.ArrayList(CIR.Capture),
+    ) EvalError!void {
+        // Recursively find all captures from this lambda and any nested lambdas
+        var all_captures = std.ArrayList(CIR.Capture).init(self.allocator);
+        defer all_captures.deinit();
+        try self.collectNestedCaptures(expr_idx, &all_captures);
+
+        // Get the parameters of the current lambda to filter them out from the capture list
+        const params = self.cir.store.slicePatterns(lambda_expr.args);
+        var param_set = std.ArrayList(CIR.Pattern.Idx).init(self.allocator);
+        defer param_set.deinit();
+        for (params) |param_idx| {
+            try param_set.append(param_idx);
+        }
+
+        var seen_captures = std.ArrayList(CIR.Pattern.Idx).init(self.allocator);
+        defer seen_captures.deinit();
+
+        for (all_captures.items) |capture| {
+            // A variable is a capture if it's not a parameter of the current lambda
+            const is_param = blk: {
+                for (param_set.items) |param_idx| {
+                    if (param_idx == capture.pattern_idx) {
+                        break :blk true;
+                    }
+                }
+                break :blk false;
+            };
+
+            const is_seen = blk: {
+                for (seen_captures.items) |seen_idx| {
+                    if (seen_idx == capture.pattern_idx) {
+                        break :blk true;
+                    }
+                }
+                break :blk false;
+            };
+
+            if (!is_param and !is_seen) {
+                try final_captures.append(capture);
+                try seen_captures.append(capture.pattern_idx);
+            }
+        }
+
+        self.traceInfo("Filtered {} captures from {} total", .{ final_captures.items.len, all_captures.items.len });
+    }
+
+    /// Creates the layout for closure captures
+    fn createClosureLayout(self: *Interpreter, captures: *const std.ArrayList(CIR.Capture)) EvalError!layout.Idx {
+        if (captures.items.len > MAX_CAPTURE_FIELDS) {
+            return error.LayoutError;
+        }
+
+        // Use dynamic allocation for field layouts and names
+        var field_layouts = try self.allocator.alloc(Layout, captures.items.len);
+        defer self.allocator.free(field_layouts);
+        var field_names = try self.allocator.alloc(base.Ident.Idx, captures.items.len);
+        defer self.allocator.free(field_names);
+
+        for (captures.items, 0..) |capture, i| {
+            self.traceInfo("Processing capture: pattern_idx={}, name={s}", .{ @intFromEnum(capture.pattern_idx), self.cir.getIdentText(capture.name) });
+
+            // Get the layout for this capture
+            const capture_var: types.Var = @enumFromInt(@intFromEnum(capture.pattern_idx));
+            const capture_layout_idx = self.layout_cache.addTypeVar(capture_var) catch |err| switch (err) {
+                error.ZeroSizedType => return error.ZeroSizedType,
+                error.BugUnboxedRigidVar => return error.BugUnboxedFlexVar,
+                else => |e| return e,
+            };
+            const capture_layout = self.layout_cache.getLayout(capture_layout_idx);
+
+            field_layouts[i] = capture_layout;
+            field_names[i] = capture.name;
+        }
+
+        return try self.layout_cache.putRecord(field_layouts, field_names);
+    }
+
+    /// Creates the pattern for binding captures
+    fn createCapturesPattern(
+        self: *Interpreter,
+        captures: *const std.ArrayList(CIR.Capture),
+        expr_idx: CIR.Expr.Idx,
+    ) EvalError!CIR.Pattern.Idx {
+        var destructures = std.ArrayList(CIR.Pattern.RecordDestruct.Idx).init(self.allocator);
+        defer destructures.deinit();
+
+        for (captures.items) |capture| {
+            const destruct_idx = try self.cir.store.addRecordDestruct(.{
+                .label = capture.name,
+                .ident = capture.name,
+                .kind = .{ .Required = capture.pattern_idx },
+            }, self.cir.store.getExprRegion(expr_idx));
+            try destructures.append(destruct_idx);
+        }
+
+        // Create the record destructure pattern for all captures
+        const destructs_start = self.cir.store.scratchRecordDestructTop();
+        for (destructures.items) |destruct_idx| {
+            try self.cir.store.addScratchRecordDestruct(destruct_idx);
+        }
+        const destructs_span = try self.cir.store.recordDestructSpanFrom(destructs_start);
+
+        const whole_var = try self.cir.env.types.fresh();
+        const ext_var = try self.cir.env.types.fresh();
+        return try self.cir.store.addPattern(.{
+            .record_destructure = .{
+                .whole_var = whole_var,
+                .ext_var = ext_var,
+                .destructs = destructs_span,
+            },
+        }, self.cir.store.getExprRegion(expr_idx));
+    }
+
+    /// Copies captured values into closure memory
+    fn copyCapturesToClosure(
+        self: *Interpreter,
+        closure_ptr: *anyopaque,
+        captures: *const std.ArrayList(CIR.Capture),
+        captures_record_layout: Layout,
+    ) EvalError!void {
+        const captures_ptr = @as([*]u8, @ptrCast(closure_ptr)) + @sizeOf(Closure);
+
+        // Add bounds checking in debug mode
+        if (DEBUG_ENABLED) {
+            const captures_end = captures_ptr + self.layout_cache.layoutSize(captures_record_layout);
+            const stack_end = @as([*]u8, @ptrCast(self.stack_memory.start)) + self.stack_memory.capacity;
+            if (@intFromPtr(captures_end) > @intFromPtr(stack_end)) {
+                self.traceError("Capture copying would exceed stack bounds", .{});
+                return error.LayoutError;
+            }
+        }
+
+        for (captures.items) |capture| {
+            const capture_name_text = self.cir.getIdentText(capture.name);
+
+            // First try to find in local bindings
+            var copied = false;
+            var reversed_bindings = std.mem.reverseIterator(self.bindings_stack.items);
+            while (reversed_bindings.next()) |binding| {
+                if (binding.pattern_idx == capture.pattern_idx) {
+                    try self.copyCapture(captures_ptr, capture_name_text, binding.value_ptr, binding.layout, captures_record_layout);
+                    copied = true;
+                    break;
+                }
+            }
+
+            // If not found in local bindings, search up the call stack
+            if (!copied) {
+                copied = try self.copyFromOuterClosures(captures_ptr, capture, captures_record_layout);
+            }
+
+            if (!copied) {
+                return error.CaptureNotFound;
+            }
+        }
+    }
+
+    /// Copies a single capture from source to destination
+    fn copyCapture(
+        self: *Interpreter,
+        captures_ptr: [*]u8,
+        capture_name: []const u8,
+        src_ptr: *anyopaque,
+        src_layout: Layout,
+        captures_record_layout: Layout,
+    ) EvalError!void {
+        const binding_size = self.layout_cache.layoutSize(src_layout);
+        if (binding_size > 0) {
+            const field_offset = self.layout_cache.getRecordFieldOffsetByName(
+                captures_record_layout.data.record.idx,
+                capture_name,
+            ) catch return error.CaptureBindingFailed;
+
+            const dest_ptr = captures_ptr + field_offset;
+            const src_bytes = @as([*]const u8, @ptrCast(src_ptr));
+
+            self.traceInfo("Copying capture '{}' ({} bytes) from {} to {}", .{ capture_name, binding_size, @intFromPtr(src_ptr), @intFromPtr(dest_ptr) });
+            std.mem.copyForwards(u8, dest_ptr[0..binding_size], src_bytes[0..binding_size]);
+        }
+    }
+
+    /// Attempts to copy a capture from outer closures in the call stack
+    fn copyFromOuterClosures(
+        self: *Interpreter,
+        captures_ptr: [*]u8,
+        capture: CIR.Capture,
+        captures_record_layout: Layout,
+    ) EvalError!bool {
+        var frame_idx = self.frame_stack.items.len;
+        while (frame_idx > 0) {
+            frame_idx -= 1;
+            const frame = self.frame_stack.items[frame_idx];
+            const outer_closure_val = self.value_stack.items[frame.value_base];
+
+            if (outer_closure_val.layout.tag == .closure) {
+                const outer_closure_ptr = &self.stack_memory.start[outer_closure_val.offset];
+                const outer_closure: *const Closure = @ptrCast(@alignCast(outer_closure_ptr));
+                const outer_captures_layout = self.layout_cache.getLayout(outer_closure.captures_layout_idx);
+                const outer_captures_ptr = @as([*]u8, @ptrCast(outer_closure_ptr)) + @sizeOf(Closure);
+                const capture_name_text = self.cir.getIdentText(capture.name);
+
+                const record_data = self.layout_cache.getRecordData(outer_captures_layout.data.record.idx);
+                if (record_data.fields.count > 0) {
+                    const src_field_offset = self.layout_cache.getRecordFieldOffsetByName(
+                        outer_captures_layout.data.record.idx,
+                        capture_name_text,
+                    ) catch continue; // Not in this closure's captures
+
+                    const capture_var: types.Var = @enumFromInt(@intFromEnum(capture.pattern_idx));
+                    const capture_layout_idx = self.layout_cache.addTypeVar(capture_var) catch continue;
+                    const capture_layout = self.layout_cache.getLayout(capture_layout_idx);
+                    const capture_size = self.layout_cache.layoutSize(capture_layout);
+
+                    if (capture_size > 0) {
+                        const dest_field_offset = self.layout_cache.getRecordFieldOffsetByName(
+                            captures_record_layout.data.record.idx,
+                            capture_name_text,
+                        ) catch return error.CaptureBindingFailed;
+
+                        const src_ptr = outer_captures_ptr + src_field_offset;
+                        const dest_ptr = captures_ptr + dest_field_offset;
+
+                        self.traceInfo("Copying capture-of-capture '{}' ({} bytes) from {} to {}", .{ capture_name_text, capture_size, @intFromPtr(src_ptr), @intFromPtr(dest_ptr) });
+                        std.mem.copyForwards(u8, dest_ptr[0..capture_size], src_ptr[0..capture_size]);
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    fn collectNestedCaptures(self: *Interpreter, expr_idx: CIR.Expr.Idx, captures_list: *std.ArrayList(CIR.Capture)) !void {
         const expr = self.cir.store.getExpr(expr_idx);
 
         switch (expr) {

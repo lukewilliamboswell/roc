@@ -248,11 +248,7 @@ pub const Expr = union(enum) {
     /// |{ name }| "Hello, " ++ name        # Lambda with record destructuring
     /// |list| list.map(|x| x * 2)          # Nested lambdas
     /// ```
-    e_lambda: struct {
-        args: Pattern.Span,
-        body: Expr.Idx,
-        captures: Expr.Capture.Span,
-    },
+    e_lambda: Lambda,
     /// Binary operation between two expressions.
     /// Includes arithmetic, comparison, logical, and pipe operators.
     ///
@@ -356,6 +352,12 @@ pub const Expr = union(enum) {
 
         pub const Idx = enum(u32) { _ };
         pub const Span = struct { span: base.DataSpan };
+    };
+
+    pub const Lambda = struct {
+        args: Pattern.Span,
+        body: Expr.Idx,
+        captures: Expr.Capture.Span,
     };
 
     pub fn initStr(expr_span: Expr.Span) Expr {
