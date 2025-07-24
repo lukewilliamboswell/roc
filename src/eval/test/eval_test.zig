@@ -159,7 +159,7 @@ test "lambdas with unary minus" {
 
 test "lambdas closures" {
     try runExpectInt("(|a| |b| a * b)(5)(10)", 50, .no_trace);
-    try runExpectInt("(((|a| |b| |c| a + b + c)(100))(20))(3)", 123, .no_trace);
+    try runExpectInt("(((|a| |b| |c| a + b + c)(100))(20))(3)", 123, .trace);
     try runExpectInt("(|a, b, c| |d| a + b + c + d)(10, 20, 5)(7)", 42, .no_trace);
 
     // Test out-of-order captures to ensure canonical layout is respected.

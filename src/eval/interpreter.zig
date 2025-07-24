@@ -875,10 +875,10 @@ pub const Interpreter = struct {
             .offset = @intCast(@intFromPtr(captures_ptr) - @intFromPtr(@as(*const u8, @ptrCast(self.stack_memory.start)))),
         });
 
-        // 2. Bind the capture pattern to the newly pushed capture record.
+        // 2. Bind captures directly by iterating through the lambda's captures
         if (captures_size > 0) {
             const capture_record_val = try self.peekStackValue(1);
-            try self.bindPattern(closure.captures_pattern_idx, capture_record_val);
+            try self.bindCapturesDirectly(closure, capture_record_val);
         }
 
         // 3. Bind the explicit parameters to their arguments.
@@ -1463,7 +1463,7 @@ pub const Interpreter = struct {
         var final_captures = std.ArrayList(CIR.Capture).init(self.allocator);
         defer final_captures.deinit();
 
-        try self.collectAndFilterCaptures(expr_idx, lambda_expr, &final_captures);
+        try self.collectAndFilterCaptures(lambda_expr, &final_captures);
 
         // Create closure layout for captures
         const captures_layout_idx = try self.createClosureLayout(&final_captures);
@@ -1490,16 +1490,18 @@ pub const Interpreter = struct {
             .offset = @as(u32, @truncate(@intFromPtr(closure_ptr) - @intFromPtr(@as(*const u8, @ptrCast(self.stack_memory.start))))),
         });
 
-        // Create captures pattern
-        const captures_pattern_idx = try self.createCapturesPattern(&final_captures, expr_idx);
+        // Create interpreter-specific capture binding info instead of modifying CIR
+        var capture_binding_info = try CaptureBindingInfo.init(self.allocator, &final_captures, captures_layout_idx);
+        defer capture_binding_info.deinit(self.allocator);
 
-        // Write the closure header
+        // Write the closure header with the original lambda expression index
         const closure: *Closure = @ptrCast(@alignCast(closure_ptr));
         closure.* = Closure{
             .body_idx = lambda_expr.body,
             .params = lambda_expr.args,
-            .captures_pattern_idx = captures_pattern_idx,
+            .captures_pattern_idx = @enumFromInt(0), // Not used in our direct binding approach
             .captures_layout_idx = captures_layout_idx,
+            .lambda_expr_idx = expr_idx,
         };
 
         // Copy captures to closure memory
@@ -1510,40 +1512,34 @@ pub const Interpreter = struct {
         self.traceInfo("Closure created with {} captures, total size: {} bytes", .{ final_captures.items.len, total_size });
     }
 
-    /// Collects and filters captures for a lambda expression
+    /// Collects and filters captures for a lambda expression.
+    /// This is a workaround for the fact that the CIR's capture analysis is incomplete.
+    /// It re-analyzes the lambda body to find all free variables.
     fn collectAndFilterCaptures(
         self: *Interpreter,
-        expr_idx: CIR.Expr.Idx,
         lambda_expr: anytype,
         final_captures: *std.ArrayList(CIR.Capture),
     ) EvalError!void {
-        // Recursively find all captures from this lambda and any nested lambdas
-        var all_captures = std.ArrayList(CIR.Capture).init(self.allocator);
-        defer all_captures.deinit();
-        try self.collectNestedCaptures(expr_idx, &all_captures);
+        var all_potential_captures = std.ArrayList(CIR.Capture).init(self.allocator);
+        defer all_potential_captures.deinit();
 
-        // Get the parameters of the current lambda to filter them out from the capture list
+        var bound_patterns = std.ArrayList(CIR.Pattern.Idx).init(self.allocator);
+        defer bound_patterns.deinit();
+
+        // A variable is captured if it's free in the body. A variable is free if it's
+        // used in the body but not defined by the lambda's own parameters.
         const params = self.cir.store.slicePatterns(lambda_expr.args);
-        var param_set = std.ArrayList(CIR.Pattern.Idx).init(self.allocator);
-        defer param_set.deinit();
-        for (params) |param_idx| {
-            try param_set.append(param_idx);
+        for (params) |p_idx| {
+            try self.collectAllPatternIndices(p_idx, &bound_patterns);
         }
 
+        try self.findCapturesInExpr(lambda_expr.body, &bound_patterns, &all_potential_captures);
+
+        // Deduplicate captures
         var seen_captures = std.ArrayList(CIR.Pattern.Idx).init(self.allocator);
         defer seen_captures.deinit();
 
-        for (all_captures.items) |capture| {
-            // A variable is a capture if it's not a parameter of the current lambda
-            const is_param = blk: {
-                for (param_set.items) |param_idx| {
-                    if (param_idx == capture.pattern_idx) {
-                        break :blk true;
-                    }
-                }
-                break :blk false;
-            };
-
+        for (all_potential_captures.items) |capture| {
             const is_seen = blk: {
                 for (seen_captures.items) |seen_idx| {
                     if (seen_idx == capture.pattern_idx) {
@@ -1553,13 +1549,45 @@ pub const Interpreter = struct {
                 break :blk false;
             };
 
-            if (!is_param and !is_seen) {
+            if (!is_seen) {
                 try final_captures.append(capture);
                 try seen_captures.append(capture.pattern_idx);
             }
         }
 
-        self.traceInfo("Filtered {} captures from {} total", .{ final_captures.items.len, all_captures.items.len });
+        self.traceInfo("Filtered {} captures from {} total (params found: {})", .{ final_captures.items.len, all_potential_captures.items.len, bound_patterns.items.len });
+    }
+
+    /// Recursively collects all pattern indices from a pattern, including nested patterns
+    fn collectAllPatternIndices(self: *Interpreter, pattern_idx: CIR.Pattern.Idx, all_patterns: *std.ArrayList(CIR.Pattern.Idx)) EvalError!void {
+        try all_patterns.append(pattern_idx);
+
+        const pattern = self.cir.store.getPattern(pattern_idx);
+        switch (pattern) {
+            .record_destructure => |record_destruct| {
+                const destructs = self.cir.store.sliceRecordDestructs(record_destruct.destructs);
+                for (destructs) |destruct_idx| {
+                    const destruct = self.cir.store.getRecordDestruct(destruct_idx);
+                    const inner_pattern_idx = switch (destruct.kind) {
+                        .Required => |p_idx| p_idx,
+                        .SubPattern => |p_idx| p_idx,
+                    };
+                    try self.collectAllPatternIndices(inner_pattern_idx, all_patterns);
+                }
+            },
+            .tuple => |tuple_pattern| {
+                const patterns = self.cir.store.slicePatterns(tuple_pattern.patterns);
+                for (patterns) |inner_pattern_idx| {
+                    try self.collectAllPatternIndices(inner_pattern_idx, all_patterns);
+                }
+            },
+            .assign => {
+                // Already added this pattern above
+            },
+            else => {
+                // For other pattern types, we just include the pattern itself
+            },
+        }
     }
 
     /// Creates the layout for closure captures
@@ -1593,40 +1621,33 @@ pub const Interpreter = struct {
         return try self.layout_cache.putRecord(field_layouts, field_names);
     }
 
-    /// Creates the pattern for binding captures
-    fn createCapturesPattern(
-        self: *Interpreter,
-        captures: *const std.ArrayList(CIR.Capture),
-        expr_idx: CIR.Expr.Idx,
-    ) EvalError!CIR.Pattern.Idx {
-        var destructures = std.ArrayList(CIR.Pattern.RecordDestruct.Idx).init(self.allocator);
-        defer destructures.deinit();
+    /// Interpreter-specific capture information that doesn't modify the CIR
+    const CaptureBindingInfo = struct {
+        captures: []const CIR.Capture,
+        layout_idx: layout.Idx,
 
-        for (captures.items) |capture| {
-            const destruct_idx = try self.cir.store.addRecordDestruct(.{
-                .label = capture.name,
-                .ident = capture.name,
-                .kind = .{ .Required = capture.pattern_idx },
-            }, self.cir.store.getExprRegion(expr_idx));
-            try destructures.append(destruct_idx);
+        pub fn init(allocator: std.mem.Allocator, captures: *const std.ArrayList(CIR.Capture), layout_idx: layout.Idx) !CaptureBindingInfo {
+            const captures_copy = try allocator.dupe(CIR.Capture, captures.items);
+            return CaptureBindingInfo{
+                .captures = captures_copy,
+                .layout_idx = layout_idx,
+            };
         }
 
-        // Create the record destructure pattern for all captures
-        const destructs_start = self.cir.store.scratchRecordDestructTop();
-        for (destructures.items) |destruct_idx| {
-            try self.cir.store.addScratchRecordDestruct(destruct_idx);
+        pub fn deinit(self: *CaptureBindingInfo, allocator: std.mem.Allocator) void {
+            allocator.free(self.captures);
         }
-        const destructs_span = try self.cir.store.recordDestructSpanFrom(destructs_start);
+    };
 
-        const whole_var = try self.cir.env.types.fresh();
-        const ext_var = try self.cir.env.types.fresh();
-        return try self.cir.store.addPattern(.{
-            .record_destructure = .{
-                .whole_var = whole_var,
-                .ext_var = ext_var,
-                .destructs = destructs_span,
+    /// Gets the variable name from a pattern (for assign patterns)
+    fn getPatternVariableName(self: *Interpreter, pattern_idx: CIR.Pattern.Idx) ?[]const u8 {
+        const pattern = self.cir.store.getPattern(pattern_idx);
+        switch (pattern) {
+            .assign => |assign_pattern| {
+                return self.cir.env.idents.getText(assign_pattern.ident);
             },
-        }, self.cir.store.getExprRegion(expr_idx));
+            else => return null,
+        }
     }
 
     /// Copies captured values into closure memory
@@ -1651,11 +1672,13 @@ pub const Interpreter = struct {
         for (captures.items) |capture| {
             const capture_name_text = self.cir.getIdentText(capture.name);
 
-            // First try to find in local bindings
+            // First try to find in local bindings by variable name
             var copied = false;
             var reversed_bindings = std.mem.reverseIterator(self.bindings_stack.items);
             while (reversed_bindings.next()) |binding| {
-                if (binding.pattern_idx == capture.pattern_idx) {
+                // Get the variable name from the binding's pattern
+                const binding_name = self.getPatternVariableName(binding.pattern_idx);
+                if (binding_name != null and std.mem.eql(u8, binding_name.?, capture_name_text)) {
                     try self.copyCapture(captures_ptr, capture_name_text, binding.value_ptr, binding.layout, captures_record_layout);
                     copied = true;
                     break;
@@ -1668,6 +1691,7 @@ pub const Interpreter = struct {
             }
 
             if (!copied) {
+                self.traceError("Could not find capture '{s}' in bindings or outer closures", .{capture_name_text});
                 return error.CaptureNotFound;
             }
         }
@@ -1692,7 +1716,7 @@ pub const Interpreter = struct {
             const dest_ptr = captures_ptr + field_offset;
             const src_bytes = @as([*]const u8, @ptrCast(src_ptr));
 
-            self.traceInfo("Copying capture '{}' ({} bytes) from {} to {}", .{ capture_name, binding_size, @intFromPtr(src_ptr), @intFromPtr(dest_ptr) });
+            self.traceInfo("Copying capture '{s}' ({} bytes) from {} to {}", .{ capture_name, binding_size, @intFromPtr(src_ptr), @intFromPtr(dest_ptr) });
             std.mem.copyForwards(u8, dest_ptr[0..binding_size], src_bytes[0..binding_size]);
         }
     }
@@ -1738,7 +1762,7 @@ pub const Interpreter = struct {
                         const src_ptr = outer_captures_ptr + src_field_offset;
                         const dest_ptr = captures_ptr + dest_field_offset;
 
-                        self.traceInfo("Copying capture-of-capture '{}' ({} bytes) from {} to {}", .{ capture_name_text, capture_size, @intFromPtr(src_ptr), @intFromPtr(dest_ptr) });
+                        self.traceInfo("Copying capture-of-capture '{s}' ({} bytes) from {} to {}", .{ capture_name_text, capture_size, @intFromPtr(src_ptr), @intFromPtr(dest_ptr) });
                         std.mem.copyForwards(u8, dest_ptr[0..capture_size], src_ptr[0..capture_size]);
                         return true;
                     }
@@ -1748,55 +1772,162 @@ pub const Interpreter = struct {
         return false;
     }
 
-    fn collectNestedCaptures(self: *Interpreter, expr_idx: CIR.Expr.Idx, captures_list: *std.ArrayList(CIR.Capture)) !void {
+    /// Binds captures directly from the closure's captures record without using CIR patterns
+    fn bindCapturesDirectly(self: *Interpreter, closure: *const Closure, capture_record_val: StackValue) EvalError!void {
+        self.traceEnter("bindCapturesDirectly", .{});
+        defer self.traceExit("", .{});
+
+        // Get the lambda expression to access its captures using the stored lambda_expr_idx
+        const lambda_expr = switch (self.cir.store.getExpr(closure.lambda_expr_idx)) {
+            .e_lambda => |lambda| lambda,
+            else => {
+                self.traceError("lambda_expr_idx does not point to a lambda expression", .{});
+                return error.LayoutError;
+            },
+        };
+
+        const captures_layout = self.layout_cache.getLayout(closure.captures_layout_idx);
+        if (captures_layout.tag != .record) {
+            self.traceInfo("No captures to bind (empty captures)", .{});
+            return;
+        }
+
+        // Instead of using the (potentially incorrect) CIR capture list, we use the
+        // layout of the capture record that was actually created.
+        const record_data = self.layout_cache.getRecordData(captures_layout.data.record.idx);
+        const record_fields = self.layout_cache.record_fields.sliceRange(record_data.getFields());
+        const captures_ptr = @as([*]u8, @ptrCast(@alignCast(capture_record_val.ptr.?)));
+
+        self.traceInfo("Binding {} captures directly from capture record layout", .{record_fields.len});
+
+        // To get the pattern_idx for each field, we must re-run the capture analysis.
+        // This is inefficient, but necessary because the CIR is wrong.
+        var final_captures = std.ArrayList(CIR.Capture).init(self.allocator);
+        defer final_captures.deinit();
+        try self.collectAndFilterCaptures(lambda_expr, &final_captures);
+
+        // Bind each capture by creating a direct binding
+        for (0..record_fields.len) |i| {
+            const field_info = record_fields.get(i);
+            const capture_name_text = self.cir.env.idents.getText(field_info.name);
+
+            // Find the original capture to get its pattern_idx
+            var pattern_idx: ?CIR.Pattern.Idx = null;
+            for (final_captures.items) |c| {
+                if (c.name == field_info.name) {
+                    pattern_idx = c.pattern_idx;
+                    break;
+                }
+            }
+
+            const pat_idx = pattern_idx orelse {
+                self.traceWarn("Could not find pattern_idx for capture '{s}'", .{capture_name_text});
+                continue;
+            };
+
+            // Get the field offset and layout
+            const field_offset = self.layout_cache.getRecordFieldOffset(captures_layout.data.record.idx, @intCast(i));
+            const field_layout = self.layout_cache.getLayout(field_info.layout);
+            const field_ptr = captures_ptr + field_offset;
+
+            // Create a direct binding for this capture
+            const binding = Binding{
+                .pattern_idx = pat_idx,
+                .value_ptr = @as(*anyopaque, @ptrCast(field_ptr)),
+                .layout = field_layout,
+            };
+
+            try self.bindings_stack.append(binding);
+            self.traceInfo("Bound capture '{s}' (pattern_idx={}) directly", .{ capture_name_text, @intFromEnum(pat_idx) });
+        }
+    }
+
+    /// Recursively traverses an expression to find all free variables (captures).
+    fn findCapturesInExpr(
+        self: *Interpreter,
+        expr_idx: CIR.Expr.Idx,
+        bound_patterns: *const std.ArrayList(CIR.Pattern.Idx),
+        captures_list: *std.ArrayList(CIR.Capture),
+    ) !void {
         const expr = self.cir.store.getExpr(expr_idx);
 
         switch (expr) {
             .e_lambda => |lambda| {
-                const nested_captures = self.cir.store.sliceCaptures(lambda.captures);
-                for (nested_captures) |capture_idx| {
-                    try captures_list.append(self.cir.store.getCapture(capture_idx));
+                // The captures of this nested lambda are free variables in the outer scope,
+                // unless they are bound by this nested lambda's parameters.
+                var nested_bound = try bound_patterns.clone();
+                defer nested_bound.deinit();
+
+                const params = self.cir.store.slicePatterns(lambda.args);
+                for (params) |p_idx| {
+                    try self.collectAllPatternIndices(p_idx, &nested_bound);
                 }
-                // Recurse on the body to find more nested lambdas
-                try self.collectNestedCaptures(lambda.body, captures_list);
+
+                // Recurse into the body with the extended set of bound patterns.
+                try self.findCapturesInExpr(lambda.body, &nested_bound, captures_list);
+            },
+            .e_lookup_local => |lookup| {
+                const is_bound = blk: {
+                    for (bound_patterns.items) |bound_idx| {
+                        if (bound_idx == lookup.pattern_idx) {
+                            break :blk true;
+                        }
+                    }
+                    break :blk false;
+                };
+
+                if (!is_bound) {
+                    // This is a free variable. We need to find its original name to create a Capture.
+                    // We assume the CIR's capture list on the *innermost* relevant lambda is correct.
+                    // This is a significant assumption and the core of the workaround.
+                    // We find the name from the pattern itself.
+                    const pattern = self.cir.store.getPattern(lookup.pattern_idx);
+                    if (pattern == .assign) {
+                        try captures_list.append(.{
+                            .pattern_idx = lookup.pattern_idx,
+                            .name = pattern.assign.ident,
+                            .scope_depth = 0, // workaround: not used by interpreter
+                        });
+                    }
+                }
             },
             .e_call => |call| {
                 const args = self.cir.store.sliceExpr(call.args);
                 for (args) |arg_idx| {
-                    try self.collectNestedCaptures(arg_idx, captures_list);
+                    try self.findCapturesInExpr(arg_idx, bound_patterns, captures_list);
                 }
             },
             .e_if => |if_expr| {
                 const branches = self.cir.store.sliceIfBranches(if_expr.branches);
                 for (branches) |branch_idx| {
                     const branch = self.cir.store.getIfBranch(branch_idx);
-                    try self.collectNestedCaptures(branch.cond, captures_list);
-                    try self.collectNestedCaptures(branch.body, captures_list);
+                    try self.findCapturesInExpr(branch.cond, bound_patterns, captures_list);
+                    try self.findCapturesInExpr(branch.body, bound_patterns, captures_list);
                 }
-                try self.collectNestedCaptures(if_expr.final_else, captures_list);
+                try self.findCapturesInExpr(if_expr.final_else, bound_patterns, captures_list);
             },
             .e_binop => |binop| {
-                try self.collectNestedCaptures(binop.lhs, captures_list);
-                try self.collectNestedCaptures(binop.rhs, captures_list);
+                try self.findCapturesInExpr(binop.lhs, bound_patterns, captures_list);
+                try self.findCapturesInExpr(binop.rhs, bound_patterns, captures_list);
             },
             .e_unary_minus => |unary| {
-                try self.collectNestedCaptures(unary.expr, captures_list);
+                try self.findCapturesInExpr(unary.expr, bound_patterns, captures_list);
             },
             .e_record => |record| {
                 const fields = self.cir.store.sliceRecordFields(record.fields);
                 for (fields) |field_idx| {
                     const field = self.cir.store.getRecordField(field_idx);
-                    try self.collectNestedCaptures(field.value, captures_list);
+                    try self.findCapturesInExpr(field.value, bound_patterns, captures_list);
                 }
             },
             .e_tuple => |tuple| {
                 const elems = self.cir.store.sliceExpr(tuple.elems);
                 for (elems) |elem_idx| {
-                    try self.collectNestedCaptures(elem_idx, captures_list);
+                    try self.findCapturesInExpr(elem_idx, bound_patterns, captures_list);
                 }
             },
             // Base cases: these expressions do not contain other expressions.
-            .e_int, .e_frac_f64, .e_zero_argument_tag, .e_empty_record, .e_empty_list, .e_lookup_local, .e_runtime_error, .e_tag, .e_str, .e_str_segment, .e_list, .e_dot_access, .e_block, .e_lookup_external, .e_match, .e_frac_dec, .e_dec_small, .e_crash, .e_dbg, .e_expect, .e_ellipsis, .e_nominal => {},
+            .e_int, .e_frac_f64, .e_zero_argument_tag, .e_empty_record, .e_empty_list, .e_runtime_error, .e_tag, .e_str, .e_str_segment, .e_list, .e_dot_access, .e_block, .e_lookup_external, .e_match, .e_frac_dec, .e_dec_small, .e_crash, .e_dbg, .e_expect, .e_ellipsis, .e_nominal => {},
         }
     }
 };
