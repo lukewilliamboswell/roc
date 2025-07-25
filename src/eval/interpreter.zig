@@ -299,13 +299,54 @@ pub const Interpreter = struct {
                 ),
                 .w_let_bind => {
                     const pattern_idx: CIR.Pattern.Idx = @enumFromInt(work.extra);
-                    const value = try self.popStackValue();
-                    try self.bindPattern(pattern_idx, value);
+                    const value = try self.peekStackValue(1); // Don't pop!
+                    try self.bindPattern(pattern_idx, value); // Value stays on stack for the block's lifetime
                 },
                 .w_block_cleanup => {
                     const bindings_to_keep: u32 = work.extra;
-                    self.traceInfo("Block cleanup: resetting bindings from {} to {}", .{ self.bindings_stack.items.len, bindings_to_keep });
+                    const values_to_keep: u32 = @intFromEnum(work.expr_idx);
+                    self.traceInfo("Block cleanup: resetting bindings from {} to {}, values from {} to {}", .{ self.bindings_stack.items.len, bindings_to_keep, self.value_stack.items.len, values_to_keep });
+
+                    // The block's result is on top of the stack. We need to preserve it.
+                    const result_val = try self.popStackValue();
+
+                    var result_size: u32 = 0;
+                    const result_alignment = result_val.layout.alignment(target_usize);
+                    if (result_val.layout.tag == .closure and result_val.ptr != null) {
+                        const closure: *const Closure = @ptrCast(@alignCast(result_val.ptr.?));
+                        const captures_layout = self.layout_cache.getLayout(closure.captures_layout_idx);
+                        const captures_size = self.layout_cache.layoutSize(captures_layout);
+                        result_size = @sizeOf(Closure) + captures_size;
+                    } else {
+                        result_size = self.layout_cache.layoutSize(result_val.layout);
+                    }
+
+                    // Copy to a temp buffer
+                    const temp_buffer = try self.allocator.alloc(u8, result_size);
+                    defer self.allocator.free(temp_buffer);
+                    if (result_size > 0) {
+                        std.mem.copyForwards(u8, temp_buffer, @as([*]const u8, @ptrCast(result_val.ptr.?))[0..result_size]);
+                    }
+
+                    // Now, clean up the values defined within the block.
+                    if (self.value_stack.items.len > values_to_keep) {
+                        const first_val_to_pop_offset = self.value_stack.items[values_to_keep].offset;
+                        self.value_stack.items.len = values_to_keep;
+                        self.stack_memory.used = first_val_to_pop_offset;
+                    }
+
+                    // Clean up bindings.
                     self.bindings_stack.items.len = bindings_to_keep;
+
+                    // Push the result back.
+                    if (result_size > 0) {
+                        const new_ptr = try self.stack_memory.alloca(result_size, result_alignment);
+                        std.mem.copyForwards(u8, @as([*]u8, @ptrCast(new_ptr))[0..result_size], temp_buffer);
+                        const new_offset: u32 = @truncate(@intFromPtr(new_ptr) - @intFromPtr(@as(*const u8, @ptrCast(self.stack_memory.start))));
+                        try self.value_stack.append(.{ .layout = result_val.layout, .offset = new_offset });
+                    } else {
+                        try self.value_stack.append(.{ .layout = result_val.layout, .offset = self.stack_memory.used });
+                    }
                 },
             }
         }
@@ -338,12 +379,21 @@ pub const Interpreter = struct {
 
     fn schedule_work(self: *Interpreter, work: WorkItem) void {
         if (self.trace_writer) |writer| {
-            const expr = self.cir.store.getExpr(work.expr_idx);
-            self.printTraceIndent();
-            writer.print(
-                "🏗️  scheduling {s} for ({s})\n",
-                .{ @tagName(work.kind), @tagName(expr) },
-            ) catch {};
+            // For w_block_cleanup, expr_idx is not a real expression index, so we can't trace it.
+            if (work.kind == .w_block_cleanup) {
+                self.printTraceIndent();
+                writer.print(
+                    "🏗️  scheduling {s}\n",
+                    .{@tagName(work.kind)},
+                ) catch {};
+            } else {
+                const expr = self.cir.store.getExpr(work.expr_idx);
+                self.printTraceIndent();
+                writer.print(
+                    "🏗️  scheduling {s} for ({s})\n",
+                    .{ @tagName(work.kind), @tagName(expr) },
+                ) catch {};
+            }
         }
 
         self.work_stack.append(work) catch {};
@@ -353,12 +403,20 @@ pub const Interpreter = struct {
         const maybe_work = self.work_stack.pop();
         if (self.trace_writer) |writer| {
             if (maybe_work) |work| {
-                const expr = self.cir.store.getExpr(work.expr_idx);
-                self.printTraceIndent();
-                writer.print(
-                    "🏗️  starting {s} for ({s})\n",
-                    .{ @tagName(work.kind), @tagName(expr) },
-                ) catch {};
+                if (work.kind == .w_block_cleanup) {
+                    self.printTraceIndent();
+                    writer.print(
+                        "🏗️  starting {s}\n",
+                        .{@tagName(work.kind)},
+                    ) catch {};
+                } else {
+                    const expr = self.cir.store.getExpr(work.expr_idx);
+                    self.printTraceIndent();
+                    writer.print(
+                        "🏗️  starting {s} for ({s})\n",
+                        .{ @tagName(work.kind), @tagName(expr) },
+                    ) catch {};
+                }
             }
         }
         return maybe_work;
@@ -689,7 +747,7 @@ pub const Interpreter = struct {
                 // Schedule cleanup work to run after the block is done.
                 self.schedule_work(.{
                     .kind = .w_block_cleanup,
-                    .expr_idx = expr_idx, // Just for tracing
+                    .expr_idx = @enumFromInt(self.value_stack.items.len), // Pass value stack length
                     .extra = @intCast(self.bindings_stack.items.len),
                 });
 
