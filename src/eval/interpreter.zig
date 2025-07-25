@@ -569,6 +569,7 @@ pub const Interpreter = struct {
                                     if (capture_size > 0) {
                                         const src_ptr = captures_ptr + offset;
                                         const dest_ptr = (try self.pushStackValue(capture_layout)).?;
+                                        self.traceInfo("Copying capture lookup from {} to {}", .{ @intFromPtr(src_ptr), @intFromPtr(dest_ptr) });
                                         std.mem.copyForwards(u8, @as([*]u8, @ptrCast(dest_ptr))[0..capture_size], src_ptr[0..capture_size]);
                                         return;
                                     }
