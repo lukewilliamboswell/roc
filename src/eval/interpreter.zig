@@ -150,6 +150,8 @@ pub const CallFrame = struct {
     stack_base: u32,
     /// Offset into the `layout_cache` of the interpreter where this frame's layouts start
     value_base: u32,
+    /// Number of arguments for this call
+    arg_count: u32,
     /// Offset into the `work_stack` of the interpreter where this frame's work items start.
     ///
     /// Each work item represents an expression we're in the process of evaluating.
@@ -507,23 +509,7 @@ pub const Interpreter = struct {
                 self.traceInfo("evalExpr e_lookup_local pattern_idx={}", .{@intFromEnum(lookup.pattern_idx)});
                 self.tracePattern(lookup.pattern_idx);
 
-                // First, check parameter bindings (most recent function call)
-
-                // If not found in parameters, fall back to global definitions lookup
-                const defs = self.cir.store.sliceDefs(self.cir.all_defs);
-                for (defs) |def_idx| {
-                    const def = self.cir.store.getDef(def_idx);
-                    if (@intFromEnum(def.pattern) == @intFromEnum(lookup.pattern_idx)) {
-                        // Found the definition, evaluate its expression
-                        try self.work_stack.append(.{
-                            .kind = .w_eval_expr,
-                            .expr_idx = def.expr,
-                        });
-                        return;
-                    }
-                }
-
-                // search for the binding in reverse order (most recent scope first)
+                // 1. Search local bindings (most recent scope first)
                 var reversed_bindings = std.mem.reverseIterator(self.bindings_stack.items);
                 while (reversed_bindings.next()) |binding| {
                     if (binding.pattern_idx == lookup.pattern_idx) {
@@ -536,6 +522,67 @@ pub const Interpreter = struct {
                         if (binding_size > 0) {
                             std.mem.copyForwards(u8, @as([*]u8, @ptrCast(dest_ptr))[0..binding_size], @as([*]const u8, @ptrCast(binding.value_ptr))[0..binding_size]);
                         }
+                        return;
+                    }
+                }
+
+                // 2. If not found, check captures of the current closure
+                if (self.frame_stack.items.len > 0) {
+                    const frame = self.frame_stack.items[self.frame_stack.items.len - 1];
+                    const closure_val = self.value_stack.items[frame.value_base + frame.arg_count];
+                    if (closure_val.layout.tag == .closure) {
+                        const closure_ptr = &self.stack_memory.start[closure_val.offset];
+                        const closure: *const Closure = @ptrCast(@alignCast(closure_ptr));
+                        const captures_layout = self.layout_cache.getLayout(closure.captures_layout_idx);
+                        const captures_ptr = @as([*]u8, @ptrCast(closure_ptr)) + @sizeOf(Closure);
+
+                        const pattern = self.cir.store.getPattern(lookup.pattern_idx);
+                        const ident_idx = switch (pattern) {
+                            .assign => |a| a.ident,
+                            else => return error.LayoutError,
+                        };
+                        const capture_name_text = self.cir.env.idents.getText(ident_idx);
+
+                        if (captures_layout.tag == .record) {
+                            const record_data = self.layout_cache.getRecordData(captures_layout.data.record.idx);
+                            if (record_data.fields.count > 0) {
+                                if (self.layout_cache.getRecordFieldOffsetByName(
+                                    captures_layout.data.record.idx,
+                                    capture_name_text,
+                                )) |offset| {
+                                    // Found it!
+                                    const capture_var: types.Var = @enumFromInt(@intFromEnum(lookup.pattern_idx));
+                                    const capture_layout_idx = self.layout_cache.addTypeVar(capture_var) catch |err| switch (err) {
+                                        error.BugUnboxedRigidVar => return error.BugUnboxedFlexVar,
+                                        else => |e| return e,
+                                    };
+                                    const capture_layout = self.layout_cache.getLayout(capture_layout_idx);
+                                    const capture_size = self.layout_cache.layoutSize(capture_layout);
+
+                                    if (capture_size > 0) {
+                                        const src_ptr = captures_ptr + offset;
+                                        const dest_ptr = (try self.pushStackValue(capture_layout)).?;
+                                        std.mem.copyForwards(u8, @as([*]u8, @ptrCast(dest_ptr))[0..capture_size], src_ptr[0..capture_size]);
+                                        return;
+                                    }
+                                } else |err| {
+                                    // Not in this closure's captures, continue to globals
+                                    _ = err;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3. If not found, fall back to global definitions
+                const defs = self.cir.store.sliceDefs(self.cir.all_defs);
+                for (defs) |def_idx| {
+                    const def = self.cir.store.getDef(def_idx);
+                    if (@intFromEnum(def.pattern) == @intFromEnum(lookup.pattern_idx)) {
+                        try self.work_stack.append(.{
+                            .kind = .w_eval_expr,
+                            .expr_idx = def.expr,
+                        });
                         return;
                     }
                 }
@@ -919,6 +966,7 @@ pub const Interpreter = struct {
             .body_idx = closure.body_idx,
             .stack_base = stack_base,
             .value_base = @intCast(value_base),
+            .arg_count = arg_count,
             .work_base = @intCast(self.work_stack.items.len),
             .bindings_base = @intCast(self.bindings_stack.items.len),
             .is_tail_call = false,
@@ -927,7 +975,6 @@ pub const Interpreter = struct {
         // 1. The capture record is embedded in the closure value. We need to create a
         //    StackValue that points to it and push that to the value_stack.
         const captures_layout = self.layout_cache.getLayout(closure.captures_layout_idx);
-        const captures_size = self.layout_cache.layoutSize(captures_layout);
 
         // The captures are stored immediately after the Closure header.
         const captures_ptr = @as([*]u8, @ptrCast(closure_value.ptr.?)) + @sizeOf(Closure);
@@ -940,13 +987,7 @@ pub const Interpreter = struct {
             .offset = @intCast(@intFromPtr(captures_ptr) - @intFromPtr(@as(*const u8, @ptrCast(self.stack_memory.start)))),
         });
 
-        // 2. Bind captures directly by iterating through the lambda's captures
-        if (captures_size > 0) {
-            const capture_record_val = try self.peekStackValue(1);
-            try self.bindCapturesDirectly(closure, capture_record_val);
-        }
-
-        // 3. Bind the explicit parameters to their arguments.
+        // 2. Bind the explicit parameters to their arguments.
         const param_ids = self.cir.store.slicePatterns(closure.params);
         std.debug.assert(param_ids.len == arg_count);
 
@@ -1776,7 +1817,7 @@ pub const Interpreter = struct {
         while (frame_idx > 0) {
             frame_idx -= 1;
             const frame = self.frame_stack.items[frame_idx];
-            const outer_closure_val = self.value_stack.items[frame.value_base];
+            const outer_closure_val = self.value_stack.items[frame.value_base + frame.arg_count];
 
             if (outer_closure_val.layout.tag == .closure) {
                 const outer_closure_ptr = &self.stack_memory.start[outer_closure_val.offset];
@@ -1814,76 +1855,6 @@ pub const Interpreter = struct {
             }
         }
         return false;
-    }
-
-    /// Binds captures directly from the closure's captures record without using CIR patterns
-    fn bindCapturesDirectly(self: *Interpreter, closure: *const Closure, capture_record_val: StackValue) EvalError!void {
-        self.traceEnter("bindCapturesDirectly", .{});
-        defer self.traceExit("", .{});
-
-        // Get the closure expression to access its captures using the stored lambda_expr_idx
-        const closure_expr = switch (self.cir.store.getExpr(closure.lambda_expr_idx)) {
-            .e_closure => |c| c,
-            else => {
-                self.traceError("lambda_expr_idx does not point to a closure expression", .{});
-                return error.LayoutError;
-            },
-        };
-
-        const captures_layout = self.layout_cache.getLayout(closure.captures_layout_idx);
-        if (captures_layout.tag != .record) {
-            self.traceInfo("No captures to bind (empty captures)", .{});
-            return;
-        }
-
-        // Instead of using the (potentially incorrect) CIR capture list, we use the
-        // layout of the capture record that was actually created.
-        const record_data = self.layout_cache.getRecordData(captures_layout.data.record.idx);
-        const record_fields = self.layout_cache.record_fields.sliceRange(record_data.getFields());
-        const captures_ptr = @as([*]u8, @ptrCast(@alignCast(capture_record_val.ptr.?)));
-
-        self.traceInfo("Binding {} captures directly from capture record layout", .{record_fields.len});
-
-        // To get the pattern_idx for each field, we must re-run the capture analysis.
-        // This is inefficient, but necessary because the CIR is wrong.
-        var final_captures = std.ArrayList(CIR.Capture).init(self.allocator);
-        defer final_captures.deinit();
-        try self.collectAndFilterCaptures(closure_expr, &final_captures);
-
-        // Bind each capture by creating a direct binding
-        for (0..record_fields.len) |i| {
-            const field_info = record_fields.get(i);
-            const capture_name_text = self.cir.env.idents.getText(field_info.name);
-
-            // Find the original capture to get its pattern_idx
-            var pattern_idx: ?CIR.Pattern.Idx = null;
-            for (final_captures.items) |c| {
-                if (c.name == field_info.name) {
-                    pattern_idx = c.pattern_idx;
-                    break;
-                }
-            }
-
-            const pat_idx = pattern_idx orelse {
-                self.traceWarn("Could not find pattern_idx for capture '{s}'", .{capture_name_text});
-                continue;
-            };
-
-            // Get the field offset and layout
-            const field_offset = self.layout_cache.getRecordFieldOffset(captures_layout.data.record.idx, @intCast(i));
-            const field_layout = self.layout_cache.getLayout(field_info.layout);
-            const field_ptr = captures_ptr + field_offset;
-
-            // Create a direct binding for this capture
-            const binding = Binding{
-                .pattern_idx = pat_idx,
-                .value_ptr = @as(*anyopaque, @ptrCast(field_ptr)),
-                .layout = field_layout,
-            };
-
-            try self.bindings_stack.append(binding);
-            self.traceInfo("Bound capture '{s}' (pattern_idx={}) directly", .{ capture_name_text, @intFromEnum(pat_idx) });
-        }
     }
 };
 
