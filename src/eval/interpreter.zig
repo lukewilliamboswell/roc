@@ -101,6 +101,8 @@ const WorkKind = enum {
     w_lambda_return,
     w_eval_record_fields,
     w_eval_tuple_elements,
+    w_let_bind,
+    w_block_cleanup,
 };
 
 /// A unit of work to be processed during iterative evaluation.
@@ -293,6 +295,16 @@ pub const Interpreter = struct {
                     work.expr_idx,
                     work.extra, // stores the current_element_idx
                 ),
+                .w_let_bind => {
+                    const pattern_idx: CIR.Pattern.Idx = @enumFromInt(work.extra);
+                    const value = try self.popStackValue();
+                    try self.bindPattern(pattern_idx, value);
+                },
+                .w_block_cleanup => {
+                    const bindings_to_keep: u32 = work.extra;
+                    self.traceInfo("Block cleanup: resetting bindings from {} to {}", .{ self.bindings_stack.items.len, bindings_to_keep });
+                    self.bindings_stack.items.len = bindings_to_keep;
+                },
             }
         }
 
@@ -569,6 +581,9 @@ pub const Interpreter = struct {
                 const arg_count: u32 = @intCast(arg_exprs.len);
 
                 // Schedule in reverse order (LIFO stack):
+                // The order is important to avoid memory corruption. Arguments must be
+                // evaluated before the function, so that the function's captures
+                // (which are on the stack) are not overwritten by argument values.
 
                 // 3. Lambda call (executed LAST after function and args are on stack)
                 self.schedule_work(WorkItem{
@@ -577,19 +592,19 @@ pub const Interpreter = struct {
                     .extra = arg_count,
                 });
 
-                // 2. Arguments (executed MIDDLE, pushed to stack in order
+                // 2. Function (executed second, pushes closure to stack)
+                self.schedule_work(WorkItem{
+                    .kind = .w_eval_expr,
+                    .expr_idx = function_expr,
+                });
+
+                // 1. Arguments (executed FIRST, pushed to stack in order)
                 for (arg_exprs) |arg_expr| {
                     self.schedule_work(WorkItem{
                         .kind = .w_eval_expr,
                         .expr_idx = arg_expr,
                     });
                 }
-
-                // 1. Function (executed FIRST, pushes closure to stack)
-                self.schedule_work(WorkItem{
-                    .kind = .w_eval_expr,
-                    .expr_idx = function_expr,
-                });
             },
 
             // Unary minus operation
@@ -607,7 +622,47 @@ pub const Interpreter = struct {
                 });
             },
 
-            .e_str, .e_str_segment, .e_list, .e_dot_access, .e_block, .e_lookup_external, .e_match, .e_frac_dec, .e_dec_small, .e_crash, .e_dbg, .e_expect, .e_ellipsis => {
+            .e_block => |block| {
+                // Schedule cleanup work to run after the block is done.
+                self.schedule_work(.{
+                    .kind = .w_block_cleanup,
+                    .expr_idx = expr_idx, // Just for tracing
+                    .extra = @intCast(self.bindings_stack.items.len),
+                });
+
+                // Schedule evaluation of the final expression.
+                self.schedule_work(.{
+                    .kind = .w_eval_expr,
+                    .expr_idx = block.final_expr,
+                });
+
+                // Schedule evaluation of statements in reverse order.
+                const stmts = self.cir.store.sliceStatements(block.stmts);
+                var i = stmts.len;
+                while (i > 0) {
+                    i -= 1;
+                    const stmt_idx = stmts[i];
+                    const stmt = self.cir.store.getStatement(stmt_idx);
+                    switch (stmt) {
+                        .s_decl => |decl| {
+                            // Schedule binding after expression is evaluated.
+                            self.schedule_work(.{
+                                .kind = .w_let_bind,
+                                .expr_idx = expr_idx, // e_block's index for tracing
+                                .extra = @intFromEnum(decl.pattern),
+                            });
+                            // Schedule evaluation of the expression.
+                            self.schedule_work(.{ .kind = .w_eval_expr, .expr_idx = decl.expr });
+                        },
+                        else => {
+                            // Other statement types are not expected inside a lambda body in this context
+                            // or are not yet implemented for evaluation.
+                        },
+                    }
+                }
+            },
+
+            .e_str, .e_str_segment, .e_list, .e_dot_access, .e_lookup_external, .e_match, .e_frac_dec, .e_dec_small, .e_crash, .e_dbg, .e_expect, .e_ellipsis => {
                 return error.LayoutError;
             },
 
@@ -842,8 +897,8 @@ pub const Interpreter = struct {
         self.traceEnter("handleLambdaCall {}", .{expr_idx});
         defer self.traceExit("", .{});
 
-        // The closure is on the stack, followed by its arguments.
-        const closure_value = try self.peekStackValue(@as(usize, arg_count) + 1);
+        // The arguments are on the stack, followed by the closure.
+        const closure_value = try self.peekStackValue(1);
         const value_base: usize = self.value_stack.items.len - @as(usize, arg_count) - 1;
         const stack_base = self.value_stack.items[value_base].offset;
 
@@ -891,14 +946,13 @@ pub const Interpreter = struct {
         const param_ids = self.cir.store.slicePatterns(closure.params);
         std.debug.assert(param_ids.len == arg_count);
 
-        // Arguments are on the stack in evaluation order, so the last argument is at the top.
-        // We need to bind them to parameters in the correct order.
-        // The stack layout is: `..., closure, arg1, ..., argN, captures_view`
+        // The stack layout is: `..., arg1, ..., argN, closure, captures_view`
         // peek(1) is captures_view
-        // peek(2) is argN
-        // peek(arg_count + 1) is arg1
+        // peek(2) is closure
+        // peek(3) is argN
+        // peek(arg_count + 2) is arg1
         for (param_ids, 0..) |param_idx, i| {
-            const arg_index_from_top = arg_count - i + 1;
+            const arg_index_from_top = arg_count - i + 2;
             const arg = try self.peekStackValue(arg_index_from_top);
             try self.bindPattern(param_idx, arg);
         }
