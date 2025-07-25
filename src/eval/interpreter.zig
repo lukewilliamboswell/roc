@@ -946,6 +946,8 @@ pub const Interpreter = struct {
         const param_ids = self.cir.store.slicePatterns(closure.params);
         std.debug.assert(param_ids.len == arg_count);
 
+        // Arguments are on the stack in evaluation order, so the last argument is at the top.
+        // We need to bind them to parameters in the correct order.
         // The stack layout is: `..., arg1, ..., argN, closure, captures_view`
         // peek(1) is captures_view
         // peek(2) is closure
