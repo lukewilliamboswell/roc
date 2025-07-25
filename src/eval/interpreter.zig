@@ -565,9 +565,8 @@ pub const Interpreter = struct {
                                         std.mem.copyForwards(u8, @as([*]u8, @ptrCast(dest_ptr))[0..capture_size], src_ptr[0..capture_size]);
                                         return;
                                     }
-                                } else |err| {
+                                } else {
                                     // Not in this closure's captures, continue to globals
-                                    _ = err;
                                 }
                             }
                         }
@@ -1796,7 +1795,7 @@ pub const Interpreter = struct {
             const field_offset = self.layout_cache.getRecordFieldOffsetByName(
                 captures_record_layout.data.record.idx,
                 capture_name,
-            ) catch return error.CaptureBindingFailed;
+            ) orelse return error.CaptureBindingFailed;
 
             const dest_ptr = captures_ptr + field_offset;
             const src_bytes = @as([*]const u8, @ptrCast(src_ptr));
@@ -1831,7 +1830,7 @@ pub const Interpreter = struct {
                     const src_field_offset = self.layout_cache.getRecordFieldOffsetByName(
                         outer_captures_layout.data.record.idx,
                         capture_name_text,
-                    ) catch continue; // Not in this closure's captures
+                    ) orelse continue; // Not in this closure's captures
 
                     const capture_var: types.Var = @enumFromInt(@intFromEnum(capture.pattern_idx));
                     const capture_layout_idx = self.layout_cache.addTypeVar(capture_var) catch continue;
@@ -1842,7 +1841,7 @@ pub const Interpreter = struct {
                         const dest_field_offset = self.layout_cache.getRecordFieldOffsetByName(
                             captures_record_layout.data.record.idx,
                             capture_name_text,
-                        ) catch return error.CaptureBindingFailed;
+                        ) orelse return error.CaptureBindingFailed;
 
                         const src_ptr = outer_captures_ptr + src_field_offset;
                         const dest_ptr = captures_ptr + dest_field_offset;
