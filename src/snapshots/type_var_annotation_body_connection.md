@@ -89,8 +89,6 @@ main! = |_| {}
 	(d-let
 		(p-assign @4.1-4.9 (ident "identity"))
 		(e-closure @4.12-8.2
-			(captures
-				(capture @6.5-6.10 (ident "thing")))
 			(e-lambda @4.12-8.2
 				(args
 					(p-assign @4.13-4.14 (ident "x")))

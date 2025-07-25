@@ -69,9 +69,6 @@ NO CHANGE
 	(d-let
 		(p-assign @4.1-4.9 (ident "testFunc"))
 		(e-closure @4.12-10.2
-			(captures
-				(capture @5.2-5.5 (ident "sum"))
-				(capture @6.2-6.22 (ident "sum_")))
 			(e-lambda @4.12-10.2
 				(args
 					(p-assign @4.13-4.18 (ident "input")))

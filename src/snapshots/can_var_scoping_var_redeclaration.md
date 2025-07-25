@@ -86,8 +86,6 @@ NO CHANGE
 	(d-let
 		(p-assign @4.1-4.14 (ident "redeclareTest"))
 		(e-closure @4.17-9.2
-			(captures
-				(capture @6.2-6.13 (ident "x_")))
 			(e-lambda @4.17-9.2
 				(args
 					(p-underscore @4.18-4.19))

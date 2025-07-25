@@ -83,8 +83,6 @@ extract_age = |person| {
 	(d-let
 		(p-assign @4.1-4.12 (ident "extract_age"))
 		(e-closure @4.15-8.2
-			(captures
-				(capture @5.7-5.10 (ident "age")))
 			(e-lambda @4.15-8.2
 				(args
 					(p-assign @4.16-4.22 (ident "person")))

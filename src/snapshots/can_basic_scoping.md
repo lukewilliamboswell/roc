@@ -125,7 +125,7 @@ outerFunc = |_| {
 		(p-assign @8.1-8.10 (ident "outerFunc"))
 		(e-closure @8.13-16.2
 			(captures
-				(capture @10.5-10.16 (ident "innerResult")))
+				(capture @5.1-5.2 (ident "y")))
 			(e-lambda @8.13-16.2
 				(args
 					(p-underscore @8.14-8.15))

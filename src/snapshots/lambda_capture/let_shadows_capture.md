@@ -105,8 +105,6 @@ CloseCurly(8:1-8:2),EndOfFile(8:2-8:2),
 		(p-assign @3.5-3.6 (ident "y"))
 		(e-call @3.9-6.11
 			(e-closure @3.10-6.6
-				(captures
-					(capture @4.9-4.10 (ident "x")))
 				(e-lambda @3.10-6.6
 					(args
 						(p-underscore @3.11-3.12))

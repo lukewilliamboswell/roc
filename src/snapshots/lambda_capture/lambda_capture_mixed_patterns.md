@@ -58,8 +58,6 @@ CloseCurly(4:1-4:2),CloseRound(4:2-4:3),NoSpaceOpenRound(4:3-4:4),Int(4:4-4:5),C
 ~~~clojure
 (e-call @1.1-4.6
 	(e-closure @1.2-4.2
-		(captures
-			(capture @2.3-2.9 (ident "simple")))
 		(e-lambda @1.2-4.2
 			(args
 				(p-assign @1.3-1.7 (ident "base")))

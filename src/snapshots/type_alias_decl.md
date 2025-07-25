@@ -276,8 +276,6 @@ main! = |_| {
 	(d-let
 		(p-assign @27.1-27.6 (ident "main!"))
 		(e-closure @27.9-39.2
-			(captures
-				(capture @30.5-30.11 (ident "userId")))
 			(e-lambda @27.9-39.2
 				(args
 					(p-underscore @27.10-27.11))

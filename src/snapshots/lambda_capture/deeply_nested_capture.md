@@ -87,8 +87,6 @@ CloseCurly(7:1-7:2),CloseRound(7:2-7:3),NoSpaceOpenRound(7:3-7:4),Int(7:4-7:7),C
 	(e-call @1.2-7.13
 		(e-call @1.3-7.8
 			(e-closure @1.4-7.2
-				(captures
-					(capture @4.9-4.14 (ident "b_loc")))
 				(e-lambda @1.4-7.2
 					(args
 						(p-assign @1.5-1.6 (ident "a")))
@@ -101,7 +99,7 @@ CloseCurly(7:1-7:2),CloseRound(7:2-7:3),NoSpaceOpenRound(7:3-7:4),Int(7:4-7:7),C
 								(e-int @2.17-2.18 (value "2"))))
 						(e-closure @3.5-6.6
 							(captures
-								(capture @4.9-4.14 (ident "b_loc")))
+								(capture @2.5-2.10 (ident "a_loc")))
 							(e-lambda @3.5-6.6
 								(args
 									(p-assign @3.6-3.7 (ident "b")))

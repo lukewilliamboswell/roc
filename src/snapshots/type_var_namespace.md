@@ -150,8 +150,6 @@ main! = |_| {}
 	(d-let
 		(p-assign @5.1-5.8 (ident "process"))
 		(e-closure @5.11-14.2
-			(captures
-				(capture @11.5-11.11 (ident "result")))
 			(e-lambda @5.11-14.2
 				(args
 					(p-assign @5.12-5.16 (ident "list")))

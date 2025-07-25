@@ -609,7 +609,6 @@ combineResults = |jsonResult, httpStatus|
 		(p-assign @13.1-13.14 (ident "handleRequest"))
 		(e-closure @13.17-19.2
 			(captures
-				(capture @14.5-14.11 (ident "result"))
 				(capture @17.13-17.18 (ident "error"))
 				(capture @16.12-16.17 (ident "value")))
 			(e-lambda @13.17-19.2
@@ -716,8 +715,8 @@ combineResults = |jsonResult, httpStatus|
 		(p-assign @42.1-42.15 (ident "handleResponse"))
 		(e-closure @42.18-46.6
 			(captures
-				(capture @44.12-44.18 (ident "status"))
-				(capture @45.13-45.18 (ident "error")))
+				(capture @45.13-45.18 (ident "error"))
+				(capture @44.12-44.18 (ident "status")))
 			(e-lambda @42.18-46.6
 				(args
 					(p-assign @42.19-42.27 (ident "response")))
@@ -758,8 +757,8 @@ combineResults = |jsonResult, httpStatus|
 		(p-assign @50.1-50.15 (ident "combineResults"))
 		(e-closure @50.18-54.6
 			(captures
-				(capture @53.13-53.18 (ident "error"))
-				(capture @52.12-52.17 (ident "value")))
+				(capture @52.12-52.17 (ident "value"))
+				(capture @53.13-53.18 (ident "error")))
 			(e-lambda @50.18-54.6
 				(args
 					(p-assign @50.19-50.29 (ident "jsonResult"))

@@ -2704,6 +2704,9 @@ pub fn canonicalizeExpr(
 
             // Keep track of the start position for statements
             const stmt_start = self.can_ir.store.scratch_statements.top();
+
+            // Use a temporary scratch space for the block's free variables
+            const block_free_vars_start = self.scratch_free_vars.top();
             var bound_vars = std.AutoHashMapUnmanaged(CIR.Pattern.Idx, void){};
             defer bound_vars.deinit(self.can_ir.env.gpa);
 
@@ -2735,19 +2738,24 @@ pub fn canonicalizeExpr(
                         else => unreachable,
                     }
                 } else {
+                    // This is a regular statement within the block
                     if (try self.canonicalizeStatement(stmt_idx)) |can_stmt| {
-                        // Collect free vars from the statement
+                        // Collect free vars from the statement into the block's scratch space
                         if (can_stmt.free_vars) |fvs| {
                             for (fvs) |fv| {
                                 try self.scratch_free_vars.append(self.can_ir.env.gpa, fv);
                             }
                         }
+
                         // Collect bound vars from the statement
-                        const cir_stmt = self.can_ir.store.getStatement(self.can_ir.store.scratch_statements.items.items[self.can_ir.store.scratch_statements.top() - 1]);
-                        if (cir_stmt == .s_decl) {
-                            try self.collectBoundVars(cir_stmt.s_decl.pattern, &bound_vars);
-                        } else if (cir_stmt == .s_var) {
-                            try self.collectBoundVars(cir_stmt.s_var.pattern_idx, &bound_vars);
+                        // We need to look at the statement that was just added to the scratch buffer
+                        const last_added_stmt_idx = self.can_ir.store.scratch_statements.items.items[self.can_ir.store.scratch_statements.top() - 1];
+                        const cir_stmt = self.can_ir.store.getStatement(last_added_stmt_idx);
+
+                        switch (cir_stmt) {
+                            .s_decl => |decl| try self.collectBoundVars(decl.pattern, &bound_vars),
+                            .s_var => |var_stmt| try self.collectBoundVars(var_stmt.pattern_idx, &bound_vars),
+                            else => {},
                         }
                     }
                 }
@@ -2763,12 +2771,34 @@ pub fn canonicalizeExpr(
             };
             const final_expr_var = @as(TypeVar, @enumFromInt(@intFromEnum(final_expr.idx)));
 
-            // Add free vars from the final expression
+            // Add free vars from the final expression to the block's scratch space
             if (final_expr.free_vars) |fvs| {
                 for (fvs) |fv| {
                     try self.scratch_free_vars.append(self.can_ir.env.gpa, fv);
                 }
             }
+
+            // Now, calculate the actual free variables for the entire block
+            var block_captures = std.AutoHashMapUnmanaged(CIR.Pattern.Idx, void){};
+            defer block_captures.deinit(self.can_ir.env.gpa);
+
+            const all_potential_free_vars = self.scratch_free_vars.slice(block_free_vars_start, self.scratch_free_vars.top());
+            for (all_potential_free_vars) |fv| {
+                if (!bound_vars.contains(fv)) {
+                    try block_captures.put(self.can_ir.env.gpa, fv, {});
+                }
+            }
+
+            // Clear the temporary scratch space used for the block's free vars
+            self.scratch_free_vars.clearFrom(block_free_vars_start);
+
+            // Add the actual free variables (captures) to the parent's scratch space
+            const captures_start = self.scratch_free_vars.top();
+            var cap_it = block_captures.iterator();
+            while (cap_it.next()) |entry| {
+                try self.scratch_free_vars.append(self.can_ir.env.gpa, entry.key_ptr.*);
+            }
+            const captures_slice = self.scratch_free_vars.slice(captures_start, self.scratch_free_vars.top());
 
             // Create statement span
             const stmt_span = try self.can_ir.store.statementSpanFrom(stmt_start);
@@ -2786,7 +2816,7 @@ pub fn canonicalizeExpr(
             // Set the root block expr to redirect to the final expr var
             try self.can_ir.env.types.setVarRedirect(block_var, final_expr_var);
 
-            return CanonicalizedExpr{ .idx = block_idx, .free_vars = final_expr.free_vars };
+            return CanonicalizedExpr{ .idx = block_idx, .free_vars = if (captures_slice.len > 0) captures_slice else null };
         },
         .malformed => |malformed| {
             // We won't touch this since it's already a parse error.
@@ -5466,22 +5496,6 @@ fn scopeIntroduceInternal(
     // No conflicts, introduce successfully
     try self.scopes.items[self.scopes.items.len - 1].put(gpa, item_kind, ident_idx, pattern_idx);
     return Scope.IntroduceResult{ .success = {} };
-}
-
-/// Get all identifiers in scope
-/// TODO: Is this used? If so, we should update to use `self.scratch_idents`
-fn scopeAllIdents(self: *const Self, gpa: std.mem.Allocator, comptime item_kind: Scope.ItemKind) std.mem.Allocator.Error![]base.Ident.Idx {
-    var result = std.ArrayList(base.Ident.Idx).init(gpa);
-
-    for (self.scopes.items) |scope| {
-        const map = scope.itemsConst(item_kind);
-        var iter = map.iterator();
-        while (iter.next()) |entry| {
-            try result.append(entry.key_ptr.*);
-        }
-    }
-
-    return try result.toOwnedSlice();
 }
 
 /// Check if an identifier is marked as ignored (underscore prefix)

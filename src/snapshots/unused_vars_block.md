@@ -141,8 +141,6 @@ main! = |_| {
 	(d-let
 		(p-assign @3.1-3.6 (ident "main!"))
 		(e-closure @3.9-21.2
-			(captures
-				(capture @19.5-19.11 (ident "result")))
 			(e-lambda @3.9-21.2
 				(args
 					(p-underscore @3.10-3.11))

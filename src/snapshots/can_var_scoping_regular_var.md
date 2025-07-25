@@ -133,9 +133,6 @@ NO CHANGE
 	(d-let
 		(p-assign @4.1-4.13 (ident "processItems"))
 		(e-closure @4.16-21.2
-			(captures
-				(capture @19.2-19.8 (ident "result"))
-				(capture @6.2-6.16 (ident "total_")))
 			(e-lambda @4.16-21.2
 				(args
 					(p-assign @4.17-4.22 (ident "items")))

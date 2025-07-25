@@ -512,8 +512,9 @@ NO CHANGE
 			(captures
 				(capture @89.5-89.6 (ident "a"))
 				(capture @94.4-94.5 (ident "a"))
+				(capture @99.5-99.6 (ident "a"))
 				(capture @105.5-105.6 (ident "a"))
-				(capture @99.5-99.6 (ident "a")))
+				(capture @60.1-60.2 (ident "h")))
 			(e-lambda @60.5-110.2
 				(args
 					(p-assign @60.6-60.7 (ident "x"))

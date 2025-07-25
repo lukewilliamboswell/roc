@@ -1556,6 +1556,8 @@ expect {
 	(d-let
 		(p-assign @75.1-75.3 (ident "ma"))
 		(e-closure @75.5-111.2
+			(captures
+				(capture @49.1-49.3 (ident "me")))
 			(e-lambda @75.5-111.2
 				(args
 					(p-underscore @75.6-75.7))

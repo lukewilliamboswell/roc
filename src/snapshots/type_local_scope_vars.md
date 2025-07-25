@@ -98,8 +98,6 @@ main! = |_| {}
 	(d-let
 		(p-assign @4.1-4.6 (ident "outer"))
 		(e-closure @4.9-9.2
-			(captures
-				(capture @6.5-6.10 (ident "inner")))
 			(e-lambda @4.9-9.2
 				(args
 					(p-assign @4.10-4.11 (ident "x")))

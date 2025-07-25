@@ -209,10 +209,10 @@ main! = |_| {
 		(p-assign @15.1-15.6 (ident "main!"))
 		(e-closure @15.9-21.2
 			(captures
-				(capture @16.5-16.6 (ident "a"))
-				(capture @18.5-18.6 (ident "c"))
-				(capture @17.5-17.6 (ident "b"))
-				(capture @19.5-19.6 (ident "d")))
+				(capture @10.1-10.18 (ident "unused_underscore"))
+				(capture @13.1-13.13 (ident "used_regular"))
+				(capture @7.1-7.16 (ident "used_underscore"))
+				(capture @4.1-4.15 (ident "unused_regular")))
 			(e-lambda @15.9-21.2
 				(args
 					(p-underscore @15.10-15.11))

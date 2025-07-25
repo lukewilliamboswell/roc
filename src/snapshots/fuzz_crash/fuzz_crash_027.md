@@ -1663,8 +1663,6 @@ main! = |_| { # Yeah Ie
 	(d-let
 		(p-assign @48.1-48.8 (ident "add_one"))
 		(e-closure @48.11-58.2
-			(captures
-				(capture @49.2-49.7 (ident "other")))
 			(e-lambda @48.11-58.2
 				(args
 					(p-assign @48.12-48.15 (ident "num")))
@@ -1856,6 +1854,8 @@ main! = |_| { # Yeah Ie
 	(d-let
 		(p-assign @100.1-100.6 (ident "main!"))
 		(e-closure @100.9-159.2
+			(captures
+				(capture @60.1-60.11 (ident "match_time")))
 			(e-lambda @100.9-159.2
 				(args
 					(p-underscore @100.10-100.11))

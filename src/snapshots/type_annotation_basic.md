@@ -235,7 +235,9 @@ main! = |_| {
 		(p-assign @15.1-15.6 (ident "main!"))
 		(e-closure @15.9-27.2
 			(captures
-				(capture @24.5-24.11 (ident "result")))
+				(capture @13.1-13.7 (ident "addOne"))
+				(capture @9.1-9.8 (ident "combine"))
+				(capture @5.1-5.9 (ident "identity")))
 			(e-lambda @15.9-27.2
 				(args
 					(p-underscore @15.10-15.11))

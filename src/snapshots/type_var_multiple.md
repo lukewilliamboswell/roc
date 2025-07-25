@@ -94,9 +94,6 @@ main! = |_| {}
 	(d-let
 		(p-assign @5.1-5.5 (ident "swap"))
 		(e-closure @5.8-8.2
-			(captures
-				(capture @6.6-6.11 (ident "first"))
-				(capture @6.13-6.19 (ident "second")))
 			(e-lambda @5.8-8.2
 				(args
 					(p-assign @5.9-5.13 (ident "pair")))
