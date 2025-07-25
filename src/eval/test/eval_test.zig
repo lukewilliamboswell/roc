@@ -164,7 +164,7 @@ test "lambdas closures" {
 
     // Test out-of-order captures to ensure canonical layout is respected.
     // `y` is bound before `x`, but the capture record should be sorted as {x, y}.
-    try runExpectInt("(|y| (|x| (|z| x + y + z)(3))(2))(1)", 6, .no_trace);
+    try runExpectInt("(|y| (|x| (|z| x + y + z)(3))(2))(1)", 6, .trace);
 
     // A more complex out-of-order capture test.
     // Captures created in order y, z, x, w.

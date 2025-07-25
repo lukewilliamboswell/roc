@@ -2206,8 +2206,8 @@ pub fn canonicalizeExpr(
                     }
                 } else {
                     // Field name couldn't be resolved, still try to canonicalize
-                    if (try self.canonicalizeRecordField(field)) |can_field| {
-                        try self.can_ir.store.scratch_record_fields.append(self.can_ir.env.gpa, can_field);
+                    if (try self.canonicalizeRecordField(field)) |can_field_idx| {
+                        try self.can_ir.store.scratch_record_fields.append(self.can_ir.env.gpa, can_field_idx);
                     }
                 }
             }
