@@ -408,7 +408,7 @@ pub const Interpreter = struct {
 
                 if (expr_layout.tag == .scalar and expr_layout.data.scalar.tag == .int) {
                     const precision = expr_layout.data.scalar.data.int;
-                    writeIntToMemory(@ptrCast(result_ptr), int_lit.value.toI128(), precision);
+                    writeIntToMemory(result_ptr, int_lit.value.toI128(), precision);
                     self.traceInfo("Pushed integer literal {d}", .{int_lit.value.toI128()});
                 } else {
                     return error.LayoutError;
@@ -527,6 +527,10 @@ pub const Interpreter = struct {
                 var reversed_bindings = std.mem.reverseIterator(self.bindings_stack.items);
                 while (reversed_bindings.next()) |binding| {
                     if (binding.pattern_idx == lookup.pattern_idx) {
+                        self.traceInfo("Found binding for pattern_idx={}, ptr is {}", .{
+                            @intFromEnum(lookup.pattern_idx),
+                            @intFromPtr(binding.value_ptr),
+                        });
                         const dest_ptr = (try self.pushStackValue(binding.layout)).?;
                         const binding_size = self.layout_cache.layoutSize(binding.layout);
                         if (binding_size > 0) {
@@ -724,8 +728,8 @@ pub const Interpreter = struct {
 
         const lhs = try self.peekStackValue(2);
         const rhs = try self.peekStackValue(1);
-        self.traceInfo("\tLeft layout: tag={}", .{lhs.layout.tag});
-        self.traceInfo("\tRight layout: tag={}", .{rhs.layout.tag});
+        try self.traceValue("lhs", lhs);
+        try self.traceValue("rhs", rhs);
 
         // For now, only support integer operations
         if (lhs.layout.tag != .scalar or rhs.layout.tag != .scalar) {
@@ -738,8 +742,8 @@ pub const Interpreter = struct {
         }
 
         // Read the values
-        const lhs_val = readIntFromMemory(@ptrCast(lhs.ptr.?), lhs.layout.data.scalar.data.int);
-        const rhs_val = readIntFromMemory(@ptrCast(rhs.ptr.?), rhs.layout.data.scalar.data.int);
+        const lhs_val = readIntFromMemory(lhs.ptr.?, lhs.layout.data.scalar.data.int);
+        const rhs_val = readIntFromMemory(rhs.ptr.?, rhs.layout.data.scalar.data.int);
 
         // Pop the operands from the stack, which we can safely do after reading their values
         _ = try self.popStackValue();
@@ -774,22 +778,22 @@ pub const Interpreter = struct {
             .w_binop_add => {
                 const result_val: i128 = lhs_val + rhs_val;
                 self.traceInfo("Addition operation: {} + {} = {}", .{ lhs_val, rhs_val, result_val });
-                writeIntToMemory(@ptrCast(result_ptr), result_val, lhs_precision);
+                writeIntToMemory(result_ptr, result_val, lhs_precision);
             },
             .w_binop_sub => {
                 const result_val: i128 = lhs_val - rhs_val;
-                writeIntToMemory(@as([*]u8, @ptrCast(result_ptr)), result_val, lhs_precision);
+                writeIntToMemory(result_ptr, result_val, lhs_precision);
             },
             .w_binop_mul => {
                 const result_val: i128 = lhs_val * rhs_val;
-                writeIntToMemory(@as([*]u8, @ptrCast(result_ptr)), result_val, lhs_precision);
+                writeIntToMemory(result_ptr, result_val, lhs_precision);
             },
             .w_binop_div => {
                 if (rhs_val == 0) {
                     return error.DivisionByZero;
                 }
                 const result_val: i128 = @divTrunc(lhs_val, rhs_val);
-                writeIntToMemory(@as([*]u8, @ptrCast(result_ptr)), result_val, lhs_precision);
+                writeIntToMemory(result_ptr, result_val, lhs_precision);
             },
             .w_binop_eq => {
                 const bool_ptr = @as(*u8, @ptrCast(@alignCast(result_ptr)));
@@ -835,13 +839,13 @@ pub const Interpreter = struct {
         }
 
         // Calculate operand size and read the value
-        const operand_val = readIntFromMemory(@as([*]u8, @ptrCast(operand_value.ptr)), operand_scalar.data.int);
+        const operand_val = readIntFromMemory(operand_value.ptr.?, operand_scalar.data.int);
 
         self.traceInfo("Unary minus operation: -{} = {}", .{ operand_val, -operand_val });
 
         // Negate the value and write it back to the same location
         const result_val: i128 = -operand_val;
-        writeIntToMemory(@as([*]u8, @ptrCast(operand_value.ptr)), result_val, operand_scalar.data.int);
+        writeIntToMemory(operand_value.ptr.?, result_val, operand_scalar.data.int);
     }
 
     fn checkIfCondition(self: *Interpreter, expr_idx: CIR.Expr.Idx, branch_index: u16) EvalError!void {
@@ -978,13 +982,6 @@ pub const Interpreter = struct {
         // The return value is on top of the stack.
         const return_value = try self.peekStackValue(1);
 
-        // The closure that was called is at frame.value_base.
-        const closure_value_of_caller = self.value_stack.items[frame.value_base];
-        const closure_ptr_of_caller = &self.stack_memory.start[closure_value_of_caller.offset];
-        const closure_of_caller: *const Closure = @ptrCast(@alignCast(closure_ptr_of_caller));
-        const captures_layout_of_caller = self.layout_cache.getLayout(closure_of_caller.captures_layout_idx);
-        const captures_size_of_caller = self.layout_cache.layoutSize(captures_layout_of_caller);
-
         // Determine the full size of the return value. If it's a closure, we must include the captures.
         var return_size: u32 = 0;
         const return_alignment = return_value.layout.alignment(target_usize);
@@ -1008,11 +1005,9 @@ pub const Interpreter = struct {
         // Now that we've saved the return value, pop it from the stack.
         _ = try self.popStackValue();
 
-        // If a capture record view was pushed by handleLambdaCall, we need to pop it from the value_stack.
+        // A capture record view is always pushed by handleLambdaCall, so we always pop it.
         // This view doesn't own memory on stack_memory, so we don't use popStackValue.
-        if (captures_size_of_caller > 0) {
-            _ = self.value_stack.pop() orelse return error.InvalidStackState;
-        }
+        _ = self.value_stack.pop() orelse return error.InvalidStackState;
 
         // reset the stacks
         self.work_stack.items.len = frame.work_base;
@@ -1346,16 +1341,57 @@ pub const Interpreter = struct {
         }
     }
 
+    /// Trace a value on the stack
+    pub fn traceValue(self: *const Interpreter, label: []const u8, value: StackValue) !void {
+        if (self.trace_writer) |writer| {
+            self.printTraceIndent();
+            writer.print("VAL ({s}): ", .{label}) catch {};
+            switch (value.layout.tag) {
+                .scalar => switch (value.layout.data.scalar.tag) {
+                    .int => {
+                        const int_val = readIntFromMemory(value.ptr.?, value.layout.data.scalar.data.int);
+                        writer.print("int({s}) {}\n", .{
+                            @tagName(value.layout.data.scalar.data.int),
+                            int_val,
+                        }) catch {};
+                    },
+                    .frac => {
+                        const float_val = @as(*f64, @ptrCast(@alignCast(value.ptr.?))).*;
+                        writer.print("float {d}\n", .{float_val}) catch {};
+                    },
+                    .bool => {
+                        const bool_val = @as(*u8, @ptrCast(@alignCast(value.ptr.?))).*;
+                        writer.print("bool {}\n", .{bool_val != 0}) catch {};
+                    },
+                    else => writer.print("scalar({s})\n", .{@tagName(value.layout.data.scalar.tag)}) catch {},
+                },
+                .closure => {
+                    const closure: *const Closure = @ptrCast(@alignCast(value.ptr.?));
+                    writer.print("closure(body_idx={}, captures_layout_idx={})\n", .{
+                        closure.body_idx,
+                        closure.captures_layout_idx,
+                    }) catch {};
+                },
+                else => writer.print("{s}\n", .{@tagName(value.layout.tag)}) catch {},
+            }
+        }
+    }
+
     fn bindPattern(self: *Interpreter, pattern_idx: CIR.Pattern.Idx, value: StackValue) EvalError!void {
         const pattern = self.cir.store.getPattern(pattern_idx);
         switch (pattern) {
-            .assign => {
+            .assign => |assign_pattern| {
                 // For a variable pattern, we create a binding for the variable
                 const binding = Binding{
                     .pattern_idx = pattern_idx,
                     .value_ptr = value.ptr.?,
                     .layout = value.layout,
                 };
+                self.traceInfo("Binding '{s}' (pattern_idx={}) to ptr {}", .{
+                    self.cir.env.idents.getText(assign_pattern.ident),
+                    @intFromEnum(pattern_idx),
+                    @intFromPtr(binding.value_ptr),
+                });
                 try self.bindings_stack.append(binding);
             },
             .record_destructure => |record_destruct| {
@@ -1852,7 +1888,7 @@ pub const Interpreter = struct {
 };
 
 // Helper function to write an integer to memory with the correct precision
-fn writeIntToMemory(ptr: [*]u8, value: i128, precision: types.Num.Int.Precision) void {
+fn writeIntToMemory(ptr: *anyopaque, value: i128, precision: types.Num.Int.Precision) void {
     switch (precision) {
         .u8 => @as(*u8, @ptrCast(@alignCast(ptr))).* = @as(u8, @intCast(value)),
         .u16 => @as(*u16, @ptrCast(@alignCast(ptr))).* = @as(u16, @intCast(value)),
@@ -1868,7 +1904,7 @@ fn writeIntToMemory(ptr: [*]u8, value: i128, precision: types.Num.Int.Precision)
 }
 
 /// Helper function to read an integer from memory with the correct precision
-pub fn readIntFromMemory(ptr: [*]u8, precision: types.Num.Int.Precision) i128 {
+pub fn readIntFromMemory(ptr: *anyopaque, precision: types.Num.Int.Precision) i128 {
     return switch (precision) {
         .u8 => @as(i128, @as(*u8, @ptrCast(@alignCast(ptr))).*),
         .u16 => @as(i128, @as(*u16, @ptrCast(@alignCast(ptr))).*),
