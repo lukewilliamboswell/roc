@@ -2704,6 +2704,9 @@ pub fn canonicalizeExpr(
 
             // Keep track of the start position for statements
             const stmt_start = self.can_ir.store.scratch_statements.top();
+            const free_vars_start = self.scratch_free_vars.top();
+            var bound_vars = std.AutoHashMapUnmanaged(CIR.Pattern.Idx, void){};
+            defer bound_vars.deinit(self.can_ir.env.gpa);
 
             // Canonicalize all statements in the block
             const statements = self.parse_ir.store.statementSlice(e.statements);
@@ -2734,8 +2737,37 @@ pub fn canonicalizeExpr(
                     }
                 } else {
                     if (try self.canonicalizeStatement(stmt_idx)) |can_stmt| {
-                        _ = can_stmt;
+                        // Collect free vars from the statement
+                        if (can_stmt.free_vars) |fvs| {
+                            for (fvs) |fv| {
+                                try self.scratch_free_vars.append(self.can_ir.env.gpa, fv);
+                            }
+                        }
+                        // Collect bound vars from the statement
+                        const cir_stmt = self.can_ir.store.getStatement(self.can_ir.store.scratch_statements.items[self.can_ir.store.scratch_statements.top() - 1]);
+                        if (cir_stmt == .s_decl) {
+                            try self.collectBoundVars(cir_stmt.s_decl.pattern, &bound_vars);
+                        } else if (cir_stmt == .s_var) {
+                            try self.collectBoundVars(cir_stmt.s_var.pattern_idx, &bound_vars);
+                        }
                     }
+                }
+            }
+
+            // Determine the final expression
+            const final_expr = if (last_expr) |can_expr| can_expr else blk: {
+                // Empty block - create empty record
+                const expr_idx = try self.can_ir.addExprAndTypeVar(CIR.Expr{
+                    .e_empty_record = .{},
+                }, Content{ .structure = .empty_record }, region);
+                break :blk CanonicalizedExpr{ .idx = expr_idx, .free_vars = null };
+            };
+            const final_expr_var = @as(TypeVar, @enumFromInt(@intFromEnum(final_expr.idx)));
+
+            // Add free vars from the final expression
+            if (final_expr.free_vars) |fvs| {
+                for (fvs) |fv| {
+                    try self.scratch_free_vars.append(self.can_ir.env.gpa, fv);
                 }
             }
 
