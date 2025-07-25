@@ -80,6 +80,9 @@ is_named_color = |str|{
 # EXPECTED
 UNUSED VARIABLE - Color.md:30:5:30:25
 UNDEFINED VARIABLE - Color.md:68:14:68:27
+TYPE MISMATCH - Color.md:20:8:20:31
+TYPE MISMATCH - Color.md:26:7:26:46
+TYPE MISMATCH - Color.md:60:9:60:50
 # PROBLEMS
 **UNUSED VARIABLE**
 Variable `is_char_in_hex_range` is not used anywhere in your code.
@@ -103,6 +106,48 @@ Is there an `import` or `exposing` missing up-top?
 ```
              ^^^^^^^^^^^^^
 
+
+**TYPE MISMATCH**
+This expression is used in an unexpected way:
+**Color.md:20:8:20:31:**
+```roc
+rgba : U8, U8, U8, U8 -> Color
+```
+       ^^^^^^^^^^^^^^^^^^^^^^^
+
+It is of type:
+    _U8, U8, U8, U8 -> Color_
+
+But you are trying to use it as:
+    _U8, U8, U8, { to_frac: Frac(_size) } -> Color_
+
+**TYPE MISMATCH**
+This expression is used in an unexpected way:
+**Color.md:26:7:26:46:**
+```roc
+hex : Str -> Result(Color, [InvalidHex(Str)])
+```
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+It is of type:
+    _Str -> Error_
+
+But you are trying to use it as:
+    _{ to_utf8: List(Num(_size)) } -> [InvalidHex(Str), Err([InvalidHex(Str)]_others)][Ok(Color)]_others2_
+
+**TYPE MISMATCH**
+This expression is used in an unexpected way:
+**Color.md:60:9:60:50:**
+```roc
+named : Str -> Result(Color, [UnknownColor(Str)])
+```
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+It is of type:
+    _Str -> Error_
+
+But you are trying to use it as:
+    _{ is_named_color: Bool } -> [Ok(Color), Err([UnknownColor(Str)]_others)]_others2_
 
 # TOKENS
 ~~~zig
@@ -1073,19 +1118,19 @@ is_named_color = |str| {
 (inferred-types
 	(defs
 		(patt @18.1-18.4 (type "U8, U8, U8 -> Color"))
-		(patt @21.1-21.5 (type "U8, U8, U8, U8 -> Color"))
-		(patt @27.1-27.4 (type "Str -> Error"))
+		(patt @21.1-21.5 (type "Error"))
+		(patt @27.1-27.4 (type "Error"))
 		(patt @49.1-49.7 (type "Color -> Str"))
-		(patt @61.1-61.6 (type "Str -> Error"))
+		(patt @61.1-61.6 (type "Error"))
 		(patt @67.1-67.15 (type "_arg -> _ret")))
 	(type_decls
 		(nominal @10.1-15.2 (type "Color")
 			(ty-header @10.1-10.6 (name "Color"))))
 	(expressions
 		(expr @18.7-18.35 (type "U8, U8, U8 -> Color"))
-		(expr @21.8-24.2 (type "U8, U8, U8, U8 -> Color"))
-		(expr @27.7-46.2 (type "Str -> Error"))
+		(expr @21.8-24.2 (type "Error"))
+		(expr @27.7-46.2 (type "Error"))
 		(expr @49.10-54.2 (type "Color -> Str"))
-		(expr @61.9-65.50 (type "Str -> Error"))
+		(expr @61.9-65.50 (type "Error"))
 		(expr @67.18-71.2 (type "_arg -> _ret"))))
 ~~~

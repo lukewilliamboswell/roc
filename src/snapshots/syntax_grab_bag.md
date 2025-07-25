@@ -262,6 +262,9 @@ UNUSED VARIABLE - syntax_grab_bag.md:188:2:188:15
 UNUSED VARIABLE - syntax_grab_bag.md:189:2:189:23
 UNUSED VARIABLE - syntax_grab_bag.md:164:2:164:18
 UNDECLARED TYPE - syntax_grab_bag.md:201:9:201:14
+TYPE MISMATCH - syntax_grab_bag.md:67:11:67:21
+INCOMPATIBLE MATCH PATTERNS - syntax_grab_bag.md:84:2:84:2
+TYPE MISMATCH - syntax_grab_bag.md:155:2:155:12
 # PROBLEMS
 **UNDECLARED TYPE**
 The type _Bar_ is not declared in this scope.
@@ -732,6 +735,106 @@ tuple : Value((a, b, c))
 ```
         ^^^^^
 
+
+**TYPE MISMATCH**
+This expression is used in an unexpected way:
+**syntax_grab_bag.md:67:11:67:21:**
+```roc
+add_one : U64 -> U64
+```
+          ^^^^^^^^^^
+
+It is of type:
+    _U64 -> U64_
+
+But you are trying to use it as:
+    _Bool -> Num(_size)_
+
+**INCOMPATIBLE MATCH PATTERNS**
+The pattern in the fourth branch of this `match` differs from previous ones:
+**syntax_grab_bag.md:84:2:**
+```roc
+	match a {
+		Blue | Green | Red => {
+			x = 12
+			x
+		}
+		Blue # After pattern in alt
+		| # Before pattern in alt
+			Green
+		| Red # After alt pattern
+			=> {
+				x = 12
+				x
+			}
+		lower # After pattern comment
+			=> 1
+		"foo" => # After arrow comment
+			100
+		"foo" | "bar" => 200
+		[1, 2, 3, .. as rest] # After pattern comment
+			=> # After arrow comment
+				123 # After branch comment
+
+		# Just a random comment
+
+		[1, 2 | 5, 3, .. as rest] => 123
+		[
+			1,
+			2 | 5,
+			3,
+			.. # After DoubleDot
+				as # Before alias
+					rest, # After last pattern in list
+		] => 123
+		3.14 => 314
+		3.14 | 6.28 => 314
+		(1, 2, 3) => 123
+		(1, 2 | 5, 3) => 123
+		{ foo: 1, bar: 2, ..rest } => 12->add(34)
+		{ # After pattern record open
+			foo # After pattern record field name
+				: # Before pattern record field value
+					1, # After pattern record field
+			bar: 2,
+			.. # After spread operator
+				rest, # After last field
+		} => 12
+		{ foo: 1, bar: 2 | 7 } => 12
+		{
+			foo: 1,
+			bar: 2 | 7, # After last record field
+		} => 12
+		Ok(123) => 123
+		Ok(Some(dude)) => dude
+		TwoArgs("hello", Some("world")) => 1000
+	}
+```
+  ^^^^^
+
+The fourth pattern has this type:
+    _Str_
+
+But all the previous patterns have this type: 
+    _[Red][Blue, Green]_others_
+
+All patterns in an `match` must have compatible types.
+
+
+
+**TYPE MISMATCH**
+This expression is used in an unexpected way:
+**syntax_grab_bag.md:155:2:155:12:**
+```roc
+	match_time(
+```
+ ^^^^^^^^^^
+
+It is of type:
+    _[Red][Blue, Green]_others, _arg2 -> Error_
+
+But you are trying to use it as:
+    __arg -> _ret_
 
 # TOKENS
 ~~~zig
@@ -2252,9 +2355,9 @@ expect {
 ~~~clojure
 (inferred-types
 	(defs
-		(patt @65.1-65.16 (type "_arg -> Num(_size)"))
-		(patt @68.1-68.8 (type "U64 -> U64"))
-		(patt @80.1-80.11 (type "_arg, _arg2 -> _ret"))
+		(patt @65.1-65.16 (type "Bool -> Num(_size)"))
+		(patt @68.1-68.8 (type "Error"))
+		(patt @80.1-80.11 (type "Error"))
 		(patt @144.1-144.6 (type "Error -> Error"))
 		(patt @199.1-199.6 (type "{}")))
 	(type_decls
@@ -2297,9 +2400,9 @@ expect {
 				(ty-args
 					(ty-var @63.10-63.11 (name "a"))))))
 	(expressions
-		(expr @65.19-65.40 (type "_arg -> Num(_size)"))
-		(expr @68.11-78.2 (type "U64 -> U64"))
-		(expr @80.14-138.3 (type "_arg, _arg2 -> _ret"))
+		(expr @65.19-65.40 (type "Bool -> Num(_size)"))
+		(expr @68.11-78.2 (type "Error"))
+		(expr @80.14-138.3 (type "Error"))
 		(expr @144.9-196.2 (type "Error -> Error"))
 		(expr @199.9-199.11 (type "{}"))))
 ~~~

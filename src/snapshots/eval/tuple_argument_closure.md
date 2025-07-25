@@ -57,5 +57,5 @@ OpenRound(1:1-1:2),OpBar(1:2-1:3),NoSpaceOpenRound(1:3-1:4),LowerIdent(1:4-1:5),
 ~~~
 # TYPES
 ~~~clojure
-(expr @1.1-1.24 (type "_a"))
+(expr @1.1-1.24 (type "Num(_size)"))
 ~~~

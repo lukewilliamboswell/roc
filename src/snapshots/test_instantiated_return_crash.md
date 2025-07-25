@@ -119,5 +119,5 @@ CloseCurly(9:1-9:2),EndOfFile(9:2-9:2),
 ~~~
 # TYPES
 ~~~clojure
-(expr @1.1-9.2 (type "_b"))
+(expr @1.1-9.2 (type "List(Str)"))
 ~~~

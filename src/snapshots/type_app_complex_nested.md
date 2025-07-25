@@ -361,7 +361,7 @@ main! = |_| processComplex(Ok([Some(42), None]))
 	(defs
 		(patt @5.1-5.15 (type "Error -> Error"))
 		(patt @13.1-13.11 (type "Error"))
-		(patt @18.1-18.6 (type "_arg -> _ret")))
+		(patt @18.1-18.6 (type "_arg -> Error")))
 	(type_decls
 		(alias @16.1-16.64 (type "Error")
 			(ty-header @16.1-16.18 (name "ComplexType")
@@ -371,5 +371,5 @@ main! = |_| processComplex(Ok([Some(42), None]))
 	(expressions
 		(expr @5.18-9.6 (type "Error -> Error"))
 		(expr @13.18-13.23 (type "Error"))
-		(expr @18.9-18.49 (type "_arg -> _ret"))))
+		(expr @18.9-18.49 (type "_arg -> Error"))))
 ~~~

@@ -126,8 +126,8 @@ NO CHANGE
 (inferred-types
 	(defs
 		(patt @4.1-4.12 (type "Error -> Error"))
-		(patt @6.1-6.6 (type "_arg -> _ret")))
+		(patt @6.1-6.6 (type "_arg -> Error")))
 	(expressions
 		(expr @4.15-4.25 (type "Error -> Error"))
-		(expr @6.9-6.55 (type "_arg -> _ret"))))
+		(expr @6.9-6.55 (type "_arg -> Error"))))
 ~~~

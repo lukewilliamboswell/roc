@@ -271,12 +271,12 @@ main! = |_| {}
 (inferred-types
 	(defs
 		(patt @4.1-4.8 (type "[Some(Str), None] -> Str"))
-		(patt @7.1-7.27 (type "[Ok(_ok), Err(_err)] -> Bool"))
-		(patt @13.1-13.15 (type "[Ok(_ok2), Err(_err2)] -> Bool"))
+		(patt @7.1-7.27 (type "[Err(_err), Ok(_ok)] -> Bool"))
+		(patt @13.1-13.15 (type "[Err(_err2), Ok(_ok2)] -> Bool"))
 		(patt @18.1-18.6 (type "_arg -> {}")))
 	(expressions
 		(expr @4.11-4.27 (type "[Some(Str), None] -> Str"))
-		(expr @7.30-10.2 (type "[Ok(_ok), Err(_err)] -> Bool"))
-		(expr @13.18-16.2 (type "[Ok(_ok2), Err(_err2)] -> Bool"))
+		(expr @7.30-10.2 (type "[Err(_err), Ok(_ok)] -> Bool"))
+		(expr @13.18-16.2 (type "[Err(_err2), Ok(_ok2)] -> Bool"))
 		(expr @18.9-18.15 (type "_arg -> {}"))))
 ~~~

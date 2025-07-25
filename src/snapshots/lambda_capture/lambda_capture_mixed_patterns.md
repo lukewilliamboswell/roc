@@ -87,5 +87,5 @@ CloseCurly(4:1-4:2),CloseRound(4:2-4:3),NoSpaceOpenRound(4:3-4:4),Int(4:4-4:5),C
 ~~~
 # TYPES
 ~~~clojure
-(expr @1.1-4.6 (type "_a"))
+(expr @1.1-4.6 (type "Num(_size)"))
 ~~~

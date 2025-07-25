@@ -224,6 +224,9 @@ UNUSED VARIABLE - fuzz_crash_027.md:131:2:131:8
 UNUSED VARIABLE - fuzz_crash_027.md:151:1:151:6
 UNUSED VARIABLE - fuzz_crash_027.md:142:2:142:7
 UNUSED VARIABLE - fuzz_crash_027.md:121:2:121:6
+TYPE MISMATCH - fuzz_crash_027.md:47:11:47:21
+INCOMPATIBLE MATCH PATTERNS - fuzz_crash_027.md:64:2:64:2
+TYPE MISMATCH - fuzz_crash_027.md:111:2:111:12
 # PROBLEMS
 **OVER CLOSED BRACE**
 There are too many closing braces here.
@@ -793,6 +796,82 @@ The unused variable is declared here:
 ```
  ^^^^
 
+
+**TYPE MISMATCH**
+This expression is used in an unexpected way:
+**fuzz_crash_027.md:47:11:47:21:**
+```roc
+add_one : U64 -> U64
+```
+          ^^^^^^^^^^
+
+It is of type:
+    _U64 -> U64_
+
+But you are trying to use it as:
+    _Bool -> Num(_size)_
+
+**INCOMPATIBLE MATCH PATTERNS**
+The pattern in the third branch of this `match` differs from previous ones:
+**fuzz_crash_027.md:64:2:**
+```roc
+	match a {lue | Red => {
+			x x
+		}
+		Blue		=> 1
+		"foo" => # ent
+00
+		"foo" | "bar" => 20[1, 2, 3, .. as rest] # Aftet
+			=> ment
+
+
+		[1, 2 | 5, 3, .. as rest] => 123
+		[
+ist
+		] => 123
+		3.14 => 314
+		3.14 | 6.28 => 314
+		(1, 2, 3) => 123
+		(1, 2 | 5, 3) => 123
+		{ foo: 1, bar: 2, ..rest } => 12->add(34)
+		{ # Afrd open
+			foo #
+				: #ue
+					1, # Aftd field
+			bar: 2,
+			..} => 12
+		{ foo: 1, bar: 2 | 7 } => 12
+		{
+			foo: 1,
+			} => 12
+		Ok(123) => 121000
+	}
+```
+  ^^^^^
+
+The third pattern has this type:
+    _Str_
+
+But all the previous patterns have this type: 
+    _[Red, Blue]_others_
+
+All patterns in an `match` must have compatible types.
+
+
+
+**TYPE MISMATCH**
+This expression is used in an unexpected way:
+**fuzz_crash_027.md:111:2:111:12:**
+```roc
+	match_time(
+```
+ ^^^^^^^^^^
+
+It is of type:
+    _[Red, Blue]_others, _arg2 -> Error_
+
+But you are trying to use it as:
+    __arg -> _ret_
 
 # TOKENS
 ~~~zig
@@ -2066,9 +2145,9 @@ main! = |_| { # Yeah Ie
 ~~~clojure
 (inferred-types
 	(defs
-		(patt @45.1-45.4 (type "_arg -> Num(_size)"))
-		(patt @48.1-48.8 (type "U64 -> U64"))
-		(patt @60.1-60.11 (type "_arg, _arg2 -> Error"))
+		(patt @45.1-45.4 (type "Bool -> Num(_size)"))
+		(patt @48.1-48.8 (type "Error"))
+		(patt @60.1-60.11 (type "Error"))
 		(patt @100.1-100.6 (type "Error -> Error")))
 	(type_decls
 		(alias @15.1-15.41 (type "Map(a, b)")
@@ -2102,8 +2181,8 @@ main! = |_| { # Yeah Ie
 				(ty-args
 					(ty-var @43.6-43.7 (name "a"))))))
 	(expressions
-		(expr @45.7-45.28 (type "_arg -> Num(_size)"))
-		(expr @48.11-58.2 (type "U64 -> U64"))
-		(expr @60.14-94.3 (type "_arg, _arg2 -> Error"))
+		(expr @45.7-45.28 (type "Bool -> Num(_size)"))
+		(expr @48.11-58.2 (type "Error"))
+		(expr @60.14-94.3 (type "Error"))
 		(expr @100.9-159.2 (type "Error -> Error"))))
 ~~~
