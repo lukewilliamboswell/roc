@@ -126,6 +126,8 @@ handleResult = |result| {
 		(e-lambda @6.16-11.2
 			(args
 				(p-assign @6.17-6.23 (ident "result")))
+			(captures
+				(capture @8.40-8.45 (ident "value")))
 			(e-block @6.25-11.2
 				(e-match @7.5-10.6
 					(match @7.5-10.6

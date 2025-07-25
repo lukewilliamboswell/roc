@@ -713,6 +713,15 @@ is_named_color = |str| {
 		(e-lambda @27.7-46.2
 			(args
 				(p-assign @27.8-27.11 (ident "str")))
+			(captures
+				(capture @33.30-33.31 (ident "f"))
+				(capture @33.21-33.22 (ident "c"))
+				(capture @34.13-34.21 (ident "is_valid"))
+				(capture @29.5-29.10 (ident "bytes"))
+				(capture @33.24-33.25 (ident "d"))
+				(capture @33.27-33.28 (ident "e"))
+				(capture @33.15-33.16 (ident "a"))
+				(capture @33.18-33.19 (ident "b")))
 			(e-block @27.13-46.2
 				(s-let @29.5-29.26
 					(p-assign @29.5-29.10 (ident "bytes"))
@@ -863,7 +872,16 @@ is_named_color = |str| {
 			(args
 				(p-assign @49.11-49.16 (ident "color")))
 			(captures
-				(capture @49.1-49.7 (ident "to_str")))
+				(capture @51.22-51.23 (ident "b"))
+				(capture @50.21-50.22 (ident "b"))
+				(capture @50.18-50.19 (ident "g"))
+				(capture @49.1-49.7 (ident "to_str"))
+				(capture @50.15-50.16 (ident "r"))
+				(capture @51.25-51.26 (ident "a"))
+				(capture @53.15-53.20 (ident "inner"))
+				(capture @51.19-51.20 (ident "g"))
+				(capture @52.17-52.22 (ident "inner"))
+				(capture @51.16-51.17 (ident "r")))
 			(e-match @49.18-54.2
 				(match @49.18-54.2
 					(cond

@@ -491,6 +491,8 @@ transform = |result|
 		(e-lambda @40.13-44.6
 			(args
 				(p-assign @40.14-40.20 (ident "result")))
+			(captures
+				(capture @42.19-42.22 (ident "rgb")))
 			(e-match @41.5-44.6
 				(match @41.5-44.6
 					(cond

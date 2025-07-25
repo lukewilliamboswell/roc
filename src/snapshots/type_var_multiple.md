@@ -96,6 +96,9 @@ main! = |_| {}
 		(e-lambda @5.8-8.2
 			(args
 				(p-assign @5.9-5.13 (ident "pair")))
+			(captures
+				(capture @6.6-6.11 (ident "first"))
+				(capture @6.13-6.19 (ident "second")))
 			(e-block @5.15-8.2
 				(s-let @6.5-6.27
 					(p-tuple @6.5-6.20

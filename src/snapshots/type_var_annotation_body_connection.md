@@ -91,6 +91,8 @@ main! = |_| {}
 		(e-lambda @4.12-8.2
 			(args
 				(p-assign @4.13-4.14 (ident "x")))
+			(captures
+				(capture @6.5-6.10 (ident "thing")))
 			(e-block @4.16-8.2
 				(s-type-anno @5.5-5.14 (name "thing")
 					(ty-var @5.13-5.14 (name "a")))

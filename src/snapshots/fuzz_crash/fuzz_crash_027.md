@@ -1664,6 +1664,8 @@ main! = |_| { # Yeah Ie
 		(e-lambda @48.11-58.2
 			(args
 				(p-assign @48.12-48.15 (ident "num")))
+			(captures
+				(capture @49.2-49.7 (ident "other")))
 			(e-block @48.17-58.2
 				(s-let @49.2-49.11
 					(p-assign @49.2-49.7 (ident "other"))
@@ -1853,9 +1855,6 @@ main! = |_| { # Yeah Ie
 		(e-lambda @100.9-159.2
 			(args
 				(p-underscore @100.10-100.11))
-			(captures
-				(capture @60.1-60.11 (ident "match_time"))
-				(capture @102.2-102.18 (ident "number")))
 			(e-block @100.13-159.2
 				(s-let @101.2-101.17
 					(p-assign @101.2-101.7 (ident "world"))
@@ -2041,19 +2040,7 @@ main! = |_| { # Yeah Ie
 								(p-assign @157.2-157.6 (ident "blah")))
 							(e-lookup-local @158.10-158.13
 								(p-assign @156.2-156.5 (ident "foo"))))))
-				(e-expect @155.1-159.2
-					(e-block @155.8-159.2
-						(s-let @156.2-156.9
-							(p-assign @156.2-156.5 (ident "foo"))
-							(e-int @156.8-156.9 (value "1")))
-						(s-let @157.2-157.10
-							(p-assign @157.2-157.6 (ident "blah"))
-							(e-int @157.9-157.10 (value "1")))
-						(e-binop @158.2-158.13 (op "eq")
-							(e-lookup-local @158.2-158.6
-								(p-assign @157.2-157.6 (ident "blah")))
-							(e-lookup-local @158.10-158.13
-								(p-assign @156.2-156.5 (ident "foo"))))))))
+				(e-empty_record @100.13-159.2)))
 		(annotation @100.1-100.6
 			(declared-type
 				(ty-fn @99.9-99.38 (effectful false)

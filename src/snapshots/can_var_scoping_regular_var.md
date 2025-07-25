@@ -136,7 +136,7 @@ NO CHANGE
 			(args
 				(p-assign @4.17-4.22 (ident "items")))
 			(captures
-				(capture @5.2-5.16 (ident "count_"))
+				(capture @19.2-19.8 (ident "result"))
 				(capture @6.2-6.16 (ident "total_")))
 			(e-block @4.24-21.2
 				(s-var @5.2-5.16

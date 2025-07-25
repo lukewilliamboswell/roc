@@ -70,20 +70,29 @@ NO CHANGE
 						(e-lambda @1.6-1.39
 							(args
 								(p-assign @1.7-1.8 (ident "b")))
+							(captures
+								(capture @1.3-1.4 (ident "a")))
 							(e-lambda @1.10-1.39
 								(args
 									(p-assign @1.11-1.12 (ident "c")))
+								(captures
+									(capture @1.3-1.4 (ident "a"))
+									(capture @1.7-1.8 (ident "b")))
 								(e-lambda @1.14-1.39
 									(args
 										(p-assign @1.15-1.16 (ident "d")))
+									(captures
+										(capture @1.11-1.12 (ident "c"))
+										(capture @1.3-1.4 (ident "a"))
+										(capture @1.7-1.8 (ident "b")))
 									(e-lambda @1.18-1.39
 										(args
 											(p-assign @1.19-1.20 (ident "e")))
 										(captures
-											(capture @1.3-1.4 (ident "a"))
-											(capture @1.7-1.8 (ident "b"))
 											(capture @1.11-1.12 (ident "c"))
-											(capture @1.15-1.16 (ident "d")))
+											(capture @1.15-1.16 (ident "d"))
+											(capture @1.3-1.4 (ident "a"))
+											(capture @1.7-1.8 (ident "b")))
 										(e-binop @1.22-1.39 (op "add")
 											(e-lookup-local @1.22-1.23
 												(p-assign @1.3-1.4 (ident "a")))

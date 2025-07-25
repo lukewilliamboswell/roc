@@ -143,6 +143,8 @@ main! = |_| {
 		(e-lambda @3.9-21.2
 			(args
 				(p-underscore @3.10-3.11))
+			(captures
+				(capture @19.5-19.11 (ident "result")))
 			(e-block @3.13-21.2
 				(s-let @5.5-5.20
 					(p-assign @5.5-5.15 (ident "unused_var"))

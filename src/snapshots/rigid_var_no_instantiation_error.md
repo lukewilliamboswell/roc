@@ -207,6 +207,9 @@ main! = |_| {
 		(e-lambda @5.8-8.2
 			(args
 				(p-assign @5.9-5.13 (ident "pair")))
+			(captures
+				(capture @6.6-6.7 (ident "x"))
+				(capture @6.9-6.10 (ident "y")))
 			(e-block @5.15-8.2
 				(s-let @6.5-6.18
 					(p-tuple @6.5-6.11
@@ -235,8 +238,6 @@ main! = |_| {
 		(e-lambda @11.9-24.2
 			(args
 				(p-underscore @11.10-11.11))
-			(captures
-				(capture @5.1-5.5 (ident "swap")))
 			(e-block @11.13-24.2
 				(s-let @13.5-13.34
 					(p-assign @13.5-13.12 (ident "result1"))

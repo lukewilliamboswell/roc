@@ -513,7 +513,9 @@ NO CHANGE
 				(p-assign @60.6-60.7 (ident "x"))
 				(p-assign @60.9-60.10 (ident "y")))
 			(captures
-				(capture @60.1-60.2 (ident "h"))
+				(capture @89.5-89.6 (ident "a"))
+				(capture @94.4-94.5 (ident "a"))
+				(capture @105.5-105.6 (ident "a"))
 				(capture @99.5-99.6 (ident "a")))
 			(e-block @60.12-110.2
 				(s-let @61.2-68.3

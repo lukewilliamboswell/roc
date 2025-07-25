@@ -609,6 +609,10 @@ combineResults = |jsonResult, httpStatus|
 		(e-lambda @13.17-19.2
 			(args
 				(p-assign @13.18-13.21 (ident "req")))
+			(captures
+				(capture @16.12-16.17 (ident "value"))
+				(capture @17.13-17.18 (ident "error"))
+				(capture @14.5-14.11 (ident "result")))
 			(e-block @13.23-19.2
 				(s-let @14.5-14.35
 					(p-assign @14.5-14.11 (ident "result"))
@@ -659,6 +663,8 @@ combineResults = |jsonResult, httpStatus|
 			(args
 				(p-assign @23.16-23.22 (ident "config"))
 				(p-assign @23.24-23.30 (ident "values")))
+			(captures
+				(capture @26.10-26.11 (ident "v")))
 			(e-call @24.5-27.6
 				(e-runtime-error (tag "ident_not_in_scope"))
 				(e-lookup-local @25.9-25.15
@@ -708,6 +714,9 @@ combineResults = |jsonResult, httpStatus|
 		(e-lambda @42.18-46.6
 			(args
 				(p-assign @42.19-42.27 (ident "response")))
+			(captures
+				(capture @45.13-45.18 (ident "error"))
+				(capture @44.12-44.18 (ident "status")))
 			(e-match @43.5-46.6
 				(match @43.5-46.6
 					(cond
@@ -747,6 +756,9 @@ combineResults = |jsonResult, httpStatus|
 			(args
 				(p-assign @50.19-50.29 (ident "jsonResult"))
 				(p-assign @50.31-50.41 (ident "httpStatus")))
+			(captures
+				(capture @53.13-53.18 (ident "error"))
+				(capture @52.12-52.17 (ident "value")))
 			(e-match @51.5-54.6
 				(match @51.5-54.6
 					(cond

@@ -278,6 +278,8 @@ main! = |_| {
 		(e-lambda @27.9-39.2
 			(args
 				(p-underscore @27.10-27.11))
+			(captures
+				(capture @30.5-30.11 (ident "userId")))
 			(e-block @27.13-39.2
 				(s-type-anno @29.5-29.20 (name "userId")
 					(ty @29.14-29.20 (name "UserId")))

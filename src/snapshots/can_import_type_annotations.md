@@ -347,6 +347,10 @@ combineResults = |result1, result2|
 		(e-lambda @14.13-20.2
 			(args
 				(p-assign @14.14-14.21 (ident "request")))
+			(captures
+				(capture @15.5-15.11 (ident "result"))
+				(capture @17.12-17.16 (ident "data"))
+				(capture @18.13-18.16 (ident "err")))
 			(e-block @14.23-20.2
 				(s-let @15.5-15.39
 					(p-assign @15.5-15.11 (ident "result"))
@@ -436,6 +440,11 @@ combineResults = |result1, result2|
 			(args
 				(p-assign @31.19-31.26 (ident "result1"))
 				(p-assign @31.28-31.35 (ident "result2")))
+			(captures
+				(capture @36.21-36.24 (ident "err"))
+				(capture @35.20-35.26 (ident "value2"))
+				(capture @33.12-33.18 (ident "value1"))
+				(capture @38.13-38.16 (ident "err")))
 			(e-match @32.5-39.6
 				(match @32.5-39.6
 					(cond

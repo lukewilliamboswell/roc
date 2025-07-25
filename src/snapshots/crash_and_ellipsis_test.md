@@ -255,10 +255,7 @@ main! = |_| {
 					(ty @4.23-4.26 (name "U64"))))))
 	(d-let
 		(p-assign @9.1-9.10 (ident "testCrash"))
-		(e-lambda @9.13-9.22
-			(args
-				(p-underscore @9.14-9.15))
-			(e-runtime-error (tag "lambda_body_not_canonicalized")))
+		(e-runtime-error (tag "lambda_body_not_canonicalized"))
 		(annotation @9.1-9.10
 			(declared-type
 				(ty-fn @8.13-8.23 (effectful false)
@@ -266,10 +263,7 @@ main! = |_| {
 					(ty @8.20-8.23 (name "U64"))))))
 	(d-let
 		(p-assign @13.1-13.16 (ident "testCrashSimple"))
-		(e-lambda @13.19-13.28
-			(args
-				(p-underscore @13.20-13.21))
-			(e-runtime-error (tag "lambda_body_not_canonicalized")))
+		(e-runtime-error (tag "lambda_body_not_canonicalized"))
 		(annotation @13.1-13.16
 			(declared-type
 				(ty-fn @12.19-12.29 (effectful false)
@@ -280,10 +274,6 @@ main! = |_| {
 		(e-lambda @15.9-20.2
 			(args
 				(p-underscore @15.10-15.11))
-			(captures
-				(capture @5.1-5.13 (ident "testEllipsis"))
-				(capture @9.1-9.10 (ident "testCrash"))
-				(capture @13.1-13.16 (ident "testCrashSimple")))
 			(e-block @15.13-20.2
 				(s-let @16.5-16.31
 					(p-assign @16.5-16.12 (ident "result1"))
@@ -309,13 +299,13 @@ main! = |_| {
 ~~~clojure
 (inferred-types
 	(defs
-		(patt @5.1-5.13 (type "Error -> Error"))
-		(patt @9.1-9.10 (type "Error -> Error"))
-		(patt @13.1-13.16 (type "Error -> Error"))
+		(patt @5.1-5.13 (type "U64 -> U64"))
+		(patt @9.1-9.10 (type "Error"))
+		(patt @13.1-13.16 (type "Error"))
 		(patt @15.1-15.6 (type "_arg -> List(_elem)")))
 	(expressions
-		(expr @5.16-5.23 (type "Error -> Error"))
-		(expr @9.13-9.22 (type "Error -> Error"))
-		(expr @13.19-13.28 (type "Error -> Error"))
+		(expr @5.16-5.23 (type "U64 -> U64"))
+		(expr @9.17-9.22 (type "Error"))
+		(expr @13.23-13.28 (type "Error"))
 		(expr @15.9-20.2 (type "_arg -> List(_elem)"))))
 ~~~

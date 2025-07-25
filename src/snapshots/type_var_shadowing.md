@@ -104,6 +104,8 @@ main! = |_| {}
 		(e-lambda @5.9-11.2
 			(args
 				(p-assign @5.10-5.11 (ident "x")))
+			(captures
+				(capture @8.5-8.10 (ident "inner")))
 			(e-block @5.13-11.2
 				(s-type-anno @7.5-7.19 (name "inner")
 					(ty-fn @7.13-7.19 (effectful false)

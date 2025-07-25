@@ -355,7 +355,9 @@ NO CHANGE
 				(p-assign @18.6-18.7 (ident "x"))
 				(p-assign @18.9-18.10 (ident "y")))
 			(captures
-				(capture @18.1-18.2 (ident "h"))
+				(capture @26.7-26.8 (ident "a"))
+				(capture @27.6-27.7 (ident "a"))
+				(capture @29.7-29.8 (ident "a"))
 				(capture @28.8-28.9 (ident "a")))
 			(e-block @18.12-31.2
 				(s-let @19.2-19.52

@@ -149,12 +149,14 @@ main! = |_| {}
 			(e-lambda @4.14-4.30
 				(args
 					(p-assign @4.15-4.16 (ident "x")))
+				(captures
+					(capture @4.10-4.12 (ident "fn")))
 				(e-lambda @4.18-4.30
 					(args
 						(p-assign @4.19-4.20 (ident "y")))
 					(captures
-						(capture @4.10-4.12 (ident "fn"))
-						(capture @4.15-4.16 (ident "x")))
+						(capture @4.15-4.16 (ident "x"))
+						(capture @4.10-4.12 (ident "fn")))
 					(e-call @4.22-4.30
 						(e-lookup-local @4.22-4.24
 							(p-assign @4.10-4.12 (ident "fn")))

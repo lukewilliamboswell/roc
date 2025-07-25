@@ -221,6 +221,9 @@ main = |_| "done"
 			(args
 				(p-assign @5.15-5.21 (ident "result"))
 				(p-assign @5.23-5.32 (ident "transform")))
+			(captures
+				(capture @7.12-7.17 (ident "value"))
+				(capture @8.13-8.18 (ident "error")))
 			(e-block @5.34-10.2
 				(e-match @6.5-9.6
 					(match @6.5-9.6

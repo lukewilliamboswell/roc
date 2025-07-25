@@ -152,6 +152,8 @@ main! = |_| {}
 		(e-lambda @5.11-14.2
 			(args
 				(p-assign @5.12-5.16 (ident "list")))
+			(captures
+				(capture @11.5-11.11 (ident "result")))
 			(e-block @5.18-14.2
 				(s-let @7.5-7.14
 					(p-assign @7.5-7.9 (ident "elem"))

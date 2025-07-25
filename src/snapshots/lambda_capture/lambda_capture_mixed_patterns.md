@@ -60,6 +60,8 @@ CloseCurly(4:1-4:2),CloseRound(4:2-4:3),NoSpaceOpenRound(4:3-4:4),Int(4:4-4:5),C
 	(e-lambda @1.2-4.2
 		(args
 			(p-assign @1.3-1.7 (ident "base")))
+		(captures
+			(capture @2.3-2.9 (ident "simple")))
 		(e-block @1.9-4.2
 			(s-let @2.3-2.28
 				(p-assign @2.3-2.9 (ident "simple"))

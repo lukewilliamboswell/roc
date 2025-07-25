@@ -427,6 +427,8 @@ transform = |_, b| b
 		(e-lambda @19.17-23.6
 			(args
 				(p-assign @19.18-19.24 (ident "result")))
+			(captures
+				(capture @22.13-22.16 (ident "msg")))
 			(e-match @20.5-23.6
 				(match @20.5-23.6
 					(cond

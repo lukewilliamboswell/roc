@@ -85,6 +85,8 @@ main! = |_| {
 		(e-lambda @6.9-10.2
 			(args
 				(p-underscore @6.10-6.11))
+			(captures
+				(capture @8.5-8.11 (ident "result")))
 			(e-block @6.13-10.2
 				(s-let @8.5-8.54
 					(p-assign @8.5-8.11 (ident "result"))

@@ -234,9 +234,7 @@ main! = |_| {
 			(args
 				(p-underscore @15.10-15.11))
 			(captures
-				(capture @5.1-5.9 (ident "identity"))
-				(capture @9.1-9.8 (ident "combine"))
-				(capture @13.1-13.7 (ident "addOne")))
+				(capture @24.5-24.11 (ident "result")))
 			(e-block @15.13-27.2
 				(s-let @17.5-17.23
 					(p-assign @17.5-17.8 (ident "num"))

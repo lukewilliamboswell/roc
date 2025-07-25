@@ -1840,6 +1840,8 @@ expect {
 		(e-lambda @68.11-78.2
 			(args
 				(p-assign @68.12-68.15 (ident "num")))
+			(captures
+				(capture @69.2-69.7 (ident "other")))
 			(e-block @68.17-78.2
 				(s-let @69.2-69.11
 					(p-assign @69.2-69.7 (ident "other"))
@@ -1871,6 +1873,10 @@ expect {
 			(args
 				(p-assign @81.2-81.3 (ident "a"))
 				(p-assign @82.2-82.3 (ident "b")))
+			(captures
+				(capture @136.11-136.15 (ident "dude"))
+				(capture @94.5-94.6 (ident "x"))
+				(capture @86.4-86.5 (ident "x")))
 			(e-match @84.2-138.3
 				(match @84.2-138.3
 					(cond
@@ -2080,9 +2086,7 @@ expect {
 			(args
 				(p-underscore @144.10-144.11))
 			(captures
-				(capture @80.1-80.11 (ident "match_time"))
-				(capture @146.2-146.18 (ident "number"))
-				(capture @68.1-68.8 (ident "add_one")))
+				(capture @146.2-146.18 (ident "number")))
 			(e-block @144.13-196.2
 				(s-let @145.2-145.17
 					(p-assign @145.2-145.7 (ident "world"))

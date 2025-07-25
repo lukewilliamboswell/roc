@@ -309,10 +309,7 @@ main! = |_| processComplex(Ok([Some(42), None]))
 						(ty-var @4.71-4.72 (name "a")))))))
 	(d-let
 		(p-assign @13.1-13.11 (ident "deepNested"))
-		(e-lambda @13.14-13.23
-			(args
-				(p-underscore @13.15-13.16))
-			(e-runtime-error (tag "lambda_body_not_canonicalized")))
+		(e-runtime-error (tag "lambda_body_not_canonicalized"))
 		(annotation @13.1-13.11
 			(declared-type
 				(ty-fn @12.14-12.56 (effectful false)
@@ -361,7 +358,7 @@ main! = |_| processComplex(Ok([Some(42), None]))
 (inferred-types
 	(defs
 		(patt @5.1-5.15 (type "Error -> Error"))
-		(patt @13.1-13.11 (type "Error -> Error"))
+		(patt @13.1-13.11 (type "Error"))
 		(patt @18.1-18.6 (type "_arg -> Error")))
 	(type_decls
 		(alias @16.1-16.64 (type "Error")
@@ -371,6 +368,6 @@ main! = |_| processComplex(Ok([Some(42), None]))
 					(ty-var @16.16-16.17 (name "b"))))))
 	(expressions
 		(expr @5.18-9.6 (type "Error -> Error"))
-		(expr @13.14-13.23 (type "Error -> Error"))
+		(expr @13.18-13.23 (type "Error"))
 		(expr @18.9-18.49 (type "_arg -> Error"))))
 ~~~

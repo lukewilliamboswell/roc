@@ -304,10 +304,10 @@ main! = |_| {
 			(args
 				(p-underscore @19.10-19.11))
 			(captures
-				(capture @5.1-5.4 (ident "add"))
-				(capture @9.1-9.9 (ident "multiply"))
-				(capture @13.1-13.8 (ident "process"))
-				(capture @17.1-17.7 (ident "double")))
+				(capture @21.5-21.12 (ident "result2"))
+				(capture @22.5-22.12 (ident "result3"))
+				(capture @23.5-23.12 (ident "result4"))
+				(capture @20.5-20.12 (ident "result1")))
 			(e-block @19.13-25.2
 				(s-let @20.5-20.21
 					(p-assign @20.5-20.12 (ident "result1"))
