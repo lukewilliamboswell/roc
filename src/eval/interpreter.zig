@@ -632,7 +632,13 @@ pub const Interpreter = struct {
                 });
             },
 
-            .e_lambda => |lambda_expr| try self.createClosure(expr_idx, lambda_expr),
+            .e_closure => |closure_expr| try self.createClosure(expr_idx, closure_expr),
+
+            .e_lambda => |_| {
+                // A pure lambda cannot be evaluated as a value on its own.
+                // It must be wrapped in a closure. This indicates a compiler bug.
+                return error.LayoutError;
+            },
 
             .e_tuple => |tuple_expr| {
                 const layout_idx = try self.getLayoutIdx(expr_idx);
@@ -1455,15 +1461,21 @@ pub const Interpreter = struct {
     }
 
     /// Creates a closure from a lambda expression with proper capture handling
-    fn createClosure(self: *Interpreter, expr_idx: CIR.Expr.Idx, lambda_expr: CIR.Expr.Lambda) EvalError!void {
-        self.traceEnter("createClosure for lambda expr_idx={}", .{expr_idx});
+    fn createClosure(self: *Interpreter, expr_idx: CIR.Expr.Idx, closure_expr: CIR.Expr.Closure) EvalError!void {
+        self.traceEnter("createClosure for closure expr_idx={}", .{expr_idx});
         defer self.traceExit("", .{});
+
+        // Get the underlying lambda expression
+        const lambda_expr = switch (self.cir.store.getExpr(closure_expr.lambda_idx)) {
+            .e_lambda => |l| l,
+            else => return error.LayoutError, // Should always be a lambda
+        };
 
         // Collect and filter captures
         var final_captures = std.ArrayList(CIR.Capture).init(self.allocator);
         defer final_captures.deinit();
 
-        try self.collectAndFilterCaptures(lambda_expr, &final_captures);
+        try self.collectAndFilterCaptures(closure_expr, &final_captures);
 
         // Create closure layout for captures
         const captures_layout_idx = try self.createClosureLayout(&final_captures);
@@ -1501,7 +1513,7 @@ pub const Interpreter = struct {
             .params = lambda_expr.args,
             .captures_pattern_idx = @enumFromInt(0), // Not used in our direct binding approach
             .captures_layout_idx = captures_layout_idx,
-            .lambda_expr_idx = expr_idx,
+            .lambda_expr_idx = expr_idx, // Store the e_closure's index
         };
 
         // Copy captures to closure memory
@@ -1517,18 +1529,17 @@ pub const Interpreter = struct {
     /// It re-analyzes the lambda body to find all free variables.
     fn collectAndFilterCaptures(
         self: *Interpreter,
-        lambda_expr: anytype,
+        closure_expr: CIR.Expr.Closure,
         final_captures: *std.ArrayList(CIR.Capture),
     ) EvalError!void {
         // The canonicalization step now provides the definitive list of captures.
-        // We can trust it directly.
-        const captures = self.cir.store.sliceCaptures(lambda_expr.captures);
+        const captures = self.cir.store.sliceCaptures(closure_expr.captures);
         for (captures) |capture_idx| {
             const capture = self.cir.store.getCapture(capture_idx);
             try final_captures.append(capture);
         }
 
-        self.traceInfo("Collected {} captures directly from CIR for lambda {}", .{ final_captures.items.len, lambda_expr.body });
+        self.traceInfo("Collected {} captures directly from CIR for closure {}", .{ final_captures.items.len, closure_expr.lambda_idx });
     }
 
     /// Creates the layout for closure captures
@@ -1718,11 +1729,11 @@ pub const Interpreter = struct {
         self.traceEnter("bindCapturesDirectly", .{});
         defer self.traceExit("", .{});
 
-        // Get the lambda expression to access its captures using the stored lambda_expr_idx
-        const lambda_expr = switch (self.cir.store.getExpr(closure.lambda_expr_idx)) {
-            .e_lambda => |lambda| lambda,
+        // Get the closure expression to access its captures using the stored lambda_expr_idx
+        const closure_expr = switch (self.cir.store.getExpr(closure.lambda_expr_idx)) {
+            .e_closure => |c| c,
             else => {
-                self.traceError("lambda_expr_idx does not point to a lambda expression", .{});
+                self.traceError("lambda_expr_idx does not point to a closure expression", .{});
                 return error.LayoutError;
             },
         };
@@ -1745,7 +1756,7 @@ pub const Interpreter = struct {
         // This is inefficient, but necessary because the CIR is wrong.
         var final_captures = std.ArrayList(CIR.Capture).init(self.allocator);
         defer final_captures.deinit();
-        try self.collectAndFilterCaptures(lambda_expr, &final_captures);
+        try self.collectAndFilterCaptures(closure_expr, &final_captures);
 
         // Bind each capture by creating a direct binding
         for (0..record_fields.len) |i| {

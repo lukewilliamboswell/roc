@@ -2312,19 +2312,29 @@ pub fn canonicalizeExpr(
                 break :blk try self.can_ir.store.capturesSpanFrom(scratch_start);
             };
 
-            // Create lambda expression with function type and captures
+            // Create the pure lambda expression first
+            const lambda_expr = CIR.Expr{
+                .e_lambda = .{
+                    .args = args_span,
+                    .body = can_body.idx,
+                },
+            };
             const lambda_type_content = try self.can_ir.env.types.mkFuncUnbound(
                 @ptrCast(self.can_ir.store.slicePatterns(args_span)),
                 CIR.varFrom(can_body.idx),
             );
+            const lambda_idx = try self.can_ir.addExprAndTypeVar(lambda_expr, lambda_type_content, region);
 
-            const expr_idx = try self.can_ir.addExprAndTypeVar(CIR.Expr{
-                .e_lambda = .{
-                    .args = args_span,
-                    .body = can_body.idx,
+            // Now, create the closure that captures the environment
+            const closure_expr = CIR.Expr{
+                .e_closure = .{
+                    .lambda_idx = lambda_idx,
                     .captures = capture_info,
                 },
-            }, lambda_type_content, region);
+            };
+
+            // The type of the closure is the same as the type of the pure lambda
+            const expr_idx = try self.can_ir.addExprAndTypeVar(closure_expr, lambda_type_content, region);
 
             // The free variables of the lambda are its captures.
             // I need to add them to the global list and return a span.
