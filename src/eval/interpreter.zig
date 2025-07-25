@@ -1520,74 +1520,15 @@ pub const Interpreter = struct {
         lambda_expr: anytype,
         final_captures: *std.ArrayList(CIR.Capture),
     ) EvalError!void {
-        var all_potential_captures = std.ArrayList(CIR.Capture).init(self.allocator);
-        defer all_potential_captures.deinit();
-
-        var bound_patterns = std.ArrayList(CIR.Pattern.Idx).init(self.allocator);
-        defer bound_patterns.deinit();
-
-        // A variable is captured if it's free in the body. A variable is free if it's
-        // used in the body but not defined by the lambda's own parameters.
-        const params = self.cir.store.slicePatterns(lambda_expr.args);
-        for (params) |p_idx| {
-            try self.collectAllPatternIndices(p_idx, &bound_patterns);
+        // The canonicalization step now provides the definitive list of captures.
+        // We can trust it directly.
+        const captures = self.cir.store.sliceCaptures(lambda_expr.captures);
+        for (captures) |capture_idx| {
+            const capture = self.cir.store.getCapture(capture_idx);
+            try final_captures.append(capture);
         }
 
-        try self.findCapturesInExpr(lambda_expr.body, &bound_patterns, &all_potential_captures);
-
-        // Deduplicate captures
-        var seen_captures = std.ArrayList(CIR.Pattern.Idx).init(self.allocator);
-        defer seen_captures.deinit();
-
-        for (all_potential_captures.items) |capture| {
-            const is_seen = blk: {
-                for (seen_captures.items) |seen_idx| {
-                    if (seen_idx == capture.pattern_idx) {
-                        break :blk true;
-                    }
-                }
-                break :blk false;
-            };
-
-            if (!is_seen) {
-                try final_captures.append(capture);
-                try seen_captures.append(capture.pattern_idx);
-            }
-        }
-
-        self.traceInfo("Filtered {} captures from {} total (params found: {})", .{ final_captures.items.len, all_potential_captures.items.len, bound_patterns.items.len });
-    }
-
-    /// Recursively collects all pattern indices from a pattern, including nested patterns
-    fn collectAllPatternIndices(self: *Interpreter, pattern_idx: CIR.Pattern.Idx, all_patterns: *std.ArrayList(CIR.Pattern.Idx)) EvalError!void {
-        try all_patterns.append(pattern_idx);
-
-        const pattern = self.cir.store.getPattern(pattern_idx);
-        switch (pattern) {
-            .record_destructure => |record_destruct| {
-                const destructs = self.cir.store.sliceRecordDestructs(record_destruct.destructs);
-                for (destructs) |destruct_idx| {
-                    const destruct = self.cir.store.getRecordDestruct(destruct_idx);
-                    const inner_pattern_idx = switch (destruct.kind) {
-                        .Required => |p_idx| p_idx,
-                        .SubPattern => |p_idx| p_idx,
-                    };
-                    try self.collectAllPatternIndices(inner_pattern_idx, all_patterns);
-                }
-            },
-            .tuple => |tuple_pattern| {
-                const patterns = self.cir.store.slicePatterns(tuple_pattern.patterns);
-                for (patterns) |inner_pattern_idx| {
-                    try self.collectAllPatternIndices(inner_pattern_idx, all_patterns);
-                }
-            },
-            .assign => {
-                // Already added this pattern above
-            },
-            else => {
-                // For other pattern types, we just include the pattern itself
-            },
-        }
+        self.traceInfo("Collected {} captures directly from CIR for lambda {}", .{ final_captures.items.len, lambda_expr.body });
     }
 
     /// Creates the layout for closure captures
@@ -1597,7 +1538,7 @@ pub const Interpreter = struct {
         }
 
         // Use dynamic allocation for field layouts and names
-        var field_layouts = try self.allocator.alloc(Layout, captures.items.len);
+        var field_layouts = try self.allocator.alloc(layout.Layout, captures.items.len);
         defer self.allocator.free(field_layouts);
         var field_names = try self.allocator.alloc(base.Ident.Idx, captures.items.len);
         defer self.allocator.free(field_names);
@@ -1839,95 +1780,6 @@ pub const Interpreter = struct {
 
             try self.bindings_stack.append(binding);
             self.traceInfo("Bound capture '{s}' (pattern_idx={}) directly", .{ capture_name_text, @intFromEnum(pat_idx) });
-        }
-    }
-
-    /// Recursively traverses an expression to find all free variables (captures).
-    fn findCapturesInExpr(
-        self: *Interpreter,
-        expr_idx: CIR.Expr.Idx,
-        bound_patterns: *const std.ArrayList(CIR.Pattern.Idx),
-        captures_list: *std.ArrayList(CIR.Capture),
-    ) !void {
-        const expr = self.cir.store.getExpr(expr_idx);
-
-        switch (expr) {
-            .e_lambda => |lambda| {
-                // The captures of this nested lambda are free variables in the outer scope,
-                // unless they are bound by this nested lambda's parameters.
-                var nested_bound = try bound_patterns.clone();
-                defer nested_bound.deinit();
-
-                const params = self.cir.store.slicePatterns(lambda.args);
-                for (params) |p_idx| {
-                    try self.collectAllPatternIndices(p_idx, &nested_bound);
-                }
-
-                // Recurse into the body with the extended set of bound patterns.
-                try self.findCapturesInExpr(lambda.body, &nested_bound, captures_list);
-            },
-            .e_lookup_local => |lookup| {
-                const is_bound = blk: {
-                    for (bound_patterns.items) |bound_idx| {
-                        if (bound_idx == lookup.pattern_idx) {
-                            break :blk true;
-                        }
-                    }
-                    break :blk false;
-                };
-
-                if (!is_bound) {
-                    // This is a free variable. We need to find its original name to create a Capture.
-                    // We assume the CIR's capture list on the *innermost* relevant lambda is correct.
-                    // This is a significant assumption and the core of the workaround.
-                    // We find the name from the pattern itself.
-                    const pattern = self.cir.store.getPattern(lookup.pattern_idx);
-                    if (pattern == .assign) {
-                        try captures_list.append(.{
-                            .pattern_idx = lookup.pattern_idx,
-                            .name = pattern.assign.ident,
-                            .scope_depth = 0, // workaround: not used by interpreter
-                        });
-                    }
-                }
-            },
-            .e_call => |call| {
-                const args = self.cir.store.sliceExpr(call.args);
-                for (args) |arg_idx| {
-                    try self.findCapturesInExpr(arg_idx, bound_patterns, captures_list);
-                }
-            },
-            .e_if => |if_expr| {
-                const branches = self.cir.store.sliceIfBranches(if_expr.branches);
-                for (branches) |branch_idx| {
-                    const branch = self.cir.store.getIfBranch(branch_idx);
-                    try self.findCapturesInExpr(branch.cond, bound_patterns, captures_list);
-                    try self.findCapturesInExpr(branch.body, bound_patterns, captures_list);
-                }
-                try self.findCapturesInExpr(if_expr.final_else, bound_patterns, captures_list);
-            },
-            .e_binop => |binop| {
-                try self.findCapturesInExpr(binop.lhs, bound_patterns, captures_list);
-                try self.findCapturesInExpr(binop.rhs, bound_patterns, captures_list);
-            },
-            .e_unary_minus => |unary| {
-                try self.findCapturesInExpr(unary.expr, bound_patterns, captures_list);
-            },
-            .e_record => |record| {
-                const fields = self.cir.store.sliceRecordFields(record.fields);
-                for (fields) |field_idx| {
-                    const field = self.cir.store.getRecordField(field_idx);
-                    try self.findCapturesInExpr(field.value, bound_patterns, captures_list);
-                }
-            },
-            .e_tuple => |tuple| {
-                const elems = self.cir.store.sliceExpr(tuple.elems);
-                for (elems) |elem_idx| {
-                    try self.findCapturesInExpr(elem_idx, bound_patterns, captures_list);
-                }
-            },
-            // Base cases: these expressions do not contain other expressions.
-            .e_int, .e_frac_f64, .e_zero_argument_tag, .e_empty_record, .e_empty_list, .e_runtime_error, .e_tag, .e_str, .e_str_segment, .e_list, .e_dot_access, .e_block, .e_lookup_external, .e_match, .e_frac_dec, .e_dec_small, .e_crash, .e_dbg, .e_expect, .e_ellipsis, .e_nominal => {},
         }
     }
 };
