@@ -2704,7 +2704,6 @@ pub fn canonicalizeExpr(
 
             // Keep track of the start position for statements
             const stmt_start = self.can_ir.store.scratch_statements.top();
-            const free_vars_start = self.scratch_free_vars.top();
             var bound_vars = std.AutoHashMapUnmanaged(CIR.Pattern.Idx, void){};
             defer bound_vars.deinit(self.can_ir.env.gpa);
 
@@ -2744,7 +2743,7 @@ pub fn canonicalizeExpr(
                             }
                         }
                         // Collect bound vars from the statement
-                        const cir_stmt = self.can_ir.store.getStatement(self.can_ir.store.scratch_statements.items[self.can_ir.store.scratch_statements.top() - 1]);
+                        const cir_stmt = self.can_ir.store.getStatement(self.can_ir.store.scratch_statements.items.items[self.can_ir.store.scratch_statements.top() - 1]);
                         if (cir_stmt == .s_decl) {
                             try self.collectBoundVars(cir_stmt.s_decl.pattern, &bound_vars);
                         } else if (cir_stmt == .s_var) {
@@ -2770,16 +2769,6 @@ pub fn canonicalizeExpr(
                     try self.scratch_free_vars.append(self.can_ir.env.gpa, fv);
                 }
             }
-
-            // Determine the final expression
-            const final_expr = if (last_expr) |can_expr| can_expr else blk: {
-                // Empty block - create empty record
-                const expr_idx = try self.can_ir.addExprAndTypeVar(CIR.Expr{
-                    .e_empty_record = .{},
-                }, Content{ .structure = .empty_record }, region);
-                break :blk CanonicalizedExpr{ .idx = expr_idx, .free_vars = null };
-            };
-            const final_expr_var = @as(TypeVar, @enumFromInt(@intFromEnum(final_expr.idx)));
 
             // Create statement span
             const stmt_span = try self.can_ir.store.statementSpanFrom(stmt_start);
