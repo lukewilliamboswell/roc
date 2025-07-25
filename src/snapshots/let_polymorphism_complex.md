@@ -823,19 +823,20 @@ main = |_| {
 						(e-literal @55.12-55.18 (string "fruits")))))))
 	(d-let
 		(p-assign @59.1-59.15 (ident "make_container"))
-		(e-lambda @59.18-59.54
-			(args
-				(p-assign @59.19-59.22 (ident "val")))
-			(e-record @59.24-59.54
-				(fields
-					(field (name "value")
-						(e-lookup-local @59.33-59.36
-							(p-assign @59.19-59.22 (ident "val"))))
-					(field (name "wrapper")
-						(e-list @59.47-59.52
-							(elems
-								(e-lookup-local @59.48-59.51
-									(p-assign @59.19-59.22 (ident "val"))))))))))
+		(e-closure @59.18-59.54
+			(e-lambda @59.18-59.54
+				(args
+					(p-assign @59.19-59.22 (ident "val")))
+				(e-record @59.24-59.54
+					(fields
+						(field (name "value")
+							(e-lookup-local @59.33-59.36
+								(p-assign @59.19-59.22 (ident "val"))))
+						(field (name "wrapper")
+							(e-list @59.47-59.52
+								(elems
+									(e-lookup-local @59.48-59.51
+										(p-assign @59.19-59.22 (ident "val")))))))))))
 	(d-let
 		(p-assign @60.1-60.11 (ident "container1"))
 		(e-call @60.14-60.33
@@ -1039,18 +1040,19 @@ main = |_| {
 											(p-assign @4.1-4.4 (ident "num"))))))))))))
 	(d-let
 		(p-assign @105.1-105.5 (ident "main"))
-		(e-lambda @105.8-108.2
-			(args
-				(p-underscore @105.9-105.10))
+		(e-closure @105.8-108.2
 			(captures
 				(capture @60.1-60.11 (ident "container1")))
-			(e-block @105.12-108.2
-				(e-binop @107.5-107.26 (op "add")
-					(e-dot-access @107.5-107.21 (field "value")
-						(receiver
-							(e-lookup-local @107.5-107.15
-								(p-assign @60.1-60.11 (ident "container1")))))
-					(e-int @107.24-107.26 (value "10")))))))
+			(e-lambda @105.8-108.2
+				(args
+					(p-underscore @105.9-105.10))
+				(e-block @105.12-108.2
+					(e-binop @107.5-107.26 (op "add")
+						(e-dot-access @107.5-107.21 (field "value")
+							(receiver
+								(e-lookup-local @107.5-107.15
+									(p-assign @60.1-60.11 (ident "container1")))))
+						(e-int @107.24-107.26 (value "10"))))))))
 ~~~
 # TYPES
 ~~~clojure
@@ -1074,7 +1076,7 @@ main = |_| {
 		(patt @38.1-38.8 (type "{ data: List(Num(_size)), metadata: { version: Num(_size2), ratio: Frac(_size3), description: Str }, name: Str }"))
 		(patt @48.1-48.8 (type "{ data: List(Str), metadata: { version: Num(_size), ratio: Frac(_size2), description: Str }, name: Str }"))
 		(patt @59.1-59.15 (type "_arg -> { value: _field, wrapper: List(_elem) }"))
-		(patt @60.1-60.11 (type "{ value: Num(_size), wrapper: List(_elem) }"))
+		(patt @60.1-60.11 (type "{ value: _field, wrapper: List(_elem) }"))
 		(patt @61.1-61.11 (type "{ value: _field, wrapper: List(_elem) }"))
 		(patt @62.1-62.11 (type "{ value: _field, wrapper: List(_elem) }"))
 		(patt @65.1-65.5 (type "{ level1: { level2: { level3: { data: List(Num(_size)), value: Num(_size2) }, items: List(Num(_size3)) }, collection: List(Num(_size4)) }, results: List({ data: List(Num(_size5)), tag: Str }) }"))
@@ -1083,7 +1085,7 @@ main = |_| {
 		(patt @86.1-86.9 (type "List(Num(_size))"))
 		(patt @87.1-87.9 (type "{ base: Num(_size), derived: List(Num(_size2)) }"))
 		(patt @90.1-90.6 (type "{ numbers: { value: Num(_size), list: List(Num(_size2)), float: Frac(_size3) }, strings: { value: Str, list: List(Str) }, empty_lists: { raw: List(Num(_size4)), in_list: List(List(Num(_size5))), in_record: { data: List(Num(_size6)) } }, computations: { from_num: Num(_size7), from_frac: Frac(_size8), list_from_num: List(Num(_size9)) } }"))
-		(patt @105.1-105.5 (type "_arg -> Num(_size)")))
+		(patt @105.1-105.5 (type "_arg -> _ret")))
 	(expressions
 		(expr @4.7-4.9 (type "Num(_size)"))
 		(expr @5.8-5.11 (type "Frac(_size)"))
@@ -1103,7 +1105,7 @@ main = |_| {
 		(expr @38.11-46.2 (type "{ data: List(Num(_size)), metadata: { version: Num(_size2), ratio: Frac(_size3), description: Str }, name: Str }"))
 		(expr @48.11-56.2 (type "{ data: List(Str), metadata: { version: Num(_size), ratio: Frac(_size2), description: Str }, name: Str }"))
 		(expr @59.18-59.54 (type "_arg -> { value: _field, wrapper: List(_elem) }"))
-		(expr @60.14-60.33 (type "{ value: Num(_size), wrapper: List(_elem) }"))
+		(expr @60.14-60.33 (type "{ value: _field, wrapper: List(_elem) }"))
 		(expr @61.14-61.33 (type "{ value: _field, wrapper: List(_elem) }"))
 		(expr @62.14-62.34 (type "{ value: _field, wrapper: List(_elem) }"))
 		(expr @65.8-81.2 (type "{ level1: { level2: { level3: { data: List(Num(_size)), value: Num(_size2) }, items: List(Num(_size3)) }, collection: List(Num(_size4)) }, results: List({ data: List(Num(_size5)), tag: Str }) }"))
@@ -1112,5 +1114,5 @@ main = |_| {
 		(expr @86.12-86.22 (type "List(Num(_size))"))
 		(expr @87.12-87.59 (type "{ base: Num(_size), derived: List(Num(_size2)) }"))
 		(expr @90.9-103.2 (type "{ numbers: { value: Num(_size), list: List(Num(_size2)), float: Frac(_size3) }, strings: { value: Str, list: List(Str) }, empty_lists: { raw: List(Num(_size4)), in_list: List(List(Num(_size5))), in_record: { data: List(Num(_size6)) } }, computations: { from_num: Num(_size7), from_frac: Frac(_size8), list_from_num: List(Num(_size9)) } }"))
-		(expr @105.8-108.2 (type "_arg -> Num(_size)"))))
+		(expr @105.8-108.2 (type "_arg -> _ret"))))
 ~~~

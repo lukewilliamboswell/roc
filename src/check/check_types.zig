@@ -757,14 +757,6 @@ pub fn checkExpr(self: *Self, expr_idx: CIR.Expr.Idx) std.mem.Allocator.Error!bo
             const closure_var = CIR.varFrom(expr_idx);
             _ = try self.unify(closure_var, lambda_var);
         },
-        .e_closure => |closure| {
-            // The type of a closure is the type of the lambda it wraps.
-            // The lambda's type is determined by its arguments and body.
-            // We need to check the lambda expression itself to get its type.
-            const lambda_var = CIR.varFrom(closure.lambda_idx);
-            const closure_var = CIR.varFrom(expr_idx);
-            _ = try self.unify(closure_var, lambda_var);
-        },
         .e_lambda => |lambda| {
             does_fx = try self.checkLambdaWithExpected(expr_idx, expr_region, lambda, null);
         },

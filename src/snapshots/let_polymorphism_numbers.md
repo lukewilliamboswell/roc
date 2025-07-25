@@ -208,13 +208,14 @@ main = |_| {
 			(e-dec-small @17.24-17.27 (numerator "25") (denominator-power-of-ten "1") (value "2.5"))))
 	(d-let
 		(p-assign @20.1-20.7 (ident "double"))
-		(e-lambda @20.10-20.19
-			(args
-				(p-assign @20.11-20.12 (ident "x")))
-			(e-binop @20.14-20.19 (op "mul")
-				(e-lookup-local @20.14-20.15
+		(e-closure @20.10-20.19
+			(e-lambda @20.10-20.19
+				(args
 					(p-assign @20.11-20.12 (ident "x")))
-				(e-int @20.18-20.19 (value "2")))))
+				(e-binop @20.14-20.19 (op "mul")
+					(e-lookup-local @20.14-20.15
+						(p-assign @20.11-20.12 (ident "x")))
+					(e-int @20.18-20.19 (value "2"))))))
 	(d-let
 		(p-assign @23.1-23.12 (ident "int_doubled"))
 		(e-call @23.15-23.24
@@ -229,18 +230,19 @@ main = |_| {
 			(e-dec-small @24.24-24.27 (numerator "25") (denominator-power-of-ten "1") (value "2.5"))))
 	(d-let
 		(p-assign @26.1-26.5 (ident "main"))
-		(e-lambda @26.8-29.2
-			(args
-				(p-underscore @26.9-26.10))
+		(e-closure @26.8-29.2
 			(captures
 				(capture @13.1-13.13 (ident "int_multiply"))
 				(capture @12.1-12.8 (ident "int_add")))
-			(e-block @26.12-29.2
-				(e-binop @28.5-28.27 (op "add")
-					(e-lookup-local @28.5-28.12
-						(p-assign @12.1-12.8 (ident "int_add")))
-					(e-lookup-local @28.15-28.27
-						(p-assign @13.1-13.13 (ident "int_multiply"))))))))
+			(e-lambda @26.8-29.2
+				(args
+					(p-underscore @26.9-26.10))
+				(e-block @26.12-29.2
+					(e-binop @28.5-28.27 (op "add")
+						(e-lookup-local @28.5-28.12
+							(p-assign @12.1-12.8 (ident "int_add")))
+						(e-lookup-local @28.15-28.27
+							(p-assign @13.1-13.13 (ident "int_multiply")))))))))
 ~~~
 # TYPES
 ~~~clojure
@@ -254,10 +256,10 @@ main = |_| {
 		(patt @13.1-13.13 (type "Frac(_size)"))
 		(patt @16.1-16.10 (type "Frac(_size)"))
 		(patt @17.1-17.15 (type "Frac(_size)"))
-		(patt @20.1-20.7 (type "Num(_size) -> Num(_size2)"))
-		(patt @23.1-23.12 (type "Num(_size)"))
-		(patt @24.1-24.14 (type "Num(_size)"))
-		(patt @26.1-26.5 (type "_arg -> Frac(_size)")))
+		(patt @20.1-20.7 (type "_arg -> _ret"))
+		(patt @23.1-23.12 (type "_a"))
+		(patt @24.1-24.14 (type "_a"))
+		(patt @26.1-26.5 (type "_arg -> _ret")))
 	(expressions
 		(expr @4.7-4.9 (type "Frac(_size)"))
 		(expr @5.8-5.11 (type "Frac(_size)"))
@@ -267,8 +269,8 @@ main = |_| {
 		(expr @13.16-13.23 (type "Frac(_size)"))
 		(expr @16.13-16.23 (type "Frac(_size)"))
 		(expr @17.18-17.27 (type "Frac(_size)"))
-		(expr @20.10-20.19 (type "Num(_size) -> Num(_size2)"))
-		(expr @23.15-23.24 (type "Num(_size)"))
-		(expr @24.17-24.28 (type "Num(_size)"))
-		(expr @26.8-29.2 (type "_arg -> Frac(_size)"))))
+		(expr @20.10-20.19 (type "_arg -> _ret"))
+		(expr @23.15-23.24 (type "_a"))
+		(expr @24.17-24.28 (type "_a"))
+		(expr @26.8-29.2 (type "_arg -> _ret"))))
 ~~~

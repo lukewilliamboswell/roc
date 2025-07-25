@@ -128,13 +128,14 @@ CloseCurly(10:1-10:2),EndOfFile(10:2-10:2),
 					(e-string @5.17-5.23
 						(e-literal @5.18-5.22 (string "oops"))))))
 		(field (name "addOne")
-			(e-lambda @6.13-6.22
-				(args
-					(p-assign @6.14-6.15 (ident "x")))
-				(e-binop @6.17-6.22 (op "add")
-					(e-lookup-local @6.17-6.18
+			(e-closure @6.13-6.22
+				(e-lambda @6.13-6.22
+					(args
 						(p-assign @6.14-6.15 (ident "x")))
-					(e-int @6.21-6.22 (value "1")))))
+					(e-binop @6.17-6.22 (op "add")
+						(e-lookup-local @6.17-6.18
+							(p-assign @6.14-6.15 (ident "x")))
+						(e-int @6.21-6.22 (value "1"))))))
 		(field (name "result")
 			(e-call @7.13-7.22
 				(e-runtime-error (tag "ident_not_in_scope"))
@@ -163,5 +164,5 @@ CloseCurly(10:1-10:2),EndOfFile(10:2-10:2),
 ~~~
 # TYPES
 ~~~clojure
-(expr @1.1-10.2 (type "{ someTag: [Some(Num(_size))]_others, noneTag: [None]_others2, okTag: [Ok(Str)]_others3, errTag: [Err(Str)]_others4, addOne: Num(_size2) -> Num(_size3), result: _field, nested: [Some([Ok([Just(Num(_size4))]_others5)]_others6)]_others7, tagList: List([Some(Num(_size5))][None]_others8) }"))
+(expr @1.1-10.2 (type "{ someTag: [Some(Num(_size))]_others, noneTag: [None]_others2, okTag: [Ok(Str)]_others3, errTag: [Err(Str)]_others4, addOne: _arg -> _ret, result: _field, nested: [Some([Ok([Just(Num(_size2))]_others5)]_others6)]_others7, tagList: List([Some(Num(_size3))][None]_others8) }"))
 ~~~

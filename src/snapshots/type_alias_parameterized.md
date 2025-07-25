@@ -15,22 +15,9 @@ swapPair = |(x, y)| (y, x)
 main! = |_| swapPair(1, 2)
 ~~~
 # EXPECTED
-TYPE MISMATCH - type_alias_parameterized.md:8:13:8:21
+NIL
 # PROBLEMS
-**TYPE MISMATCH**
-This expression is used in an unexpected way:
-**type_alias_parameterized.md:8:13:8:21:**
-```roc
-main! = |_| swapPair(1, 2)
-```
-            ^^^^^^^^
-
-It is of type:
-    _Pair(a, b) -> Pair(b, a)_
-
-But you are trying to use it as:
-    _Num(_size), Num(_size2) -> _ret_
-
+NIL
 # TOKENS
 ~~~zig
 KwApp(1:1-1:4),OpenSquare(1:5-1:6),LowerIdent(1:6-1:11),CloseSquare(1:11-1:12),OpenCurly(1:13-1:14),LowerIdent(1:15-1:17),OpColon(1:17-1:18),KwPlatform(1:19-1:27),StringStart(1:28-1:29),StringPart(1:29-1:50),StringEnd(1:50-1:51),CloseCurly(1:52-1:53),
@@ -101,18 +88,19 @@ NO CHANGE
 (can-ir
 	(d-let
 		(p-assign @6.1-6.9 (ident "swapPair"))
-		(e-lambda @6.12-6.27
-			(args
-				(p-tuple @6.13-6.19
-					(patterns
-						(p-assign @6.14-6.15 (ident "x"))
-						(p-assign @6.17-6.18 (ident "y")))))
-			(e-tuple @6.21-6.27
-				(elems
-					(e-lookup-local @6.22-6.23
-						(p-assign @6.17-6.18 (ident "y")))
-					(e-lookup-local @6.25-6.26
-						(p-assign @6.14-6.15 (ident "x"))))))
+		(e-closure @6.12-6.27
+			(e-lambda @6.12-6.27
+				(args
+					(p-tuple @6.13-6.19
+						(patterns
+							(p-assign @6.14-6.15 (ident "x"))
+							(p-assign @6.17-6.18 (ident "y")))))
+				(e-tuple @6.21-6.27
+					(elems
+						(e-lookup-local @6.22-6.23
+							(p-assign @6.17-6.18 (ident "y")))
+						(e-lookup-local @6.25-6.26
+							(p-assign @6.14-6.15 (ident "x")))))))
 		(annotation @6.1-6.9
 			(declared-type
 				(ty-fn @5.12-5.36 (effectful false)
@@ -124,16 +112,17 @@ NO CHANGE
 						(ty-var @5.34-5.35 (name "a")))))))
 	(d-let
 		(p-assign @8.1-8.6 (ident "main!"))
-		(e-lambda @8.9-8.27
-			(args
-				(p-underscore @8.10-8.11))
+		(e-closure @8.9-8.27
 			(captures
 				(capture @6.1-6.9 (ident "swapPair")))
-			(e-call @8.13-8.27
-				(e-lookup-local @8.13-8.21
-					(p-assign @6.1-6.9 (ident "swapPair")))
-				(e-int @8.22-8.23 (value "1"))
-				(e-int @8.25-8.26 (value "2")))))
+			(e-lambda @8.9-8.27
+				(args
+					(p-underscore @8.10-8.11))
+				(e-call @8.13-8.27
+					(e-lookup-local @8.13-8.21
+						(p-assign @6.1-6.9 (ident "swapPair")))
+					(e-int @8.22-8.23 (value "1"))
+					(e-int @8.25-8.26 (value "2"))))))
 	(s-alias-decl @3.1-3.20
 		(ty-header @3.1-3.11 (name "Pair")
 			(ty-args
@@ -147,7 +136,7 @@ NO CHANGE
 ~~~clojure
 (inferred-types
 	(defs
-		(patt @6.1-6.9 (type "Error"))
+		(patt @6.1-6.9 (type "Pair(a, b) -> Pair(b, a)"))
 		(patt @8.1-8.6 (type "_arg -> _ret")))
 	(type_decls
 		(alias @3.1-3.20 (type "Pair(a, b)")
@@ -156,6 +145,6 @@ NO CHANGE
 					(ty-var @3.6-3.7 (name "a"))
 					(ty-var @3.9-3.10 (name "b"))))))
 	(expressions
-		(expr @6.12-6.27 (type "Error"))
+		(expr @6.12-6.27 (type "Pair(a, b) -> Pair(b, a)"))
 		(expr @8.9-8.27 (type "_arg -> _ret"))))
 ~~~

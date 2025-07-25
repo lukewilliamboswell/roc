@@ -194,13 +194,14 @@ CloseCurly(15:1-15:2),EndOfFile(15:2-15:2),
 										(e-tag @8.29-8.34 (name "Write"))
 										(e-tag @8.36-8.41 (name "Admin"))))))))))
 		(field (name "callback")
-			(e-lambda @10.15-10.24
-				(args
-					(p-assign @10.16-10.17 (ident "x")))
-				(e-binop @10.19-10.24 (op "add")
-					(e-lookup-local @10.19-10.20
+			(e-closure @10.15-10.24
+				(e-lambda @10.15-10.24
+					(args
 						(p-assign @10.16-10.17 (ident "x")))
-					(e-int @10.23-10.24 (value "1")))))
+					(e-binop @10.19-10.24 (op "add")
+						(e-lookup-local @10.19-10.20
+							(p-assign @10.16-10.17 (ident "x")))
+						(e-int @10.23-10.24 (value "1"))))))
 		(field (name "nested")
 			(e-record @11.13-14.6
 				(fields
@@ -233,5 +234,5 @@ CloseCurly(15:1-15:2),EndOfFile(15:2-15:2),
 ~~~
 # TYPES
 ~~~clojure
-(expr @1.1-15.2 (type "{ name: Str, scores: List(Num(_size)), status: [Active({ since: Str })]_others, preferences: { theme: [Dark]_others2, notifications: [Email(Str)]_others3 }, metadata: [Ok({ tags: List(Str), permissions: List([Read]_others4) })]_others5, callback: Num(_size2) -> Num(_size3), nested: { items: List([Some(Str)][None]_others6), result: [Success({ data: List(Num(_size4)), timestamp: Str })]_others7 } }"))
+(expr @1.1-15.2 (type "{ name: Str, scores: List(Num(_size)), status: [Active({ since: Str })]_others, preferences: { theme: [Dark]_others2, notifications: [Email(Str)]_others3 }, metadata: [Ok({ tags: List(Str), permissions: List([Read]_others4) })]_others5, callback: _arg -> _ret, nested: { items: List([Some(Str)][None]_others6), result: [Success({ data: List(Num(_size2)), timestamp: Str })]_others7 } }"))
 ~~~

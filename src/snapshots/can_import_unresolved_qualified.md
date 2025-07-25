@@ -152,15 +152,16 @@ parser = Json.create
 			(target-node-idx "0")))
 	(d-let
 		(p-assign @11.1-11.10 (ident "parseData"))
-		(e-lambda @11.13-11.40
-			(args
-				(p-assign @11.14-11.18 (ident "data")))
-			(e-call @11.20-11.40
-				(e-lookup-external @11.20-11.34
-					(module-idx "0")
-					(target-node-idx "0"))
-				(e-lookup-local @11.35-11.39
-					(p-assign @11.14-11.18 (ident "data")))))
+		(e-closure @11.13-11.40
+			(e-lambda @11.13-11.40
+				(args
+					(p-assign @11.14-11.18 (ident "data")))
+				(e-call @11.20-11.40
+					(e-lookup-external @11.20-11.34
+						(module-idx "0")
+						(target-node-idx "0"))
+					(e-lookup-local @11.35-11.39
+						(p-assign @11.14-11.18 (ident "data"))))))
 		(annotation @11.1-11.10
 			(declared-type
 				(ty-fn @10.13-10.36 (effectful false)
@@ -169,12 +170,13 @@ parser = Json.create
 					(ty @10.33-10.36 (name "Str"))))))
 	(d-let
 		(p-assign @15.1-15.15 (ident "processRequest"))
-		(e-lambda @15.18-15.51
-			(args
-				(p-assign @15.19-15.22 (ident "req")))
-			(e-lookup-external @15.24-15.51
-				(module-idx "1")
-				(target-node-idx "0")))
+		(e-closure @15.18-15.51
+			(e-lambda @15.18-15.51
+				(args
+					(p-assign @15.19-15.22 (ident "req")))
+				(e-lookup-external @15.24-15.51
+					(module-idx "1")
+					(target-node-idx "0"))))
 		(annotation @15.1-15.15
 			(declared-type
 				(ty-fn @14.18-14.61 (effectful false)
@@ -218,7 +220,7 @@ parser = Json.create
 	(defs
 		(patt @7.1-7.5 (type "Error"))
 		(patt @11.1-11.10 (type "Json.InvalidType -> Str"))
-		(patt @15.1-15.15 (type "Http.Server.Request -> Error"))
+		(patt @15.1-15.15 (type "Http.Server.Request -> Http.Server.Response"))
 		(patt @18.1-18.7 (type "_a"))
 		(patt @21.1-21.7 (type "_a"))
 		(patt @24.1-24.7 (type "Error"))
@@ -226,7 +228,7 @@ parser = Json.create
 	(expressions
 		(expr @7.8-7.31 (type "Error"))
 		(expr @11.13-11.40 (type "Json.InvalidType -> Str"))
-		(expr @15.18-15.51 (type "Http.Server.Request -> Error"))
+		(expr @15.18-15.51 (type "Http.Server.Request -> Http.Server.Response"))
 		(expr @18.10-18.28 (type "_a"))
 		(expr @21.10-21.31 (type "_a"))
 		(expr @24.10-24.28 (type "Error"))
