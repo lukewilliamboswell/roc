@@ -1,18 +1,18 @@
 //! The evaluation part of the Read-Eval-Print-Loop (REPL)
 
 const std = @import("std");
-const base = @import("base");
-const compile = @import("compile");
-const parse = @import("parse");
-const reporting = @import("reporting");
-const types = @import("types");
-
-const canonicalize = @import("../check/canonicalize.zig");
-const check_types = @import("../check/check_types.zig");
-const layout_store = @import("../layout/store.zig");
-const layout = @import("../layout/layout.zig");
-const eval = @import("../eval/interpreter.zig");
-const stack = @import("../eval/stack.zig");
+const roc = @import("roc");
+const base = roc.base;
+const compile = roc.compile;
+const parse = roc.parse;
+const reporting = roc.reporting;
+const types = roc.types;
+const canonicalize = roc.check.canonicalize;
+const check_types = roc.check;
+const layout_store = roc.layout.store;
+const layout = roc.layout;
+const eval = roc.eval;
+const stack = roc.eval.stack;
 
 const Allocator = std.mem.Allocator;
 const ModuleEnv = compile.ModuleEnv;
@@ -124,8 +124,6 @@ pub const Repl = struct {
 
         // Process the input
         const result = try self.processInput(trimmed);
-        defer self.allocator.free(result.value_str);
-        defer self.allocator.free(result.type_str);
 
         // If there are any reports, return the first one
         if (self.reports.items.len > 0) {
@@ -134,7 +132,7 @@ pub const Repl = struct {
             // The caller of `step` is responsible for freeing the memory.
 
             // Render the report to the buffer.
-            // We use `.tty` format as this is for a REPL.
+            // We use `.color_terminal` format as this is for a REPL.
             try self.reports.items[0].render(report_buffer.writer(), .color_terminal);
 
             return StepResult{ .report = try report_buffer.toOwnedSlice() };
@@ -288,33 +286,15 @@ pub const Repl = struct {
 
     /// Evaluate source code
     fn evaluateSource(self: *Repl, source: []const u8) !EvalResult {
-        return self.evaluatePureExpression(source);
+        // For now, we evaluate the source as a single expression.
+        // This will be extended to handle multiple statements and definitions.
+        return self.evalExpr(source);
     }
 
     const EvalResult = struct {
         value_str: []const u8,
         type_str: []const u8,
     };
-
-    /// Evaluate a pure expression
-    fn evaluatePureExpression(self: *Repl, expr_source: []const u8) !EvalResult {
-        // If we have past definitions and the expression might reference them,
-        // we need context-aware evaluation (not yet implemented)
-        if (self.past_defs.items.len > 0) {
-            // Check if it's a simple literal that doesn't need context
-            if (std.fmt.parseInt(i64, std.mem.trim(u8, expr_source, " \t\n"), 10)) |_| {
-                return self.evalExpr(expr_source);
-            } else |_| {}
-
-            // Context-aware evaluation not yet implemented
-            return .{
-                .value_str = try self.allocator.dupe(u8, "<needs context>"),
-                .type_str = try self.allocator.dupe(u8, ""),
-            };
-        }
-
-        return self.evalExpr(expr_source);
-    }
 
     fn evalExpr(self: *Repl, expr_source: []const u8) !EvalResult {
         // Create module environment for the expression
@@ -434,7 +414,8 @@ pub const Repl = struct {
                 }
                 break :blk try std.fmt.allocPrint(self.allocator, "<unsupported scalar>", .{});
             } else if (result.layout.tag == .list_of_zst) {
-                break :blk try self.allocator.dupe(u8, "<list_of_zst>");
+                _ = try self.allocator.dupe(u8, "<list_of_zst>");
+                break :blk "";
             } else {
                 break :blk try std.fmt.allocPrint(self.allocator, "<{s}>", .{@tagName(result.layout.tag)});
             }
@@ -532,6 +513,7 @@ test "Repl - simple expressions" {
         defer testing.allocator.free(result.value.string);
         defer testing.allocator.free(result.value.type_str);
         try testing.expectEqualStrings("42", result.value.string);
+        try testing.expectEqualStrings("i128", result.value.type_str);
     } else {
         if (result == .report) {
             defer testing.allocator.free(result.report);
@@ -552,16 +534,15 @@ test "Repl - redefinition with evaluation" {
         defer testing.allocator.free(result1.value.string);
         defer testing.allocator.free(result1.value.type_str);
         try testing.expectEqualStrings("5", result1.value.string);
+        try testing.expectEqualStrings("i128", result1.value.type_str);
     } else {
         try testing.expect(false);
     }
 
-    // Define y in terms of x (returns <needs context> as context-aware evaluation is not yet implemented)
+    // Define y in terms of x. This should fail because `x` is not in scope.
     const result2 = try repl.step("y = x + 1");
-    if (result2 == .value) {
-        defer testing.allocator.free(result2.value.string);
-        defer testing.allocator.free(result2.value.type_str);
-        try testing.expectEqualStrings("<needs context>", result2.value.string);
+    if (result2 == .report) {
+        defer testing.allocator.free(result2.report);
     } else {
         try testing.expect(false);
     }
@@ -572,26 +553,23 @@ test "Repl - redefinition with evaluation" {
         defer testing.allocator.free(result3.value.string);
         defer testing.allocator.free(result3.value.type_str);
         try testing.expectEqualStrings("6", result3.value.string);
+        try testing.expectEqualStrings("i128", result3.value.type_str);
     } else {
         try testing.expect(false);
     }
 
-    // Evaluate x (returns <needs context> as context-aware evaluation is not yet implemented)
+    // Evaluate x. This should fail because `x` is not in scope.
     const result4 = try repl.step("x");
-    if (result4 == .value) {
-        defer testing.allocator.free(result4.value.string);
-        defer testing.allocator.free(result4.value.type_str);
-        try testing.expectEqualStrings("<needs context>", result4.value.string);
+    if (result4 == .report) {
+        defer testing.allocator.free(result4.report);
     } else {
         try testing.expect(false);
     }
 
-    // Evaluate y (returns <needs context> as context-aware evaluation is not yet implemented)
+    // Evaluate y. This should fail because `y` is not in scope.
     const result5 = try repl.step("y");
-    if (result5 == .value) {
-        defer testing.allocator.free(result5.value.string);
-        defer testing.allocator.free(result5.value.type_str);
-        try testing.expectEqualStrings("<needs context>", result5.value.string);
+    if (result5 == .report) {
+        defer testing.allocator.free(result5.report);
     } else {
         try testing.expect(false);
     }

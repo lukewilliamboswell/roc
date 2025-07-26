@@ -67,10 +67,27 @@ pub fn build(b: *std.Build) void {
 
     const roc_modules = modules.RocModules.create(b, build_options);
 
+    const vaxis_dep = b.dependency("vaxis", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     // add main roc exe
     const roc_exe = addMainExe(b, roc_modules, target, optimize, strip, enable_llvm, use_system_llvm, user_llvm_path, flag_enable_tracy) orelse return;
     roc_modules.addAll(roc_exe);
     install_and_run(b, no_bin, roc_exe, roc_step, run_step);
+
+    const cli_exe = b.addExecutable(.{
+        .name = "roc-repl",
+        .root_source_file = b.path("src/cli/main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    cli_exe.root_module.addImport("vaxis", vaxis_dep.module("vaxis"));
+    roc_modules.addAll(cli_exe);
+    const repl_step = b.step("repl", "Run the REPL");
+    install_and_run(b, no_bin, cli_exe, repl_step, repl_step);
 
     // Add snapshot tool
     const snapshot_exe = b.addExecutable(.{

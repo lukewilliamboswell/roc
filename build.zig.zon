@@ -48,6 +48,10 @@
             .hash = "122070972a9f996fc1a167b78d3a6a8c10f85349f9369383f5e26af1c5eed3cc41b0",
             .lazy = true,
         },
+        .vaxis = .{
+            .url = "git+https://github.com/rockorager/libvaxis.git#f8d4d03ea7261e630b3236dc6285047b83c7c49e",
+            .hash = "vaxis-0.5.1-BWNV_DQVCQAbAdxeMCCo7qxR7r4TZwOHg1tS906gYMuU",
+        },
     },
     .fingerprint = 0x9eea22a6c3bd0034,
     .paths = .{
