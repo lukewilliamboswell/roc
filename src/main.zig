@@ -469,7 +469,8 @@ fn rocRepl(gpa: Allocator, args: cli_args.ReplArgs) !void {
                         try stdout.print("{s}\n", .{val.string});
                     }
                 },
-                .report => |*report| {
+                .report => |report_ptr| {
+                    const report = report_ptr;
                     // Use the existing reporting infrastructure
                     reporting.renderReportToTerminal(
                         report,
@@ -646,10 +647,53 @@ fn rocCheck(gpa: Allocator, args: cli_args.CheckArgs) !void {
             var warnings: usize = 0;
 
             // Render each report
-            for (process_result.reports) |*report| {
-
+            for (process_result.reports) |*report_ptr| {
+                const report = report_ptr;
                 // Render the diagnostic report to stderr
                 reporting.renderReportToTerminal(report, stderr_writer, ColorPalette.ANSI, reporting.ReportingConfig.initColorTerminal()) catch |render_err| {
+                    stderr.print("Error rendering diagnostic report: {}\n", .{render_err}) catch {};
+                    // Fallback to just printing the title
+                    stderr.print("  {s}\n", .{report.title}) catch {};
+                };
+
+                switch (report.severity) {
+                    .info => {}, // Informational messages don't affect error/warning counts
+                    .runtime_error => {
+                        runtime_errors += 1;
+                    },
+                    .fatal => {
+                        fatal_errors += 1;
+                    },
+                    .warning => {
+                        warnings += 1;
+                    },
+                }
+            }
+            stderr.writeAll("\n") catch {};
+
+            stderr.print("Found {} error(s) and {} warning(s) in ", .{
+                (fatal_errors + runtime_errors),
+                warnings,
+            }) catch {};
+            formatElapsedTime(stderr, elapsed) catch {};
+            stderr.print(" for {s}.\n", .{args.path}) catch {};
+
+            std.process.exit(1);
+        } else if (process_result.serialized_reports.len > 0) {
+            var fatal_errors: usize = 0;
+            var runtime_errors: usize = 0;
+            var warnings: usize = 0;
+
+            // Render each report
+            for (process_result.serialized_reports) |report_bytes| {
+                var report = reporting.Report.deserializeFrom(gpa, report_bytes) catch |err| {
+                    stderr.print("Failed to deserialize report: {s}\n", .{@errorName(err)}) catch {};
+                    continue;
+                };
+                defer report.deinit();
+
+                // Render the diagnostic report to stderr
+                reporting.renderReportToTerminal(&report, stderr_writer, ColorPalette.ANSI, reporting.ReportingConfig.initColorTerminal()) catch |render_err| {
                     stderr.print("Error rendering diagnostic report: {}\n", .{render_err}) catch {};
                     // Fallback to just printing the title
                     stderr.print("  {s}\n", .{report.title}) catch {};

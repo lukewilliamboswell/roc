@@ -269,6 +269,7 @@ pub const CacheManager = struct {
         // Reports are not cached - they need to be recomputed if needed
         // Users can use --no-cache to see diagnostic reports
         const reports = try self.allocator.alloc(reporting.Report, 0);
+        const serialized_reports = try self.allocator.alloc([]const u8, 0);
 
         // Allocate and copy ModuleEnv to heap for ownership
         const module_env = try self.allocator.create(ModuleEnv);
@@ -283,6 +284,7 @@ pub const CacheManager = struct {
             .source = source,
             .own_source = true,
             .reports = reports,
+            .serialized_reports = serialized_reports,
             .was_cached = true,
         };
 

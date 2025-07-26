@@ -235,6 +235,28 @@ pub const Report = struct {
         }
         return count;
     }
+
+    pub fn deserializeFrom(allocator: Allocator, buffer: []const u8) !Report {
+        var fbs = std.io.fixedBufferStream(buffer);
+        const reader = fbs.reader();
+
+        const title_len = try reader.readInt(u64, .little);
+        const title = try allocator.alloc(u8, title_len);
+        try reader.readNoEof(title);
+
+        const severity = try reader.readEnum(Severity, .little);
+
+        var report = Report.init(allocator, title, severity);
+
+        const document_len = try reader.readInt(u64, .little);
+        const document_bytes = try allocator.alloc(u8, document_len);
+        defer allocator.free(document_bytes);
+        try reader.readNoEof(document_bytes);
+
+        report.document = try Document.deserializeFrom(allocator, document_bytes);
+
+        return report;
+    }
 };
 
 /// Builder for creating reports with a fluent interface.

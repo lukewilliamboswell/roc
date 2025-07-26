@@ -48,6 +48,7 @@ pub const ProcessResult = struct {
     source: []const u8,
     own_source: bool, // Whether we own the source text (true if processed from file)
     reports: []reporting.Report,
+    serialized_reports: [][]const u8,
     timing: ?TimingInfo = null,
     error_count: u32 = 0,
     warning_count: u32 = 0,
@@ -58,6 +59,11 @@ pub const ProcessResult = struct {
             report.deinit();
         }
         gpa.free(self.reports);
+
+        for (self.serialized_reports) |report| {
+            gpa.free(report);
+        }
+        gpa.free(self.serialized_reports);
 
         // Clean up the heap-allocated ModuleEnv (only when loaded from cache)
         if (self.was_cached) {
@@ -322,6 +328,7 @@ fn processSourceInternal(
         .source = source,
         .own_source = own_source,
         .reports = final_reports,
+        .serialized_reports = &.{},
         .timing = timing_info,
         .error_count = error_count,
         .warning_count = warning_count,

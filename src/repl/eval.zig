@@ -18,7 +18,6 @@ const Allocator = std.mem.Allocator;
 const ModuleEnv = compile.ModuleEnv;
 const AST = parse.AST;
 const target = base.target;
-const writers = types.writers;
 const types_store = types.store;
 
 /// Type of definition stored in the REPL history
@@ -87,7 +86,7 @@ pub const Repl = struct {
             string: []const u8,
             type_str: []const u8,
         },
-        report: reporting.Report,
+        report: []const u8,
         exit: []const u8,
     };
 
@@ -124,19 +123,28 @@ pub const Repl = struct {
         }
 
         // Process the input
-        const result_str = try self.processInput(trimmed);
+        const result = try self.processInput(trimmed);
+        defer self.allocator.free(result.value_str);
+        defer self.allocator.free(result.type_str);
 
         // If there are any reports, return the first one
         if (self.reports.items.len > 0) {
-            return StepResult{ .report = self.reports.items[0] };
+            var report_buffer = std.ArrayList(u8).init(self.allocator);
+            // Note: we are not using defer deinit, because we toOwnedSlice and return it.
+            // The caller of `step` is responsible for freeing the memory.
+
+            // Render the report to the buffer.
+            // We use `.tty` format as this is for a REPL.
+            try self.reports.items[0].render(report_buffer.writer(), .color_terminal);
+
+            return StepResult{ .report = try report_buffer.toOwnedSlice() };
         }
 
-        // TODO: This is a temporary hack. We should get the type from the evaluation.
-        return StepResult{ .value = .{ .string = result_str, .type_str = try self.allocator.dupe(u8, "Num *") } };
+        return StepResult{ .value = .{ .string = result.value_str, .type_str = result.type_str } };
     }
 
     /// Process regular input (not special commands)
-    fn processInput(self: *Repl, input: []const u8) ![]const u8 {
+    fn processInput(self: *Repl, input: []const u8) !EvalResult {
         // Try to parse as a statement first
         const parse_result = try self.tryParseStatement(input);
 
@@ -156,17 +164,20 @@ pub const Repl = struct {
                     const rhs = std.mem.trim(u8, input[eq_pos + 1 ..], " \t\n");
 
                     // If the RHS is a simple literal, evaluate it directly
-                    if (std.fmt.parseInt(i64, rhs, 10)) |num| {
-                        return try std.fmt.allocPrint(self.allocator, "{d}", .{num});
+                    if (std.fmt.parseInt(i64, rhs, 10)) |_| {
+                        return self.evalExpr(rhs);
                     } else |_| {}
 
                     // Otherwise, evaluate with context
                     const full_source = try self.buildFullSource(rhs);
                     defer self.allocator.free(full_source);
-                    return try self.evaluateSource(full_source);
+                    return self.evaluateSource(full_source);
                 }
 
-                return try self.allocator.dupe(u8, "");
+                return .{
+                    .value_str = try self.allocator.dupe(u8, ""),
+                    .type_str = try self.allocator.dupe(u8, ""),
+                };
             },
             .import => {
                 // Add import to past definitions
@@ -175,22 +186,31 @@ pub const Repl = struct {
                     .kind = .import,
                 });
 
-                return try self.allocator.dupe(u8, "");
+                return .{
+                    .value_str = try self.allocator.dupe(u8, ""),
+                    .type_str = try self.allocator.dupe(u8, ""),
+                };
             },
             .expression => {
                 // Evaluate expression with all past definitions
                 const full_source = try self.buildFullSource(input);
                 defer self.allocator.free(full_source);
 
-                return try self.evaluateSource(full_source);
+                return self.evaluateSource(full_source);
             },
             .type_decl => {
                 // Type declarations can't be evaluated
-                return try self.allocator.dupe(u8, "");
+                return .{
+                    .value_str = try self.allocator.dupe(u8, ""),
+                    .type_str = try self.allocator.dupe(u8, ""),
+                };
             },
             .parse_error => |msg| {
                 defer self.allocator.free(msg);
-                return try std.fmt.allocPrint(self.allocator, "Parse error: {s}", .{msg});
+                return .{
+                    .value_str = try std.fmt.allocPrint(self.allocator, "Parse error: {s}", .{msg}),
+                    .type_str = "",
+                };
             },
         }
     }
@@ -267,24 +287,36 @@ pub const Repl = struct {
     }
 
     /// Evaluate source code
-    fn evaluateSource(self: *Repl, source: []const u8) ![]const u8 {
+    fn evaluateSource(self: *Repl, source: []const u8) !EvalResult {
         return self.evaluatePureExpression(source);
     }
 
+    const EvalResult = struct {
+        value_str: []const u8,
+        type_str: []const u8,
+    };
+
     /// Evaluate a pure expression
-    fn evaluatePureExpression(self: *Repl, expr_source: []const u8) ![]const u8 {
+    fn evaluatePureExpression(self: *Repl, expr_source: []const u8) !EvalResult {
         // If we have past definitions and the expression might reference them,
         // we need context-aware evaluation (not yet implemented)
         if (self.past_defs.items.len > 0) {
             // Check if it's a simple literal that doesn't need context
-            if (std.fmt.parseInt(i64, std.mem.trim(u8, expr_source, " \t\n"), 10)) |num| {
-                return try std.fmt.allocPrint(self.allocator, "{d}", .{num});
+            if (std.fmt.parseInt(i64, std.mem.trim(u8, expr_source, " \t\n"), 10)) |_| {
+                return self.evalExpr(expr_source);
             } else |_| {}
 
             // Context-aware evaluation not yet implemented
-            return try std.fmt.allocPrint(self.allocator, "<needs context>", .{});
+            return .{
+                .value_str = try self.allocator.dupe(u8, "<needs context>"),
+                .type_str = try self.allocator.dupe(u8, ""),
+            };
         }
 
+        return self.evalExpr(expr_source);
+    }
+
+    fn evalExpr(self: *Repl, expr_source: []const u8) !EvalResult {
         // Create module environment for the expression
         var module_env = try ModuleEnv.init(self.allocator, expr_source);
         defer module_env.deinit();
@@ -294,7 +326,10 @@ pub const Repl = struct {
             var report = reporting.Report.init(self.allocator, "Parse Error", .fatal);
             try report.addErrorMessage(try std.fmt.allocPrint(self.allocator, "{}", .{err}));
             try self.addReport(report);
-            return "";
+            return .{
+                .value_str = "",
+                .type_str = "",
+            };
         };
         defer parse_ast.deinit(self.allocator);
 
@@ -307,7 +342,10 @@ pub const Repl = struct {
 
         // Create canonicalizer
         var can = canonicalize.init(cir, &parse_ast, null) catch |err| {
-            return try std.fmt.allocPrint(self.allocator, "Canonicalize init error: {}", .{err});
+            return .{
+                .value_str = try std.fmt.allocPrint(self.allocator, "Canonicalize init error: {}", .{err}),
+                .type_str = "",
+            };
         };
         defer can.deinit();
 
@@ -317,17 +355,26 @@ pub const Repl = struct {
             var report = reporting.Report.init(self.allocator, "Canonicalization Error", .fatal);
             try report.addErrorMessage(try std.fmt.allocPrint(self.allocator, "{}", .{err}));
             try self.addReport(report);
-            return "";
+            return .{
+                .value_str = "",
+                .type_str = "",
+            };
         } orelse {
             var report = reporting.Report.init(self.allocator, "Canonicalization Error", .fatal);
             try report.addErrorMessage("Failed to canonicalize expression");
             try self.addReport(report);
-            return "";
+            return .{
+                .value_str = "",
+                .type_str = "",
+            };
         };
 
         // Type check
         var checker = check_types.init(self.allocator, &module_env.types, cir, &.{}, &cir.store.regions) catch |err| {
-            return try std.fmt.allocPrint(self.allocator, "Type check init error: {}", .{err});
+            return .{
+                .value_str = try std.fmt.allocPrint(self.allocator, "Type check init error: {}", .{err}),
+                .type_str = "",
+            };
         };
         defer checker.deinit();
 
@@ -335,48 +382,87 @@ pub const Repl = struct {
             var report = reporting.Report.init(self.allocator, "Type Error", .fatal);
             try report.addErrorMessage(try std.fmt.allocPrint(self.allocator, "{}", .{err}));
             try self.addReport(report);
-            return "";
+            return .{
+                .value_str = "",
+                .type_str = "",
+            };
         };
 
         // Create layout cache
         var layout_cache = layout_store.Store.init(&module_env, &module_env.types) catch |err| {
-            return try std.fmt.allocPrint(self.allocator, "Layout cache error: {}", .{err});
+            return .{
+                .value_str = try std.fmt.allocPrint(self.allocator, "Layout cache error: {}", .{err}),
+                .type_str = "",
+            };
         };
         defer layout_cache.deinit();
 
         // Create interpreter
         var interpreter = eval.Interpreter.init(self.allocator, cir, &self.eval_stack, &layout_cache, &module_env.types) catch |err| {
-            return try std.fmt.allocPrint(self.allocator, "Interpreter init error: {}", .{err});
+            return .{
+                .value_str = try std.fmt.allocPrint(self.allocator, "Interpreter init error: {}", .{err}),
+                .type_str = "",
+            };
         };
         defer interpreter.deinit();
 
         // Evaluate the expression
         const result = interpreter.eval(canonical_expr_idx.get_idx()) catch |err| {
-            return try std.fmt.allocPrint(self.allocator, "Evaluation error: {}", .{err});
+            return .{
+                .value_str = try std.fmt.allocPrint(self.allocator, "Evaluation error: {}", .{err}),
+                .type_str = "",
+            };
         };
 
+        // Format the type
+        const type_str = try self.formatLayout(result.layout);
+
         // Format the result
-        if (result.layout.tag == .scalar) {
-            switch (result.layout.data.scalar.tag) {
-                .bool => {
-                    // Boolean values are stored as u8 (1 for True, 0 for False)
-                    const bool_value: *u8 = @ptrCast(result.ptr.?);
-                    return try self.allocator.dupe(u8, if (bool_value.* == 1) "True" else "False");
-                },
-                .int => {
-                    const value: i128 = eval.readIntFromMemory(@ptrCast(result.ptr.?), result.layout.data.scalar.data.int);
-                    return try std.fmt.allocPrint(self.allocator, "{d}", .{value});
-                },
-                else => {},
+        const value_str = blk: {
+            if (result.layout.tag == .scalar) {
+                switch (result.layout.data.scalar.tag) {
+                    .bool => {
+                        // Boolean values are stored as u8 (1 for True, 0 for False)
+                        const bool_value: *u8 = @ptrCast(result.ptr.?);
+                        break :blk try self.allocator.dupe(u8, if (bool_value.* == 1) "True" else "False");
+                    },
+                    .int => {
+                        const value: i128 = eval.readIntFromMemory(@ptrCast(result.ptr.?), result.layout.data.scalar.data.int);
+                        break :blk try std.fmt.allocPrint(self.allocator, "{d}", .{value});
+                    },
+                    else => {},
+                }
+                break :blk try std.fmt.allocPrint(self.allocator, "<unsupported scalar>", .{});
+            } else if (result.layout.tag == .list_of_zst) {
+                break :blk try self.allocator.dupe(u8, "<list_of_zst>");
+            } else {
+                break :blk try std.fmt.allocPrint(self.allocator, "<{s}>", .{@tagName(result.layout.tag)});
             }
-        }
+        };
 
-        // Handle empty list specially
-        if (result.layout.tag == .list_of_zst) {
-            return try self.allocator.dupe(u8, "<list_of_zst>");
-        }
+        return .{
+            .value_str = value_str,
+            .type_str = type_str,
+        };
+    }
 
-        return try std.fmt.allocPrint(self.allocator, "<{s}>", .{@tagName(result.layout.tag)});
+    fn formatLayout(self: *Repl, l: layout.Layout) ![]const u8 {
+        return switch (l.tag) {
+            .scalar => switch (l.data.scalar.tag) {
+                .int => std.fmt.allocPrint(self.allocator, "{s}", .{@tagName(l.data.scalar.data.int)}),
+                .frac => std.fmt.allocPrint(self.allocator, "{s}", .{@tagName(l.data.scalar.data.frac)}),
+                .bool => self.allocator.dupe(u8, "Bool"),
+                .str => self.allocator.dupe(u8, "Str"),
+                .opaque_ptr => self.allocator.dupe(u8, "Opaque"),
+            },
+            .box => self.allocator.dupe(u8, "Box"),
+            .box_of_zst => self.allocator.dupe(u8, "Box"),
+            .list => self.allocator.dupe(u8, "List"),
+            .list_of_zst => self.allocator.dupe(u8, "List"),
+            .record => self.allocator.dupe(u8, "Record"),
+            .tuple => self.allocator.dupe(u8, "Tuple"),
+            .closure => self.allocator.dupe(u8, "Closure"),
+        };
     }
 };
 
@@ -400,6 +486,11 @@ test "Repl - special commands" {
         defer testing.allocator.free(help_result.value.type_str);
         try testing.expect(std.mem.indexOf(u8, help_result.value.string, "Enter an expression") != null);
     } else {
+        if (help_result == .report) {
+            defer testing.allocator.free(help_result.report);
+        } else if (help_result == .exit) {
+            defer testing.allocator.free(help_result.exit);
+        }
         try testing.expect(false);
     }
 
@@ -408,6 +499,12 @@ test "Repl - special commands" {
         defer testing.allocator.free(exit_result.exit);
         try testing.expectEqualStrings("Goodbye!", exit_result.exit);
     } else {
+        if (exit_result == .value) {
+            defer testing.allocator.free(exit_result.value.string);
+            defer testing.allocator.free(exit_result.value.type_str);
+        } else if (exit_result == .report) {
+            defer testing.allocator.free(exit_result.report);
+        }
         try testing.expect(false);
     }
 
@@ -417,6 +514,11 @@ test "Repl - special commands" {
         defer testing.allocator.free(empty_result.value.type_str);
         try testing.expectEqualStrings("", empty_result.value.string);
     } else {
+        if (empty_result == .report) {
+            defer testing.allocator.free(empty_result.report);
+        } else if (empty_result == .exit) {
+            defer testing.allocator.free(empty_result.exit);
+        }
         try testing.expect(false);
     }
 }
@@ -431,6 +533,11 @@ test "Repl - simple expressions" {
         defer testing.allocator.free(result.value.type_str);
         try testing.expectEqualStrings("42", result.value.string);
     } else {
+        if (result == .report) {
+            defer testing.allocator.free(result.report);
+        } else if (result == .exit) {
+            defer testing.allocator.free(result.exit);
+        }
         try testing.expect(false);
     }
 }

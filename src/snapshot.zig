@@ -2468,7 +2468,7 @@ fn generateReplOutputSection(output: *DualOutput, snapshot_path: []const u8, con
                     output.gpa.free(v.type_str);
                 },
                 .exit => |e| output.gpa.free(e),
-                .report => |r| @constCast(&r).deinit(),
+                .report => |r| output.gpa.free(r),
             }
         }
         actual_outputs.deinit();
@@ -2495,8 +2495,8 @@ fn generateReplOutputSection(output: *DualOutput, snapshot_path: []const u8, con
                     .exit => |e| {
                         try output.md_writer.print("{s}\n", .{e});
                     },
-                    .report => {
-                        // TODO: render the report here
+                    .report => |report_str| {
+                        try output.md_writer.writeAll(report_str);
                     },
                 }
 
@@ -2513,8 +2513,10 @@ fn generateReplOutputSection(output: *DualOutput, snapshot_path: []const u8, con
                         .exit => |e| {
                             try writer.print("{s}", .{e});
                         },
-                        .report => {
-                            // TODO: render the report here
+                        .report => |report_str| {
+                            try writer.writeAll("<div class=\"problem\">");
+                            try writer.writeAll(report_str);
+                            try writer.writeAll("</div>\n");
                         },
                     }
                     try writer.writeAll("</div>\n");
@@ -2553,7 +2555,7 @@ fn generateReplOutputSection(output: *DualOutput, snapshot_path: []const u8, con
                         const actual_str = switch (actual_result) {
                             .value => |v| v.string,
                             .exit => |e| e,
-                            .report => "", // TODO
+                            .report => |r| r,
                         };
 
                         if (!std.mem.eql(u8, actual_str, expected_output)) {

@@ -544,6 +544,40 @@ pub const Document = struct {
         _ = config; // TODO: Pass config to renderer when it supports it
         try reporting.renderDocument(self, writer, target);
     }
+
+    pub fn deserializeFrom(allocator: Allocator, buffer: []const u8) !Document {
+        var doc = Document.init(allocator);
+        var fbs = std.io.fixedBufferStream(buffer);
+        const reader = fbs.reader();
+
+        const num_elements = try reader.readInt(u64, .little);
+        try doc.elements.ensureTotalCapacity(num_elements);
+
+        var i: u64 = 0;
+        while (i < num_elements) : (i += 1) {
+            const tag_val = try reader.readInt(u8, .little);
+            const tag = @as(std.meta.TagType(DocumentElement), @enumFromInt(tag_val));
+            switch (tag) {
+                .text => {
+                    const len = try reader.readInt(u64, .little);
+                    const text = try allocator.alloc(u8, len);
+                    try reader.readNoEof(text);
+                    doc.elements.appendAssumeCapacity(.{ .text = text });
+                },
+                .annotated => {
+                    const len = try reader.readInt(u64, .little);
+                    const content = try allocator.alloc(u8, len);
+                    try reader.readNoEof(content);
+                    const annotation = try reader.readEnum(Annotation, .little);
+                    doc.elements.appendAssumeCapacity(.{ .annotated = .{ .content = content, .annotation = annotation } });
+                },
+                .line_break => doc.elements.appendAssumeCapacity(.line_break),
+                else => @panic("TODO"),
+            }
+        }
+
+        return doc;
+    }
 };
 
 /// A document builder that provides a fluent interface for creating documents.
