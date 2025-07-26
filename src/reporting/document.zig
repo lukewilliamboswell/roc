@@ -45,7 +45,7 @@ pub const SourceCodeDisplayRegion = struct {
 };
 
 /// Annotations that can be applied to document content for styling and semantics.
-pub const Annotation = enum {
+pub const Annotation = enum(u8) {
     /// Basic emphasis (usually bold or bright)
     emphasized,
 
@@ -150,7 +150,7 @@ pub const Annotation = enum {
 };
 
 /// Individual elements that make up a document.
-pub const DocumentElement = union(enum) {
+pub const DocumentElement = union(enum(u8)) {
     /// Plain text content
     text: []const u8,
 
@@ -556,7 +556,7 @@ pub const Document = struct {
         var i: u64 = 0;
         while (i < num_elements) : (i += 1) {
             const tag_val = try reader.readInt(u8, .little);
-            const tag = @as(std.meta.TagType(DocumentElement), @enumFromInt(tag_val));
+            const tag = @as(std.meta.Tag(DocumentElement), @enumFromInt(tag_val));
             switch (tag) {
                 .text => {
                     const len = try reader.readInt(u64, .little);

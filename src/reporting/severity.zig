@@ -3,7 +3,7 @@
 const std = @import("std");
 
 /// Represents the severity level of a problem.
-pub const Severity = enum {
+pub const Severity = enum(u8) {
     /// Informational messages that provide helpful context.
     /// These are purely informational and don't affect compilation or exit codes.
     info,

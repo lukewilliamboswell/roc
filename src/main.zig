@@ -469,15 +469,9 @@ fn rocRepl(gpa: Allocator, args: cli_args.ReplArgs) !void {
                         try stdout.print("{s}\n", .{val.string});
                     }
                 },
-                .report => |report_ptr| {
-                    const report = report_ptr;
-                    // Use the existing reporting infrastructure
-                    reporting.renderReportToTerminal(
-                        report,
-                        stderr.any(),
-                        ColorPalette.ANSI,
-                        reporting.ReportingConfig.initColorTerminal(),
-                    ) catch {};
+                .report => |report_str| {
+                    // The report is already rendered as a string, just write it to stderr
+                    stderr.writeAll(report_str) catch {};
                 },
                 .exit => |msg| {
                     defer gpa.free(msg);
