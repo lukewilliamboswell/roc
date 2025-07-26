@@ -2459,10 +2459,17 @@ fn generateReplOutputSection(output: *DualOutput, snapshot_path: []const u8, con
     defer repl_instance.deinit();
 
     // Process each input and generate output
-    var actual_outputs = std.ArrayList([]const u8).init(output.gpa);
+    var actual_outputs = std.ArrayList(repl.Repl.StepResult).init(output.gpa);
     defer {
         for (actual_outputs.items) |item| {
-            output.gpa.free(item);
+            switch (item) {
+                .value => |v| {
+                    output.gpa.free(v.string);
+                    output.gpa.free(v.type_str);
+                },
+                .exit => |e| output.gpa.free(e),
+                .report => |r| @constCast(&r).deinit(),
+            }
         }
         actual_outputs.deinit();
     }
@@ -2476,12 +2483,22 @@ fn generateReplOutputSection(output: *DualOutput, snapshot_path: []const u8, con
         .update => {
             try output.begin_section("OUTPUT");
             // Write actual outputs
-            for (actual_outputs.items, 0..) |repl_output, i| {
+            for (actual_outputs.items, 0..) |step_result, i| {
                 if (i > 0) {
                     try output.md_writer.writeAll("---\n");
                 }
-                try output.md_writer.writeAll(repl_output);
-                try output.md_writer.writeByte('\n');
+
+                switch (step_result) {
+                    .value => |v| {
+                        try output.md_writer.print("{s} : {s}\n", .{ v.string, v.type_str });
+                    },
+                    .exit => |e| {
+                        try output.md_writer.print("{s}\n", .{e});
+                    },
+                    .report => {
+                        // TODO: render the report here
+                    },
+                }
 
                 // HTML output
                 if (output.html_writer) |writer| {
@@ -2489,8 +2506,16 @@ fn generateReplOutputSection(output: *DualOutput, snapshot_path: []const u8, con
                         try writer.writeAll("                <hr>\n");
                     }
                     try writer.writeAll("                <div class=\"repl-output\">");
-                    for (repl_output) |char| {
-                        try escapeHtmlChar(writer, char);
+                    switch (step_result) {
+                        .value => |v| {
+                            try writer.print("{s} : {s}", .{ v.string, v.type_str });
+                        },
+                        .exit => |e| {
+                            try writer.print("{s}", .{e});
+                        },
+                        .report => {
+                            // TODO: render the report here
+                        },
                     }
                     try writer.writeAll("</div>\n");
                 }
@@ -2524,12 +2549,18 @@ fn generateReplOutputSection(output: *DualOutput, snapshot_path: []const u8, con
                     });
                     success = success and !emit_error;
                 } else {
-                    for (actual_outputs.items, expected_outputs.items, 0..) |actual, expected_output, i| {
-                        if (!std.mem.eql(u8, actual, expected_output)) {
+                    for (actual_outputs.items, expected_outputs.items, 0..) |actual_result, expected_output, i| {
+                        const actual_str = switch (actual_result) {
+                            .value => |v| v.string,
+                            .exit => |e| e,
+                            .report => "", // TODO
+                        };
+
+                        if (!std.mem.eql(u8, actual_str, expected_output)) {
                             success = success and !emit_error;
                             std.debug.print("REPL output mismatch at index {}: got '{s}', expected '{s}' in {s}\n", .{
                                 i,
-                                actual,
+                                actual_str,
                                 expected_output,
                                 snapshot_path,
                             });

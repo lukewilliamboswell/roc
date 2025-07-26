@@ -13,7 +13,7 @@ pub const CliArgs = union(enum) {
     build: BuildArgs,
     format: FormatArgs,
     test_cmd: TestArgs,
-    repl,
+    repl: ReplArgs,
     version,
     docs: DocsArgs,
     help: []const u8,
@@ -87,6 +87,12 @@ pub const TestArgs = struct {
     path: []const u8, // the path to the file to be tested
     opt: OptLevel, // the optimization level to be used for test execution
     main: ?[]const u8, // the path to a roc file with an app header to be used to resolve dependencies
+};
+
+/// Arguments for `roc repl`
+pub const ReplArgs = struct {
+    no_color: bool = false,
+    no_header: bool = false,
 };
 
 /// Arguments for `roc format`
@@ -343,6 +349,9 @@ fn parseTest(args: []const []const u8) CliArgs {
 }
 
 fn parseRepl(args: []const []const u8) CliArgs {
+    var no_color = false;
+    var no_header = false;
+
     for (args) |arg| {
         if (isHelpFlag(arg)) {
             return CliArgs{ .help = 
@@ -351,14 +360,20 @@ fn parseRepl(args: []const []const u8) CliArgs {
             \\Usage: roc repl [OPTIONS]
             \\
             \\Options:
-            \\  -h, --help  Print help
+            \\      --no-color   Do not use any ANSI color codes in the repl output
+            \\      --no-header  Do not print the repl header
+            \\  -h, --help       Print help
             \\
         };
+        } else if (mem.eql(u8, arg, "--no-color")) {
+            no_color = true;
+        } else if (mem.eql(u8, arg, "--no-header")) {
+            no_header = true;
         } else {
             return CliArgs{ .problem = CliProblem{ .unexpected_argument = .{ .cmd = "repl", .arg = arg } } };
         }
     }
-    return CliArgs.repl;
+    return CliArgs{ .repl = ReplArgs{ .no_color = no_color, .no_header = no_header } };
 }
 
 fn parseVersion(args: []const []const u8) CliArgs {
@@ -798,6 +813,15 @@ test "roc repl" {
         const result = try parse(gpa, &[_][]const u8{"repl"});
         defer result.deinit(gpa);
         try testing.expectEqual(.repl, std.meta.activeTag(result));
+        try testing.expect(!result.repl.no_color);
+        try testing.expect(!result.repl.no_header);
+    }
+    {
+        const result = try parse(gpa, &[_][]const u8{ "repl", "--no-color", "--no-header" });
+        defer result.deinit(gpa);
+        try testing.expectEqual(.repl, std.meta.activeTag(result));
+        try testing.expect(result.repl.no_color);
+        try testing.expect(result.repl.no_header);
     }
     {
         const result = try parse(gpa, &[_][]const u8{ "repl", "foo.roc" });

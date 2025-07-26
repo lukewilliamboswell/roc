@@ -4,6 +4,7 @@ const std = @import("std");
 const base = @import("base");
 const compile = @import("compile");
 const parse = @import("parse");
+const reporting = @import("reporting");
 const types = @import("types");
 
 const canonicalize = @import("../check/canonicalize.zig");
@@ -51,6 +52,7 @@ pub const Repl = struct {
     past_defs: std.ArrayList(PastDef),
     /// Stack for evaluation
     eval_stack: stack.Stack,
+    reports: std.ArrayList(reporting.Report),
 
     pub fn init(allocator: Allocator) !Repl {
         const eval_stack = try stack.Stack.initCapacity(allocator, 8192);
@@ -59,6 +61,7 @@ pub const Repl = struct {
             .allocator = allocator,
             .past_defs = std.ArrayList(PastDef).init(allocator),
             .eval_stack = eval_stack,
+            .reports = std.ArrayList(reporting.Report).init(allocator),
         };
     }
 
@@ -68,39 +71,68 @@ pub const Repl = struct {
         }
         self.past_defs.deinit();
         self.eval_stack.deinit();
+
+        for (self.reports.items) |*report| {
+            report.deinit();
+        }
+        self.reports.deinit();
     }
 
+    pub fn addReport(self: *Repl, report: reporting.Report) !void {
+        try self.reports.append(report);
+    }
+
+    pub const StepResult = union(enum) {
+        value: struct {
+            string: []const u8,
+            type_str: []const u8,
+        },
+        report: reporting.Report,
+        exit: []const u8,
+    };
+
     /// Process a line of input and return the result
-    pub fn step(self: *Repl, line: []const u8) ![]const u8 {
+    pub fn step(self: *Repl, line: []const u8) !StepResult {
+        // Clear any reports from the previous step
+        for (self.reports.items) |*report| {
+            report.deinit();
+        }
+        self.reports.clearRetainingCapacity();
+
         const trimmed = std.mem.trim(u8, line, " \t\n\r");
 
         // Handle special commands
         if (trimmed.len == 0) {
-            return try self.allocator.dupe(u8, "");
+            return StepResult{ .value = .{ .string = try self.allocator.dupe(u8, ""), .type_str = try self.allocator.dupe(u8, "") } };
         }
 
         if (std.mem.eql(u8, trimmed, ":help")) {
-            return try self.allocator.dupe(u8,
+            const help_text =
                 \\Enter an expression to evaluate, or a definition (like x = 1) to use later.
                 \\
                 \\  - :q quits
                 \\  - :help shows this text again
-            );
+            ;
+            return StepResult{ .value = .{ .string = try self.allocator.dupe(u8, help_text), .type_str = try self.allocator.dupe(u8, "") } };
         }
 
         if (std.mem.eql(u8, trimmed, ":exit") or
             std.mem.eql(u8, trimmed, ":quit") or
-            std.mem.eql(u8, trimmed, ":q") or
-            std.mem.eql(u8, trimmed, "exit") or
-            std.mem.eql(u8, trimmed, "quit") or
-            std.mem.eql(u8, trimmed, "exit()") or
-            std.mem.eql(u8, trimmed, "quit()"))
+            std.mem.eql(u8, trimmed, ":q"))
         {
-            return try self.allocator.dupe(u8, "Goodbye!");
+            return StepResult{ .exit = try self.allocator.dupe(u8, "Goodbye!") };
         }
 
         // Process the input
-        return try self.processInput(trimmed);
+        const result_str = try self.processInput(trimmed);
+
+        // If there are any reports, return the first one
+        if (self.reports.items.len > 0) {
+            return StepResult{ .report = self.reports.items[0] };
+        }
+
+        // TODO: This is a temporary hack. We should get the type from the evaluation.
+        return StepResult{ .value = .{ .string = result_str, .type_str = try self.allocator.dupe(u8, "Num *") } };
     }
 
     /// Process regular input (not special commands)
@@ -236,7 +268,7 @@ pub const Repl = struct {
 
     /// Evaluate source code
     fn evaluateSource(self: *Repl, source: []const u8) ![]const u8 {
-        return try self.evaluatePureExpression(source);
+        return self.evaluatePureExpression(source);
     }
 
     /// Evaluate a pure expression
@@ -259,7 +291,10 @@ pub const Repl = struct {
 
         // Parse as expression
         var parse_ast = parse.parseExpr(&module_env) catch |err| {
-            return try std.fmt.allocPrint(self.allocator, "Parse error: {}", .{err});
+            var report = reporting.Report.init(self.allocator, "Parse Error", .fatal);
+            try report.addErrorMessage(try std.fmt.allocPrint(self.allocator, "{}", .{err}));
+            try self.addReport(report);
+            return "";
         };
         defer parse_ast.deinit(self.allocator);
 
@@ -279,9 +314,15 @@ pub const Repl = struct {
         // Canonicalize the expression
         const expr_idx: parse.AST.Expr.Idx = @enumFromInt(parse_ast.root_node_idx);
         const canonical_expr_idx = can.canonicalizeExpr(expr_idx) catch |err| {
-            return try std.fmt.allocPrint(self.allocator, "Canonicalize expr error: {}", .{err});
+            var report = reporting.Report.init(self.allocator, "Canonicalization Error", .fatal);
+            try report.addErrorMessage(try std.fmt.allocPrint(self.allocator, "{}", .{err}));
+            try self.addReport(report);
+            return "";
         } orelse {
-            return try self.allocator.dupe(u8, "Failed to canonicalize expression");
+            var report = reporting.Report.init(self.allocator, "Canonicalization Error", .fatal);
+            try report.addErrorMessage("Failed to canonicalize expression");
+            try self.addReport(report);
+            return "";
         };
 
         // Type check
@@ -291,7 +332,10 @@ pub const Repl = struct {
         defer checker.deinit();
 
         _ = checker.checkExpr(canonical_expr_idx.get_idx()) catch |err| {
-            return try std.fmt.allocPrint(self.allocator, "Type check error: {}", .{err});
+            var report = reporting.Report.init(self.allocator, "Type Error", .fatal);
+            try report.addErrorMessage(try std.fmt.allocPrint(self.allocator, "{}", .{err}));
+            try self.addReport(report);
+            return "";
         };
 
         // Create layout cache
@@ -351,16 +395,30 @@ test "Repl - special commands" {
     defer repl.deinit();
 
     const help_result = try repl.step(":help");
-    defer testing.allocator.free(help_result);
-    try testing.expect(std.mem.indexOf(u8, help_result, "Enter an expression") != null);
+    if (help_result == .value) {
+        defer testing.allocator.free(help_result.value.string);
+        defer testing.allocator.free(help_result.value.type_str);
+        try testing.expect(std.mem.indexOf(u8, help_result.value.string, "Enter an expression") != null);
+    } else {
+        try testing.expect(false);
+    }
 
     const exit_result = try repl.step(":exit");
-    defer testing.allocator.free(exit_result);
-    try testing.expectEqualStrings("Goodbye!", exit_result);
+    if (exit_result == .exit) {
+        defer testing.allocator.free(exit_result.exit);
+        try testing.expectEqualStrings("Goodbye!", exit_result.exit);
+    } else {
+        try testing.expect(false);
+    }
 
     const empty_result = try repl.step("");
-    defer testing.allocator.free(empty_result);
-    try testing.expectEqualStrings("", empty_result);
+    if (empty_result == .value) {
+        defer testing.allocator.free(empty_result.value.string);
+        defer testing.allocator.free(empty_result.value.type_str);
+        try testing.expectEqualStrings("", empty_result.value.string);
+    } else {
+        try testing.expect(false);
+    }
 }
 
 test "Repl - simple expressions" {
@@ -368,8 +426,13 @@ test "Repl - simple expressions" {
     defer repl.deinit();
 
     const result = try repl.step("42");
-    defer testing.allocator.free(result);
-    try testing.expectEqualStrings("42", result);
+    if (result == .value) {
+        defer testing.allocator.free(result.value.string);
+        defer testing.allocator.free(result.value.type_str);
+        try testing.expectEqualStrings("42", result.value.string);
+    } else {
+        try testing.expect(false);
+    }
 }
 
 test "Repl - redefinition with evaluation" {
@@ -378,28 +441,53 @@ test "Repl - redefinition with evaluation" {
 
     // First definition of x
     const result1 = try repl.step("x = 5");
-    defer testing.allocator.free(result1);
-    try testing.expectEqualStrings("5", result1);
+    if (result1 == .value) {
+        defer testing.allocator.free(result1.value.string);
+        defer testing.allocator.free(result1.value.type_str);
+        try testing.expectEqualStrings("5", result1.value.string);
+    } else {
+        try testing.expect(false);
+    }
 
     // Define y in terms of x (returns <needs context> as context-aware evaluation is not yet implemented)
     const result2 = try repl.step("y = x + 1");
-    defer testing.allocator.free(result2);
-    try testing.expectEqualStrings("<needs context>", result2);
+    if (result2 == .value) {
+        defer testing.allocator.free(result2.value.string);
+        defer testing.allocator.free(result2.value.type_str);
+        try testing.expectEqualStrings("<needs context>", result2.value.string);
+    } else {
+        try testing.expect(false);
+    }
 
     // Redefine x
     const result3 = try repl.step("x = 6");
-    defer testing.allocator.free(result3);
-    try testing.expectEqualStrings("6", result3);
+    if (result3 == .value) {
+        defer testing.allocator.free(result3.value.string);
+        defer testing.allocator.free(result3.value.type_str);
+        try testing.expectEqualStrings("6", result3.value.string);
+    } else {
+        try testing.expect(false);
+    }
 
     // Evaluate x (returns <needs context> as context-aware evaluation is not yet implemented)
     const result4 = try repl.step("x");
-    defer testing.allocator.free(result4);
-    try testing.expectEqualStrings("<needs context>", result4);
+    if (result4 == .value) {
+        defer testing.allocator.free(result4.value.string);
+        defer testing.allocator.free(result4.value.type_str);
+        try testing.expectEqualStrings("<needs context>", result4.value.string);
+    } else {
+        try testing.expect(false);
+    }
 
     // Evaluate y (returns <needs context> as context-aware evaluation is not yet implemented)
     const result5 = try repl.step("y");
-    defer testing.allocator.free(result5);
-    try testing.expectEqualStrings("<needs context>", result5);
+    if (result5 == .value) {
+        defer testing.allocator.free(result5.value.string);
+        defer testing.allocator.free(result5.value.type_str);
+        try testing.expectEqualStrings("<needs context>", result5.value.string);
+    } else {
+        try testing.expect(false);
+    }
 }
 
 test "Repl - build full source with redefinitions" {

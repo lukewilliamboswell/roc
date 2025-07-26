@@ -9,6 +9,7 @@ const base = @import("base");
 const collections = @import("collections");
 const reporting = @import("reporting");
 const parse = @import("parse");
+const repl = @import("repl/eval.zig");
 const tracy = @import("tracy");
 
 const fmt = @import("fmt.zig");
@@ -103,7 +104,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         .build => |build_args| rocBuild(gpa, build_args),
         .format => |format_args| rocFormat(gpa, arena, format_args),
         .test_cmd => |test_args| rocTest(gpa, test_args),
-        .repl => rocRepl(gpa),
+        .repl => |repl_args| rocRepl(gpa, repl_args),
         .version => stdout.print("Roc compiler version {s}\n", .{build_options.compiler_version}),
         .docs => |docs_args| rocDocs(gpa, docs_args),
         .help => |help_message| stdout.writeAll(help_message),
@@ -407,9 +408,88 @@ fn rocTest(gpa: Allocator, args: cli_args.TestArgs) !void {
     fatal("test not implemented", .{});
 }
 
-fn rocRepl(gpa: Allocator) !void {
-    _ = gpa;
-    fatal("repl not implemented", .{});
+fn rocRepl(gpa: Allocator, args: cli_args.ReplArgs) !void {
+    const stdout = std.io.getStdOut().writer();
+    const stderr = std.io.getStdErr().writer();
+
+    // 1. Handle --no-header argument
+    if (!args.no_header) {
+        try stdout.writeAll(
+            \\
+            \\  The rockin' roc repl
+            \\────────────────────────
+            \\
+            \\Enter an expression, or :help, or :q to quit.
+            \\
+            \\
+        );
+    }
+
+    // 2. Initialize the Repl state
+    var repl_instance = try repl.Repl.init(gpa);
+    defer repl_instance.deinit();
+
+    // 3. Start the input loop
+    const stdin = std.io.getStdIn().reader();
+    var buffer: [1024]u8 = undefined;
+
+    while (true) {
+        try stdout.writeAll("» ");
+
+        const line = stdin.readUntilDelimiterOrEof(&buffer, '\n') catch |err| {
+            // This is not an error, it just means we received a null byte
+            // which can happen when the user presses Ctrl+D
+            if (err == error.StreamTooLong) {
+                try stderr.print("Input is too long, max length is {d} bytes\n", .{buffer.len});
+                continue;
+            } else {
+                return err;
+            }
+        };
+
+        if (line) |input| {
+            const trimmed_input = std.mem.trim(u8, input, " \t\r");
+
+            if (trimmed_input.len == 0) {
+                continue;
+            }
+
+            // 5. Evaluate the expression
+            const step_result = try repl_instance.step(trimmed_input);
+
+            // 6. Print the result
+            switch (step_result) {
+                .value => |val| {
+                    defer gpa.free(val.string);
+                    defer gpa.free(val.type_str);
+
+                    if (val.type_str.len > 0) {
+                        try stdout.print("{s} : {s}\n", .{ val.string, val.type_str });
+                    } else {
+                        try stdout.print("{s}\n", .{val.string});
+                    }
+                },
+                .report => |*report| {
+                    // Use the existing reporting infrastructure
+                    reporting.renderReportToTerminal(
+                        report,
+                        stderr.any(),
+                        ColorPalette.ANSI,
+                        reporting.ReportingConfig.initColorTerminal(),
+                    ) catch {};
+                },
+                .exit => |msg| {
+                    defer gpa.free(msg);
+                    try stdout.print("{s}\n", .{msg});
+                    return;
+                },
+            }
+        } else {
+            // End of file (Ctrl+D)
+            try stdout.writeAll("\n");
+            break;
+        }
+    }
 }
 
 /// Reads, parses, formats, and overwrites all Roc files at the given paths.
