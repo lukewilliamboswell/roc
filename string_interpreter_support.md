@@ -1,71 +1,120 @@
-# Plan for Adding String Support to the Interpreter
+# Add String Support to the Interpreter
 
-This document outlines the plan to add support for `String` literals to the Roc interpreter in a minimal way. The implementation will focus on handling the `e_str` expression type in `src/eval/interpreter.zig` and correctly managing memory using the `RocStr` definitions from `src/builtins/str.zig`.
+## Goals
+- Evaluate string literals into `RocStr` on the interpreter stack.
+- Manage heap via `RocOps` bridged to the interpreter’s allocator.
+- Deallocate big strings via `decref` at the right points.
+- Avoid aliasing bugs until `incref` semantics are intentionally introduced.
 
 ## Phase 1: String Literal Evaluation
 
-The first phase is to enable the interpreter to recognize and evaluate string literals, creating `RocStr` values on its stack.
+### Task 1.1: Add RocOps allocator bridge
+**Why**: `RocStr`’s heap behavior is driven via `RocOps` (alloc/realloc/dealloc). The interpreter’s allocator becomes the heap for Roc values and enables accounting in tests.
 
-### Task 1.1: Establish `RocOps` for Memory Management
+**Plan**:
+- Add field to `Interpreter`:
+  - `roc_ops: builtins.host_abi.RocOps`
+- In `Interpreter.init`:
+  - Initialize `roc_ops` with:
+    - ctx: pointer to the interpreter’s `std.mem.Allocator`.
+    - function pointers: `rocAlloc`, `rocRealloc`, `rocDealloc`
+- Implement wrappers with exact `RocOps` ABI:
+  - `rocAlloc(ctx, size, alignment) -> ?[*]u8`
+  - `rocRealloc(ctx, old_ptr, old_size, new_size, alignment) -> ?[*]u8`
+  - `rocDealloc(ctx, ptr, alignment) -> void`
+- Respect `alignment` in all calls. Use aligned alloc/free. For realloc, if the allocator doesn't support it directly, allocate new, copy, and free old.
+- No special work in `deinit` for `roc_ops`.
 
-The `RocStr` builtin requires a `RocOps` struct to handle memory allocations.
+### Task 1.2: Implement e_str handling
+**Why**: Create a `RocStr` using the builtin API and place it on the stack with the correct layout.
 
-1.  **In `src/eval/interpreter.zig`:**
-2.  Add a `roc_ops: builtins.host_abi.RocOps` field to the `Interpreter` struct.
-3.  In `Interpreter.init`, create and initialize the `roc_ops` instance. This will involve creating static wrapper functions (`rocAlloc`, `rocRealloc`, `rocDealloc`) that bridge Zig's `std.mem.Allocator` with the function pointer interface of `RocOps`. The interpreter's own allocator will be passed as the context pointer, effectively making it the "heap" for Roc values.
+**Plan**:
+- In `evalExpr`, implement `.e_str`:
+  - Resolve the `Layout` for `Str` via the layout store. Ensure it corresponds to `@sizeOf(builtins.str.RocStr)` and `@alignOf(builtins.str.RocStr)`.
+  - `pushStackValue` for that layout to reserve space on `stack_memory`.
+  - Construct a `RocStr` using `RocStr.init(slice, &self.roc_ops)`.
+  - Copy the resulting `RocStr` into the reserved location.
+- **Ownership**: The `RocStr` instance now lives at the stack location and must be decref’d when the value is destroyed unless moved.
 
-#### Memory Allocation Strategy
+## Phase 2: Cleanup and Ownership
 
--   **Small Strings**: For strings that fit within the `RocStr` struct's inline buffer (`SMALL_STR_MAX_LENGTH`), no heap allocation is performed. The string data is stored directly on the interpreter's `stack_memory`.
--   **Large Strings**: For strings that exceed this size, `RocStr.init` will use the `roc_ops` function pointers to request a new allocation from the interpreter's main allocator. The `RocStr` on the stack will then hold a pointer to this heap-allocated buffer.
+### Task 2.1: Enhance popStackValue for cleanup
+**Why**: Centralize release of big-string references and avoid leaks.
 
-### Task 1.2: Implement `e_str` Expression Handling
+**Plan**:
+- Change signature: `popStackValue(self: *Interpreter, cleanup: bool) !StackValue`
+- After popping:
+  - If `cleanup` and layout is `Str`, call `decref` on the `RocStr` pointer using `&self.roc_ops`.
+  - Small strings: `decref` is a no-op per the builtin's implementation; do not branch on small/big here.
 
-This task involves teaching the interpreter what to do when it encounters a string literal (`e_str`).
+### Task 2.2: Integrate cleanup in evaluation
+**Why**: Ensure all discard paths release big strings; preserve values on move/return.
 
-1.  **In `src/eval/interpreter.zig`'s `evalExpr` function:**
-2.  Locate the `case .e_str => ...` which is currently unimplemented.
-3.  Get the layout for the string type. We will assume a `Layout` for `Str` can be resolved to represent `RocStr` with a size of `@sizeOf(RocStr)`.
-4.  Use `pushStackValue` to allocate space for the `RocStr` struct on the interpreter's `stack_memory`.
-5.  Call `builtins.str.RocStr.init()` using the string literal data from the `e_str` expression and the `roc_ops` instance created in Task 1.1.
-6.  Copy the `RocStr` struct returned by `init` into the memory allocated on the stack.
+**Plan**:
+- Replace discard pops with `popStackValue(true)` in:
+  - `completeBinop` operands.
+  - `checkIfCondition` condition value.
+  - `w_block_cleanup` sites.
+- Use `popStackValue(false)` when returning values from blocks/functions or moving a value.
+- **Aliasing constraint for v1**: Do not create additional aliases of the same `RocStr` unless you also implement `incref`. Moves are safe; copies that leave both old and new live are not.
 
-## Phase 2: Memory Management for Strings
+## Phase 3: Aggregates, Bindings, and Closures
 
-To prevent memory leaks, we must correctly manage the reference count of `RocStr` values. Big strings are reference-counted, and we must call `decref` when they are no longer needed.
+### Task 3.1: Records/Tuples
+**Why**: Ensure string fields in aggregates follow ownership rules.
 
-### Task 2.1: Enhance `popStackValue` for Cleanup
+**Plan**:
+- When putting a `RocStr` into a record/tuple, use move semantics.
+- When aggregates are cleaned up, ensure their string fields are decref'd.
 
-We will modify the primary stack-popping function to handle the cleanup of reference-counted values.
+### Task 3.2: Pattern binding
+**Why**: Avoid dangling references to popped stack values.
 
-1.  **In `src/eval/interpreter.zig`:**
-2.  Modify `popStackValue` to accept a boolean `cleanup` parameter: `popStackValue(self: *Interpreter, cleanup: bool) !StackValue`.
-3.  Inside the function, after popping a `Value`, check if `cleanup` is `true` and if the value's layout corresponds to a `Str`.
-4.  If both are true, get a pointer to the `RocStr` on the stack and call its `decref(&self.roc_ops)` method.
+**Plan**:
+- If a binding references a stack value by pointer, never pop the underlying value before the binding ends.
+- When copying a `RocStr` for a binding, treat it as a move.
 
-### Task 2.2: Integrate Cleanup Logic
+### Task 3.3: Closures and captures
+**Why**: Strings captured by closures may outlive the stack frame.
 
-Update the interpreter's evaluation logic to use the new `popStackValue(true)` for cleanup.
+**Plan**:
+- If capturing a `RocStr` by value, it must be moved into the closure's storage.
+- Postpone aliasing patterns (e.g., one string captured by multiple closures) until `incref` is supported.
 
-1.  **In `src/eval/interpreter.zig`:**
-2.  Review all calls to `popStackValue` or direct manipulations of `self.value_stack.items.len`.
-3.  In places where values are consumed and discarded (e.g., operands in `completeBinop`, the condition in `checkIfCondition`, values in `w_block_cleanup`), replace the old pop logic with a call to `popStackValue(true)`.
-4.  In places where a value is being moved or is the result of a function (e.g., the final result of a block or function call), use `popStackValue(false)` to avoid premature deallocation.
+## Phase 4: Future Work (String operations and aliasing)
 
-## Phase 3: Validation and Testing
+### Task 4.1: String operations
+- Add `Str.concat`, `Str.trim`, etc., via builtins.
+- For ops returning references or sharing strings, implement `incref` and `decref` correctly.
 
-We will add a suite of tests to `src/eval/test/eval_test.zig` to ensure the correctness of the string implementation.
+### Task 4.2: Incref semantics
+- Introduce `incref` whenever aliasing is created.
 
-### Test Cases
+## Phase 5: Tracing and Error Handling
 
-1.  **Evaluate Small String**: Test the evaluation of a string literal that fits within the small string optimization. Verify that the resulting `RocStr` is correct and no heap allocation occurs.
-2.  **Evaluate Large String**: Test the evaluation of a string literal that exceeds the small string limit. Verify that the `RocStr` is correctly allocated on the heap.
-3.  **String Scope and Cleanup**: Evaluate a Roc expression where a string is defined within a block and goes out of scope. Use a testing allocator to verify that `dealloc` is called for large strings, confirming that `decref` is working correctly.
-4.  **Return String**: Evaluate a Roc expression that returns a string from a block or function. Verify that the string is not prematurely deallocated and the correct value is returned.
+### Task 5.1: Tracing
+- Enhance `traceValue` for `Str` to print content and whether it's small/big.
+- Add trace points for `roc_ops` calls and `decref`.
 
-## Phase 4: Future Work
+### Task 5.2: Error handling
+- Ensure allocator wrappers return null on OOM and propagate it as an `EvalError`.
 
-This plan covers the minimal implementation for string literals. Further work will be required to support a full range of string operations.
+## Phase 6: Validation and Tests
 
-*   **String Operations**: Implement handlers for binary operations (`Str.concat`) and function calls (`Str.split`, `Str.trim`, etc.) by calling the corresponding functions in `builtins/str.zig`.
-*   **Reference Count `incref`**: Ensure that operations that share strings correctly increment their reference counts to prevent use-after-free bugs. For example, when a string is passed to multiple functions or stored in multiple data structures.
+### Core tests in `src/eval/test/eval_test.zig`
+1.  **Evaluate small string**: Verify content and that no heap allocation occurs.
+2.  **Evaluate large string**: Verify content and that heap allocation occurs and is freed.
+3.  **String scope and cleanup**: Verify `decref` is called for big strings when they go out of scope.
+4.  **Return string**: Verify a returned string is not prematurely deallocated.
+
+### Additional tests
+5.  **Aggregates containing strings**: Ensure fields are cleaned up correctly.
+6.  **Binding and move semantics**: Ensure no double-free or leak occurs.
+7.  **Control flow cleanup**: Ensure temporary strings in `if` branches are cleaned up.
+8.  **Closure capture**: Test capture-by-value and cleanup.
+
+### Success criteria
+- All new tests pass and the allocator reports no leaks.
+- No double-decref on moved values.
+- No dangling references.
+- Tracing shows the expected lifecycle for small and big strings.
