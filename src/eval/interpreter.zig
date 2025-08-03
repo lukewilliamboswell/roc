@@ -329,6 +329,25 @@ pub const Interpreter = struct {
     }
 
     pub fn deinit(self: *Interpreter) void {
+        // Clean up heap-allocated string bindings
+        for (self.bindings_stack.items) |binding| {
+            if (binding.layout.tag == .scalar and binding.layout.data.scalar.tag == .str) {
+                // Check if this is a heap-allocated binding (outside stack bounds)
+                const stack_start_ptr = @intFromPtr(self.stack_memory.start);
+                const stack_end_ptr = stack_start_ptr + self.stack_memory.capacity;
+                const binding_ptr_val = @intFromPtr(binding.value_ptr);
+                
+                if (binding_ptr_val < stack_start_ptr or binding_ptr_val >= stack_end_ptr) {
+                    // This is a heap-allocated string binding, clean it up properly
+                    const str_ptr: *builtins.str.RocStr = @ptrCast(@alignCast(binding.value_ptr));
+                    if (!str_ptr.isSmallStr()) {
+                        str_ptr.decref(&self.roc_ops); // Decrement reference count for big strings
+                    }
+                    self.allocator.destroy(str_ptr);
+                }
+            }
+        }
+        
         self.work_stack.deinit();
         self.value_stack.deinit();
         self.bindings_stack.deinit();
@@ -717,11 +736,7 @@ pub const Interpreter = struct {
                         const dest_ptr = (try self.pushStackValue(binding.layout)).?;
                         const binding_size = self.layout_cache.layoutSize(binding.layout);
                         if (binding_size > 0) {
-                            // Assertion: Check if the binding pointer is within the stack memory bounds
-                            const stack_start_ptr = @intFromPtr(self.stack_memory.start);
-                            const stack_end_ptr = stack_start_ptr + self.stack_memory.used;
-                            const binding_ptr_val = @intFromPtr(binding.value_ptr);
-                            std.debug.assert(binding_ptr_val >= stack_start_ptr and binding_ptr_val + binding_size <= stack_end_ptr);
+                            // Note: For heap-allocated bindings (like cloned strings), we skip the stack bounds check
 
                             // For all types, use regular memory copying
                             // This copies the value data from the (potentially freed) stack location
@@ -1894,25 +1909,29 @@ pub const Interpreter = struct {
         switch (pattern) {
             .assign => |assign_pattern| {
                 // For a variable pattern, we create a binding for the variable
-                // For strings, we need to ensure they survive stack cleanup by allocating permanent storage
                 var binding_ptr = value.ptr.?;
                 
                 if (value.layout.tag == .scalar and value.layout.data.scalar.tag == .str) {
-                    // For strings, allocate permanent storage to survive block cleanup
-                    const str_size = self.layout_cache.layoutSize(value.layout);
-                    const str_ptr = try self.allocator.alloc(u8, str_size);
+                    // For strings, ensure they survive block cleanup using proper RocStr management
+                    const src_str: *const builtins.str.RocStr = @ptrCast(@alignCast(value.ptr.?));
                     
-                    // Copy the string data to permanent storage
-                    std.mem.copyForwards(u8, str_ptr, @as([*]const u8, @ptrCast(value.ptr.?))[0..str_size]);
-                    
-                    // Handle reference counting for big strings
-                    const dest_str: *builtins.str.RocStr = @ptrCast(@alignCast(str_ptr.ptr));
-                    if (!dest_str.isSmallStr()) {
-                        dest_str.incref(1);
+                    // Check if it's unique first
+                    if (src_str.isSmallStr()) {
+                        // Small strings are copied by value, so create a permanent copy
+                        const str_storage = try self.allocator.create(builtins.str.RocStr);
+                        str_storage.* = src_str.*; // Copy the small string data
+                        binding_ptr = str_storage;
+                        self.traceInfo("🔤 Preserved small string binding: \"{s}\"", .{src_str.asSlice()});
+                    } else {
+                        // Big strings are heap-allocated, just increment reference count
+                        const str_storage = try self.allocator.create(builtins.str.RocStr);
+                        str_storage.* = src_str.*;
+                        if (!builtins.utils.isUnique(src_str.getAllocationPtr())) {
+                            str_storage.incref(1); // Increment reference count if not unique
+                        }
+                        binding_ptr = str_storage;
+                        self.traceInfo("🔤 Preserved big string binding: \"{s}\"", .{src_str.asSlice()});
                     }
-                    
-                    binding_ptr = str_ptr.ptr;
-                    self.traceInfo("🔤 Allocated permanent storage for string binding: \"{s}\"", .{dest_str.asSlice()});
                 }
                 
                 const binding = Binding{
