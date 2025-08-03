@@ -462,7 +462,26 @@ pub const Interpreter = struct {
                         self.stack_memory.used = first_val_to_pop_offset;
                     }
 
-                    // Clean up bindings.
+                    // Clean up bindings, including any heap-allocated strings.
+                    var i = self.bindings_stack.items.len;
+                    while (i > bindings_to_keep) {
+                        i -= 1;
+                        const binding = self.bindings_stack.items[i];
+                        if (binding.layout.tag == .scalar and binding.layout.data.scalar.tag == .str) {
+                            const stack_start_ptr = @intFromPtr(self.stack_memory.start);
+                            const stack_end_ptr = stack_start_ptr + self.stack_memory.capacity;
+                            const binding_ptr_val = @intFromPtr(binding.value_ptr);
+
+                            if (binding_ptr_val < stack_start_ptr or binding_ptr_val >= stack_end_ptr) {
+                                const str_ptr: *builtins.str.RocStr = @ptrCast(@alignCast(binding.value_ptr));
+                                if (!str_ptr.isSmallStr()) {
+                                    str_ptr.decref(&self.roc_ops);
+                                }
+                                self.allocator.destroy(str_ptr);
+                                self.traceInfo("Freed heap-allocated string binding at ptr {}", .{@intFromPtr(binding.value_ptr)});
+                            }
+                        }
+                    }
                     self.bindings_stack.items.len = bindings_to_keep;
 
                     // Push the result back.
@@ -1912,25 +1931,19 @@ pub const Interpreter = struct {
                 var binding_ptr = value.ptr.?;
                 
                 if (value.layout.tag == .scalar and value.layout.data.scalar.tag == .str) {
-                    // For strings, ensure they survive block cleanup using proper RocStr management
                     const src_str: *const builtins.str.RocStr = @ptrCast(@alignCast(value.ptr.?));
-                    
-                    // Check if it's unique first
+
+                    const str_storage = try self.allocator.create(builtins.str.RocStr);
+                    str_storage.* = src_str.*;
+                    binding_ptr = str_storage;
+
                     if (src_str.isSmallStr()) {
-                        // Small strings are copied by value, so create a permanent copy
-                        const str_storage = try self.allocator.create(builtins.str.RocStr);
-                        str_storage.* = src_str.*; // Copy the small string data
-                        binding_ptr = str_storage;
-                        self.traceInfo("🔤 Preserved small string binding: \"{s}\"", .{src_str.asSlice()});
+                        self.traceInfo("🔤 Preserved small string binding on heap: \"{s}\"", .{src_str.asSlice()});
                     } else {
-                        // Big strings are heap-allocated, just increment reference count
-                        const str_storage = try self.allocator.create(builtins.str.RocStr);
-                        str_storage.* = src_str.*;
-                        if (!builtins.utils.isUnique(src_str.getAllocationPtr())) {
-                            str_storage.incref(1); // Increment reference count if not unique
-                        }
-                        binding_ptr = str_storage;
-                        self.traceInfo("🔤 Preserved big string binding: \"{s}\"", .{src_str.asSlice()});
+                        // For big strings, we copied the RocStr struct to the heap.
+                        // Now we need to increment the ref count of the underlying string data.
+                        str_storage.incref(1);
+                        self.traceInfo("🔤 Preserved big string binding on heap: \"{s}\"", .{src_str.asSlice()});
                     }
                 }
                 

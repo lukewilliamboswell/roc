@@ -465,7 +465,7 @@ test "string literals and interpolation" {
         \\    world = "World";
         \\    "${hello} ${world}"
         \\}
-    , .trace);
+    , .no_trace);
 }
 
 test "ModuleEnv serialization and interpreter evaluation" {
