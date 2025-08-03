@@ -122,10 +122,7 @@ const WorkKind = enum {
     w_block_cleanup,
     w_dot_access,
     // String interpolation work items
-    w_str_interpolation_start,   // Begin evaluating string segments
-    w_str_interpolation_segment, // Evaluate next segment
-    w_str_interpolation_combine, // Combine all evaluated segments
-    w_str_interpolation_convert, // Convert evaluated expr to string
+    // String interpolation work items removed - now using immediate evaluation
 };
 
 /// A unit of work to be processed during iterative evaluation.
@@ -166,18 +163,7 @@ const BranchData = struct {
 };
 
 /// State tracking for string interpolation evaluation
-const StringInterpolationState = struct {
-    span: ModuleEnv.Expr.Span,
-    current_segment: u32,
-    segments_evaluated: std.ArrayList(builtins.str.RocStr),
-
-    fn deinit(self: *StringInterpolationState, roc_ops: *builtins.host_abi.RocOps) void {
-        for (self.segments_evaluated.items) |*segment| {
-            segment.decref(roc_ops); // Clean up if evaluation fails
-        }
-        self.segments_evaluated.deinit();
-    }
-};
+// StringInterpolationState removed - now using immediate evaluation
 
 /// Tracks execution context for function calls
 pub const CallFrame = struct {
@@ -470,162 +456,6 @@ pub const Interpreter = struct {
                         try self.value_stack.append(.{ .layout = result_val.layout, .offset = self.stack_memory.used });
                     }
                 },
-                // String interpolation work items
-                .w_str_interpolation_start => {
-                    // This work item is currently unused - we start directly with segment evaluation
-                    return error.StringInterpolationFailed;
-                },
-                .w_str_interpolation_segment => {
-                    const state_ptr: *StringInterpolationState = @ptrFromInt(@as(usize, work.extra));
-                    const segments = self.env.store.sliceExpr(state_ptr.span);
-                    const current_expr = work.expr_idx;
-
-                    self.traceInfo("🔤 Processing segment {}/{} at state_ptr={*}", .{ state_ptr.current_segment + 1, segments.len, state_ptr });
-
-                    // Check what type of segment this is
-                    const segment_expr = self.env.store.getExpr(current_expr);
-                    switch (segment_expr) {
-                        .e_str_segment => |str_seg| {
-                            // This is a literal string segment
-                            const literal_content = self.env.strings.get(str_seg.literal);
-                            self.traceInfo("🔤 Creating RocStr from content: \"{s}\" (len={})", .{ literal_content, literal_content.len });
-                            
-                            const segment_str = builtins.str.RocStr.fromSlice(literal_content, &self.roc_ops);
-                            
-                            self.traceInfo("🔤 Created RocStr: isSmall={}, len={}, content=\"{s}\"", .{ 
-                                segment_str.isSmallStr(), 
-                                segment_str.len(),
-                                segment_str.asSlice()
-                            });
-
-                            try state_ptr.segments_evaluated.append(segment_str);
-                            self.traceInfo("🔤 Added literal segment: \"{s}\" (len={})", .{ literal_content, literal_content.len });
-                            
-                            // Move to next segment for literal strings
-                            state_ptr.current_segment += 1;
-                            if (state_ptr.current_segment < segments.len) {
-                                self.traceInfo("🔤 Scheduling next segment {}/{}", .{ state_ptr.current_segment + 1, segments.len });
-                                self.schedule_work(WorkItem{
-                                    .kind = .w_str_interpolation_segment,
-                                    .expr_idx = segments[state_ptr.current_segment],
-                                    .extra = work.extra,
-                                });
-                            } else {
-                                self.traceInfo("🔤 All segments processed, ready for combination", .{});
-                            }
-                        },
-                        else => {
-                            self.traceInfo("🔤 Found interpolated expression of type {s}, scheduling evaluation", .{@tagName(segment_expr)});
-                            
-                            // This is an interpolated expression - we need to evaluate it first
-                            // Schedule work to convert the result to string after evaluation
-                            self.schedule_work(WorkItem{
-                                .kind = .w_str_interpolation_convert,
-                                .expr_idx = current_expr,
-                                .extra = work.extra,
-                            });
-
-                            // Schedule evaluation of the expression
-                            self.schedule_work(WorkItem{
-                                .kind = .w_eval_expr,
-                                .expr_idx = current_expr,
-                            });
-
-                            // Don't move segment counter yet - that will be done in convert handler
-                        },
-                    }
-                },
-                .w_str_interpolation_convert => {
-                    const state_ptr: *StringInterpolationState = @ptrFromInt(@as(usize, work.extra));
-
-                    self.traceInfo("🔤 Converting interpolated expression result to string", .{});
-
-                    // Pop the evaluated expression result
-                    const expr_result = try self.popStackValue(); // Don't cleanup, we need the value
-                    try self.traceValue("interpolation_expr_result", expr_result);
-
-                    // Convert the result to a string
-                    const string_result = try self.valueToString(expr_result);
-                    try state_ptr.segments_evaluated.append(string_result);
-
-                    const content = string_result.asSlice();
-                    self.traceInfo("🔤 Added interpolated segment: \"{s}\" (converted from {s}, len={})", .{ content, @tagName(expr_result.layout.tag), content.len });
-
-                    // Continue with next segment
-                    const segments = self.env.store.sliceExpr(state_ptr.span);
-                    state_ptr.current_segment += 1;
-                    if (state_ptr.current_segment < segments.len) {
-                        self.traceInfo("🔤 Scheduling next segment {}/{} after conversion", .{ state_ptr.current_segment + 1, segments.len });
-                        self.schedule_work(WorkItem{
-                            .kind = .w_str_interpolation_segment,
-                            .expr_idx = segments[state_ptr.current_segment],
-                            .extra = work.extra,
-                        });
-                    } else {
-                        self.traceInfo("🔤 All segments processed after conversion, ready for combination", .{});
-                    }
-                },
-                .w_str_interpolation_combine => {
-                    const state_ptr: *StringInterpolationState = @ptrFromInt(@as(usize, work.extra));
-                    defer {
-                        self.traceInfo("🔤 Cleaning up interpolation state at {*}", .{state_ptr});
-                        state_ptr.deinit(&self.roc_ops);
-                        self.allocator.destroy(state_ptr);
-                    }
-
-                    self.traceInfo("🔤 Combining {} string segments into final result", .{state_ptr.segments_evaluated.items.len});
-
-                    const str_layout = Layout.str();
-                    const result_ptr = (try self.pushStackValue(str_layout)).?;
-                    const result_str: *builtins.str.RocStr = @ptrCast(@alignCast(result_ptr));
-
-                    if (state_ptr.segments_evaluated.items.len == 0) {
-                        // No segments, create empty string
-                        result_str.* = builtins.str.RocStr.empty();
-                        self.traceInfo("🔤 Created empty result string", .{});
-                    } else if (state_ptr.segments_evaluated.items.len == 1) {
-                        // Single segment, just move it (transfer ownership)
-                        const source_str = state_ptr.segments_evaluated.items[0];
-                        self.traceInfo("🔤 Before transfer: source isSmall={}, len={}, content=\"{s}\"", .{ 
-                            source_str.isSmallStr(), 
-                            source_str.len(),
-                            source_str.asSlice()
-                        });
-                        
-                        result_str.* = source_str;
-                        
-                        self.traceInfo("🔤 After transfer: result isSmall={}, len={}, content=\"{s}\"", .{ 
-                            result_str.isSmallStr(), 
-                            result_str.len(),
-                            result_str.asSlice()
-                        });
-                        
-                        // Clear the list so deinit doesn't decref the string we just transferred
-                        state_ptr.segments_evaluated.clearRetainingCapacity();
-                    } else {
-                        // Multiple segments, concatenate them
-                        result_str.* = state_ptr.segments_evaluated.items[0];
-                        const first_content = result_str.asSlice();
-                        self.traceInfo("🔤 Starting concatenation with: \"{s}\"", .{first_content});
-
-                        for (state_ptr.segments_evaluated.items[1..], 2..) |segment, i| {
-                            const segment_content = segment.asSlice();
-                            self.traceInfo("🔤 Concatenating segment {}: \"{s}\"", .{ i, segment_content });
-                            const new_result = builtins.str.strConcat(result_str.*, segment, &self.roc_ops);
-                            // Replace result with concatenated version
-                            result_str.* = new_result;
-                        }
-
-                        const final_content = result_str.asSlice();
-                        self.traceInfo("🔤 Final concatenated result: \"{s}\"", .{final_content});
-
-                        // Clear the list so deinit doesn't decref the segments we consumed
-                        state_ptr.segments_evaluated.clearRetainingCapacity();
-                    }
-
-                    const result_value = StackValue{ .layout = str_layout, .ptr = result_ptr };
-                    try self.traceValue("interpolated_string", result_value);
-                },
             }
         }
 
@@ -893,23 +723,22 @@ pub const Interpreter = struct {
                             const binding_ptr_val = @intFromPtr(binding.value_ptr);
                             std.debug.assert(binding_ptr_val >= stack_start_ptr and binding_ptr_val + binding_size <= stack_end_ptr);
 
-                            // Special handling for RocStr to manage reference counting
+                            // For all types, use regular memory copying
+                            // This copies the value data from the (potentially freed) stack location
+                            // to the new stack location, ensuring the data is preserved
+                            std.mem.copyForwards(u8, @as([*]u8, @ptrCast(dest_ptr))[0..binding_size], @as([*]const u8, @ptrCast(binding.value_ptr))[0..binding_size]);
+                            
+                            // Special handling for RocStr reference counting after copying
                             if (binding.layout.tag == .scalar and binding.layout.data.scalar.tag == .str) {
-                                const src_str: *const builtins.str.RocStr = @ptrCast(@alignCast(binding.value_ptr));
                                 const dest_str: *builtins.str.RocStr = @ptrCast(@alignCast(dest_ptr));
                                 
-                                // Copy the RocStr struct
-                                dest_str.* = src_str.*;
-                                
                                 // Increment reference count if it's not a small string
-                                if (!src_str.isSmallStr()) {
+                                // This ensures that heap-allocated strings don't get freed
+                                if (!dest_str.isSmallStr()) {
                                     dest_str.incref(1);
                                 }
                                 
                                 self.traceInfo("Copied string variable: \"{s}\" (ref count incremented)", .{dest_str.asSlice()});
-                            } else {
-                                // For non-string types, use regular memory copying
-                                std.mem.copyForwards(u8, @as([*]u8, @ptrCast(dest_ptr))[0..binding_size], @as([*]const u8, @ptrCast(binding.value_ptr))[0..binding_size]);
                             }
                         }
                         return;
@@ -1199,7 +1028,7 @@ pub const Interpreter = struct {
             
             .e_str => |str_expr| {
                 const segments = self.env.store.sliceExpr(str_expr.span);
-                self.traceInfo("🔤 Starting e_str evaluation with {} segments", .{segments.len});
+                self.traceInfo("🔤 Starting immediate e_str evaluation with {} segments", .{segments.len});
                 
                 if (segments.len == 0) {
                     // Empty string
@@ -1213,32 +1042,8 @@ pub const Interpreter = struct {
                     return;
                 }
 
-                // Store interpolation state in the work item's extra field
-                const state_ptr = try self.allocator.create(StringInterpolationState);
-                state_ptr.* = StringInterpolationState{
-                    .span = str_expr.span,
-                    .current_segment = 0,
-                    .segments_evaluated = std.ArrayList(builtins.str.RocStr).init(self.allocator),
-                };
-
-                self.traceInfo("🔤 Scheduling string interpolation for {} segments at state_ptr={*}", .{ segments.len, state_ptr });
-
-                // Store pointer directly in u64 extra field
-                const state_extra: u64 = @intFromPtr(state_ptr);
-
-                // Schedule completion work
-                self.schedule_work(WorkItem{
-                    .kind = .w_str_interpolation_combine,
-                    .expr_idx = expr_idx,
-                    .extra = state_extra,
-                });
-
-                // Schedule evaluation of first segment
-                self.schedule_work(WorkItem{
-                    .kind = .w_str_interpolation_segment,
-                    .expr_idx = segments[0],
-                    .extra = state_extra,
-                });
+                // Immediately evaluate all segments synchronously
+                try self.evaluateStringInterpolationImmediate(segments);
             },
             
             .e_list, .e_lookup_external, .e_match, .e_crash, .e_dbg, .e_expect, .e_ellipsis => {
@@ -2089,9 +1894,30 @@ pub const Interpreter = struct {
         switch (pattern) {
             .assign => |assign_pattern| {
                 // For a variable pattern, we create a binding for the variable
+                // For strings, we need to ensure they survive stack cleanup by allocating permanent storage
+                var binding_ptr = value.ptr.?;
+                
+                if (value.layout.tag == .scalar and value.layout.data.scalar.tag == .str) {
+                    // For strings, allocate permanent storage to survive block cleanup
+                    const str_size = self.layout_cache.layoutSize(value.layout);
+                    const str_ptr = try self.allocator.alloc(u8, str_size);
+                    
+                    // Copy the string data to permanent storage
+                    std.mem.copyForwards(u8, str_ptr, @as([*]const u8, @ptrCast(value.ptr.?))[0..str_size]);
+                    
+                    // Handle reference counting for big strings
+                    const dest_str: *builtins.str.RocStr = @ptrCast(@alignCast(str_ptr.ptr));
+                    if (!dest_str.isSmallStr()) {
+                        dest_str.incref(1);
+                    }
+                    
+                    binding_ptr = str_ptr.ptr;
+                    self.traceInfo("🔤 Allocated permanent storage for string binding: \"{s}\"", .{dest_str.asSlice()});
+                }
+                
                 const binding = Binding{
                     .pattern_idx = pattern_idx,
-                    .value_ptr = value.ptr.?,
+                    .value_ptr = binding_ptr,
                     .layout = value.layout,
                 };
                 self.traceInfo("Binding '{s}' (pattern_idx={}) to ptr {}", .{
@@ -2272,6 +2098,79 @@ pub const Interpreter = struct {
                 return error.TypeMismatch;
             },
         }
+    }
+
+    /// Immediately evaluate all segments of a string interpolation and combine them into a final string.
+    /// This approach avoids the work queue and processes everything synchronously within the current block.
+    fn evaluateStringInterpolationImmediate(self: *Interpreter, segments: []const ModuleEnv.Expr.Idx) EvalError!void {
+        self.traceEnter("evaluateStringInterpolationImmediate with {} segments", .{segments.len});
+        defer self.traceExit("", .{});
+
+        // List to collect all evaluated string segments
+        var segment_strings = std.ArrayList(builtins.str.RocStr).init(self.allocator);
+        defer {
+            // Clean up all segment strings
+            for (segment_strings.items) |*segment_str| {
+                segment_str.decref(&self.roc_ops);
+            }
+            segment_strings.deinit();
+        }
+
+        // Evaluate each segment and collect the string representations
+        for (segments) |segment_idx| {
+            self.traceInfo("🔤 Evaluating segment {}", .{segment_idx});
+            
+            // Evaluate the segment expression
+            try self.evalExpr(segment_idx);
+            
+            // Pop the result and convert to string
+            const segment_value = try self.popStackValue();
+            const segment_str = try self.valueToString(segment_value);
+            
+            try segment_strings.append(segment_str);
+            self.traceInfo("🔤 Segment evaluated to: \"{s}\"", .{segment_str.asSlice()});
+        }
+
+        // Calculate total length for concatenation
+        var total_len: usize = 0;
+        for (segment_strings.items) |segment_str| {
+            total_len += segment_str.asSlice().len;
+        }
+
+        self.traceInfo("🔤 Concatenating {} segments with total length {}", .{ segment_strings.items.len, total_len });
+
+        // Create the result string
+        var result_str: builtins.str.RocStr = undefined;
+        
+        if (total_len == 0) {
+            // Empty result
+            result_str = builtins.str.RocStr.empty();
+        } else {
+            // Allocate space for the concatenated string using standard allocator
+            const result_slice = try self.allocator.alloc(u8, total_len);
+            defer self.allocator.free(result_slice);
+            
+            // Concatenate all segments
+            var offset: usize = 0;
+            for (segment_strings.items) |segment_str| {
+                const segment_slice = segment_str.asSlice();
+                std.mem.copyForwards(u8, result_slice[offset..offset + segment_slice.len], segment_slice);
+                offset += segment_slice.len;
+            }
+            
+            // Create RocStr from the concatenated data
+            result_str = builtins.str.RocStr.fromSlice(result_slice, &self.roc_ops);
+        }
+
+        // Push the final string onto the stack
+        const str_layout = Layout.str();
+        const result_ptr = (try self.pushStackValue(str_layout)).?;
+        const dest_str: *builtins.str.RocStr = @ptrCast(@alignCast(result_ptr));
+        dest_str.* = result_str;
+
+        const result_value = StackValue{ .layout = str_layout, .ptr = result_ptr };
+        self.traceInfo("🔤 String interpolation complete: \"{s}\"", .{result_str.asSlice()});
+        try self.traceValue("final_interpolated_string", result_value);
     }
 
     /// Helper to peek at a value on the evaluation stacks without popping it.
