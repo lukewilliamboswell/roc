@@ -121,8 +121,6 @@ const WorkKind = enum {
     w_let_bind,
     w_block_cleanup,
     w_dot_access,
-    // String interpolation work items
-    // String interpolation work items removed - now using immediate evaluation
 };
 
 /// A unit of work to be processed during iterative evaluation.
@@ -161,9 +159,6 @@ const BranchData = struct {
     /// Expression index for the branch body (evaluated if condition is true)
     body: ModuleEnv.Expr.Idx,
 };
-
-/// State tracking for string interpolation evaluation
-// StringInterpolationState removed - now using immediate evaluation
 
 /// Tracks execution context for function calls
 pub const CallFrame = struct {
@@ -212,33 +207,78 @@ pub const Value = struct {
 
 /// - **No Heap Allocation**: Values are stack-only for performance and safety
 
-// RocOps wrapper functions for allocator bridge
+// RocOps wrapper functions for interpreter bridge
 fn rocAlloc(alloc_args: *builtins.host_abi.RocAlloc, env: *anyopaque) callconv(.C) void {
-    const allocator: *std.mem.Allocator = @ptrCast(@alignCast(env));
-    
+    const interp: *Interpreter = @ptrCast(@alignCast(env));
+
     const log2_align = std.math.log2_int(u32, @intCast(alloc_args.alignment));
     const align_enum: std.mem.Alignment = @enumFromInt(log2_align);
-    
-    const result = allocator.rawAlloc(alloc_args.length, align_enum, @returnAddress());
-    
+
+    const result = interp.allocator.rawAlloc(alloc_args.length, align_enum, @returnAddress());
+
     alloc_args.answer = result orelse {
         std.debug.panic("Out of memory during string allocation", .{});
+    };
+
+    // Track the allocation
+    const ptr_addr = @intFromPtr(alloc_args.answer);
+    interp.allocations.put(ptr_addr, alloc_args.length) catch {
+        // TODO we can't track the allocation, log it for debugging
     };
 }
 
 fn rocDealloc(dealloc_args: *builtins.host_abi.RocDealloc, env: *anyopaque) callconv(.C) void {
-    _ = dealloc_args;
-    _ = env;
-    // For now, we'll skip deallocation as we don't track allocation sizes
-    // This will leak memory but is safe for testing
+    const interp: *Interpreter = @ptrCast(@alignCast(env));
+
+    const ptr_addr = @intFromPtr(dealloc_args.ptr);
+
+    // Look up the allocation size
+    if (interp.allocations.get(ptr_addr)) |size| {
+        // Remove from tracking
+        _ = interp.allocations.remove(ptr_addr);
+
+        // Calculate alignment
+        const log2_align = std.math.log2_int(u32, @intCast(dealloc_args.alignment));
+        const align_enum: std.mem.Alignment = @enumFromInt(log2_align);
+
+        // Free the memory
+        const slice = @as([*]u8, @ptrCast(dealloc_args.ptr))[0..size];
+        interp.allocator.rawFree(slice, align_enum, @returnAddress());
+    } else {
+        // This shouldn't happen in normal operation, but we'll handle it gracefully
+        // In debug builds, we might want to assert or log this
+        std.debug.print("Warning: Attempted to free untracked allocation at {*}\n", .{dealloc_args.ptr});
+    }
 }
 
 fn rocRealloc(realloc_args: *builtins.host_abi.RocRealloc, env: *anyopaque) callconv(.C) void {
-    _ = realloc_args;
-    _ = env;
-    
-    // For now, we'll crash on realloc as it's complex to implement correctly
-    std.debug.panic("Realloc not yet implemented in interpreter", .{});
+    const interp: *Interpreter = @ptrCast(@alignCast(env));
+
+    const old_ptr_addr = @intFromPtr(realloc_args.answer);
+
+    // Look up the old allocation size
+    if (interp.allocations.get(old_ptr_addr)) |old_size| {
+        // Remove the old allocation from tracking
+        _ = interp.allocations.remove(old_ptr_addr);
+
+        // Perform reallocation
+        const old_slice = @as([*]u8, @ptrCast(realloc_args.answer))[0..old_size];
+        const new_slice = interp.allocator.realloc(old_slice, realloc_args.new_length) catch {
+            std.debug.panic("Out of memory during string reallocation", .{});
+        };
+
+        realloc_args.answer = new_slice.ptr;
+
+        // Track the new allocation
+        const new_ptr_addr = @intFromPtr(realloc_args.answer);
+        interp.allocations.put(new_ptr_addr, realloc_args.new_length) catch {
+            // If we can't track the allocation, that's not critical for functionality
+        };
+    } else {
+        // This shouldn't happen in normal operation
+        std.debug.print("Warning: Attempted to realloc untracked allocation at {*}\n", .{realloc_args.answer});
+        std.debug.panic("Cannot realloc untracked allocation", .{});
+    }
 }
 
 fn rocDbg(dbg_args: *const builtins.host_abi.RocDbg, env: *anyopaque) callconv(.C) void {
@@ -287,9 +327,11 @@ pub const Interpreter = struct {
     trace_indent: u32,
     /// Writer interface for trace output (null when no trace active)
     trace_writer: ?std.io.AnyWriter,
-    
+
     /// RocOps for string allocation and other host operations
     roc_ops: builtins.host_abi.RocOps,
+    /// Tracks allocations made through RocOps for proper deallocation
+    allocations: std.HashMap(usize, usize, std.hash_map.AutoContext(usize), std.hash_map.default_max_load_percentage),
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -311,11 +353,12 @@ pub const Interpreter = struct {
             .trace_indent = 0,
             .trace_writer = null,
             .roc_ops = undefined, // Will be initialized below
+            .allocations = std.HashMap(usize, usize, std.hash_map.AutoContext(usize), std.hash_map.default_max_load_percentage).init(allocator),
         };
-        
-        // Initialize RocOps with allocator bridge
+
+        // Initialize RocOps with interpreter bridge
         interp.roc_ops = builtins.host_abi.RocOps{
-            .env = @ptrCast(&interp.allocator),
+            .env = @ptrCast(&interp),
             .roc_alloc = &rocAlloc,
             .roc_dealloc = &rocDealloc,
             .roc_realloc = &rocRealloc,
@@ -324,7 +367,7 @@ pub const Interpreter = struct {
             .roc_crashed = &rocCrashed,
             .host_fns = undefined, // No host functions for interpreter
         };
-        
+
         return interp;
     }
 
@@ -336,7 +379,7 @@ pub const Interpreter = struct {
                 const stack_start_ptr = @intFromPtr(self.stack_memory.start);
                 const stack_end_ptr = stack_start_ptr + self.stack_memory.capacity;
                 const binding_ptr_val = @intFromPtr(binding.value_ptr);
-                
+
                 if (binding_ptr_val < stack_start_ptr or binding_ptr_val >= stack_end_ptr) {
                     // This is a heap-allocated string binding, clean it up properly
                     const str_ptr: *builtins.str.RocStr = @ptrCast(@alignCast(binding.value_ptr));
@@ -347,7 +390,17 @@ pub const Interpreter = struct {
                 }
             }
         }
-        
+
+        // Clean up any remaining tracked allocations (this shouldn't normally happen)
+        var allocation_iter = self.allocations.iterator();
+        while (allocation_iter.next()) |entry| {
+            const ptr_addr = entry.key_ptr.*;
+            const size = entry.value_ptr.*;
+            std.debug.print("Warning: Leaked allocation at {}, size {}\n", .{ ptr_addr, size });
+            // Note: We won't free these as we don't know the alignment and it's an error condition
+        }
+        self.allocations.deinit();
+
         self.work_stack.deinit();
         self.value_stack.deinit();
         self.bindings_stack.deinit();
@@ -415,18 +468,7 @@ pub const Interpreter = struct {
                 .w_let_bind => {
                     const pattern_idx: ModuleEnv.Pattern.Idx = @enumFromInt(work.extra);
                     const value = try self.peekStackValue(1); // Don't pop!
-                    
-                    // Debug the value before binding
-                    if (value.layout.tag == .scalar and value.layout.data.scalar.tag == .str) {
-                        const str_value: *const builtins.str.RocStr = @ptrCast(@alignCast(value.ptr.?));
-                        self.traceInfo("🔤 Binding string value: isSmall={}, len={}, content=\"{s}\" at ptr={}", .{ 
-                            str_value.isSmallStr(), 
-                            str_value.len(),
-                            str_value.asSlice(),
-                            @intFromPtr(value.ptr.?)
-                        });
-                    }
-                    
+
                     try self.bindPattern(pattern_idx, value); // Value stays on stack for the block's lifetime
                 },
                 .w_block_cleanup => {
@@ -478,7 +520,6 @@ pub const Interpreter = struct {
                                     str_ptr.decref(&self.roc_ops);
                                 }
                                 self.allocator.destroy(str_ptr);
-                                self.traceInfo("Freed heap-allocated string binding at ptr {}", .{@intFromPtr(binding.value_ptr)});
                             }
                         }
                     }
@@ -732,26 +773,7 @@ pub const Interpreter = struct {
                 var reversed_bindings = std.mem.reverseIterator(self.bindings_stack.items);
                 while (reversed_bindings.next()) |binding| {
                     if (binding.pattern_idx == lookup.pattern_idx) {
-                        self.traceInfo("Found binding for pattern_idx={}, ptr is {} (layout={s})", .{
-                            @intFromEnum(lookup.pattern_idx),
-                            @intFromPtr(binding.value_ptr),
-                            @tagName(binding.layout.tag)
-                        });
-                        
-                        // Check if the memory location seems valid before accessing
-                        if (binding.layout.tag == .scalar and binding.layout.data.scalar.tag == .str) {
-                            self.traceInfo("🔤 About to access string at ptr={}", .{@intFromPtr(binding.value_ptr)});
-                        }
-                        
-                        // Debug: Check the binding value before using it
-                        if (binding.layout.tag == .scalar and binding.layout.data.scalar.tag == .str) {
-                            const src_str: *const builtins.str.RocStr = @ptrCast(@alignCast(binding.value_ptr));
-                            self.traceInfo("🔤 Source string before copy: isSmall={}, len={}", .{ src_str.isSmallStr(), src_str.len() });
-                            if (src_str.len() > 0) {
-                                const content = src_str.asSlice();
-                                self.traceInfo("🔤 Source string content: \"{s}\"", .{content});
-                            }
-                        }
+                        self.traceInfo("Found binding for pattern_idx={}", .{@intFromEnum(lookup.pattern_idx)});
                         const dest_ptr = (try self.pushStackValue(binding.layout)).?;
                         const binding_size = self.layout_cache.layoutSize(binding.layout);
                         if (binding_size > 0) {
@@ -761,18 +783,16 @@ pub const Interpreter = struct {
                             // This copies the value data from the (potentially freed) stack location
                             // to the new stack location, ensuring the data is preserved
                             std.mem.copyForwards(u8, @as([*]u8, @ptrCast(dest_ptr))[0..binding_size], @as([*]const u8, @ptrCast(binding.value_ptr))[0..binding_size]);
-                            
+
                             // Special handling for RocStr reference counting after copying
                             if (binding.layout.tag == .scalar and binding.layout.data.scalar.tag == .str) {
                                 const dest_str: *builtins.str.RocStr = @ptrCast(@alignCast(dest_ptr));
-                                
+
                                 // Increment reference count if it's not a small string
                                 // This ensures that heap-allocated strings don't get freed
                                 if (!dest_str.isSmallStr()) {
                                     dest_str.incref(1);
                                 }
-                                
-                                self.traceInfo("Copied string variable: \"{s}\" (ref count incremented)", .{dest_str.asSlice()});
                             }
                         }
                         return;
@@ -1045,25 +1065,24 @@ pub const Interpreter = struct {
             .e_str_segment => |str_seg| {
                 // Get the string literal content
                 const literal_content = self.env.strings.get(str_seg.literal);
-                self.traceInfo("🔤 Creating string literal: \"{s}\" (len={})", .{ literal_content, literal_content.len });
-                
+                self.traceInfo("Creating string literal: \"{s}\"", .{literal_content});
+
                 // Allocate stack space for RocStr
                 const str_layout = Layout.str();
                 const roc_str_ptr = (try self.pushStackValue(str_layout)).?;
                 const roc_str: *builtins.str.RocStr = @ptrCast(@alignCast(roc_str_ptr));
-                
+
                 // Initialize the RocStr
                 roc_str.* = builtins.str.RocStr.fromSlice(literal_content, &self.roc_ops);
-                
+
                 const result_value = StackValue{ .layout = str_layout, .ptr = roc_str_ptr };
-                self.traceInfo("🔤 String literal created successfully", .{});
                 try self.traceValue("e_str_segment", result_value);
             },
-            
+
             .e_str => |str_expr| {
                 const segments = self.env.store.sliceExpr(str_expr.span);
-                self.traceInfo("🔤 Starting immediate e_str evaluation with {} segments", .{segments.len});
-                
+                self.traceInfo("Starting string interpolation with {} segments", .{segments.len});
+
                 if (segments.len == 0) {
                     // Empty string
                     const str_layout = Layout.str();
@@ -1071,7 +1090,6 @@ pub const Interpreter = struct {
                     const empty_str: *builtins.str.RocStr = @ptrCast(@alignCast(empty_str_ptr));
                     empty_str.* = builtins.str.RocStr.empty();
                     const result_value = StackValue{ .layout = str_layout, .ptr = empty_str_ptr };
-                    self.traceInfo("🔤 Created empty string", .{});
                     try self.traceValue("empty_e_str", result_value);
                     return;
                 }
@@ -1079,7 +1097,7 @@ pub const Interpreter = struct {
                 // Immediately evaluate all segments synchronously
                 try self.evaluateStringInterpolationImmediate(segments);
             },
-            
+
             .e_list, .e_lookup_external, .e_match, .e_crash, .e_dbg, .e_expect, .e_ellipsis => {
                 return error.LayoutError;
             },
@@ -1929,7 +1947,7 @@ pub const Interpreter = struct {
             .assign => |assign_pattern| {
                 // For a variable pattern, we create a binding for the variable
                 var binding_ptr = value.ptr.?;
-                
+
                 if (value.layout.tag == .scalar and value.layout.data.scalar.tag == .str) {
                     const src_str: *const builtins.str.RocStr = @ptrCast(@alignCast(value.ptr.?));
 
@@ -1937,16 +1955,13 @@ pub const Interpreter = struct {
                     str_storage.* = src_str.*;
                     binding_ptr = str_storage;
 
-                    if (src_str.isSmallStr()) {
-                        self.traceInfo("🔤 Preserved small string binding on heap: \"{s}\"", .{src_str.asSlice()});
-                    } else {
+                    if (src_str.isSmallStr()) {} else {
                         // For big strings, we copied the RocStr struct to the heap.
                         // Now we need to increment the ref count of the underlying string data.
                         str_storage.incref(1);
-                        self.traceInfo("🔤 Preserved big string binding on heap: \"{s}\"", .{src_str.asSlice()});
                     }
                 }
-                
+
                 const binding = Binding{
                     .pattern_idx = pattern_idx,
                     .value_ptr = binding_ptr,
@@ -2150,17 +2165,15 @@ pub const Interpreter = struct {
 
         // Evaluate each segment and collect the string representations
         for (segments) |segment_idx| {
-            self.traceInfo("🔤 Evaluating segment {}", .{segment_idx});
-            
+
             // Evaluate the segment expression
             try self.evalExpr(segment_idx);
-            
+
             // Pop the result and convert to string
             const segment_value = try self.popStackValue();
             const segment_str = try self.valueToString(segment_value);
-            
+
             try segment_strings.append(segment_str);
-            self.traceInfo("🔤 Segment evaluated to: \"{s}\"", .{segment_str.asSlice()});
         }
 
         // Calculate total length for concatenation
@@ -2169,11 +2182,9 @@ pub const Interpreter = struct {
             total_len += segment_str.asSlice().len;
         }
 
-        self.traceInfo("🔤 Concatenating {} segments with total length {}", .{ segment_strings.items.len, total_len });
-
         // Create the result string
         var result_str: builtins.str.RocStr = undefined;
-        
+
         if (total_len == 0) {
             // Empty result
             result_str = builtins.str.RocStr.empty();
@@ -2181,15 +2192,15 @@ pub const Interpreter = struct {
             // Allocate space for the concatenated string using standard allocator
             const result_slice = try self.allocator.alloc(u8, total_len);
             defer self.allocator.free(result_slice);
-            
+
             // Concatenate all segments
             var offset: usize = 0;
             for (segment_strings.items) |segment_str| {
                 const segment_slice = segment_str.asSlice();
-                std.mem.copyForwards(u8, result_slice[offset..offset + segment_slice.len], segment_slice);
+                std.mem.copyForwards(u8, result_slice[offset .. offset + segment_slice.len], segment_slice);
                 offset += segment_slice.len;
             }
-            
+
             // Create RocStr from the concatenated data
             result_str = builtins.str.RocStr.fromSlice(result_slice, &self.roc_ops);
         }
@@ -2201,7 +2212,6 @@ pub const Interpreter = struct {
         dest_str.* = result_str;
 
         const result_value = StackValue{ .layout = str_layout, .ptr = result_ptr };
-        self.traceInfo("🔤 String interpolation complete: \"{s}\"", .{result_str.asSlice()});
         try self.traceValue("final_interpolated_string", result_value);
     }
 
