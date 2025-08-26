@@ -72,10 +72,16 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // vaxis is used for terminal UI features in the CLI
+    const vaxis = b.dependency("vaxis", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const roc_modules = modules.RocModules.create(b, build_options, zstd);
 
     // add main roc exe
-    const roc_exe = addMainExe(b, roc_modules, target, optimize, strip, enable_llvm, use_system_llvm, user_llvm_path, flag_enable_tracy, zstd) orelse return;
+    const roc_exe = addMainExe(b, roc_modules, target, optimize, strip, enable_llvm, use_system_llvm, user_llvm_path, flag_enable_tracy, zstd, vaxis) orelse return;
     roc_modules.addAll(roc_exe);
     install_and_run(b, no_bin, roc_exe, roc_step, run_step);
 
@@ -175,6 +181,7 @@ pub fn build(b: *std.Build) void {
     });
     roc_modules.addAll(cli_test);
     cli_test.linkLibrary(zstd.artifact("zstd"));
+    cli_test.root_module.addImport("vaxis", vaxis.module("vaxis"));
     add_tracy(b, roc_modules.build_options, cli_test, target, false, flag_enable_tracy);
 
     const run_cli_test = b.addRunArtifact(cli_test);
@@ -324,6 +331,7 @@ fn addMainExe(
     user_llvm_path: ?[]const u8,
     tracy: ?[]const u8,
     zstd: *Dependency,
+    vaxis: *Dependency,
 ) ?*Step.Compile {
     const exe = b.addExecutable(.{
         .name = "roc",
@@ -333,6 +341,8 @@ fn addMainExe(
         .strip = strip,
         .link_libc = true,
     });
+
+    exe.root_module.addImport("vaxis", vaxis.module("vaxis"));
 
     // Create test platform host static library (str)
     const test_platform_host_lib = b.addStaticLibrary(.{

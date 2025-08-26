@@ -56,6 +56,10 @@
             .url = "git+https://github.com/allyourcodebase/zstd.git#1.5.7",
             .hash = "1220b9feb4652a62df95843e78a5db008401599366989b52d7cab421bf6263fa73d0",
         },
+        .vaxis = .{
+            .url = "git+https://github.com/rockorager/libvaxis.git#de4f564ba281e9ed4df65834d00727d88f56632b",
+            .hash = "vaxis-0.5.1-BWNV_JIWCQAoX8lZ-5eLf-sFzA-h7aXvNNEenyC2b83s",
+        },
     },
     .fingerprint = 0x9eea22a6c3bd0034,
     .paths = .{

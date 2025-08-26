@@ -20,11 +20,13 @@ const ipc = @import("ipc");
 const fmt = @import("fmt");
 const eval = @import("eval");
 const layout = @import("layout");
+const repl = @import("repl");
 const builtins = @import("builtins");
 
 const cli_args = @import("cli_args.zig");
 const bench = @import("bench.zig");
 const linker = @import("linker.zig");
+const ReplDriver = @import("ReplDriver.zig");
 
 const Can = can.Can;
 const Check = check.Check;
@@ -1708,8 +1710,8 @@ fn rocTest(gpa: Allocator, args: cli_args.TestArgs) !void {
 }
 
 fn rocRepl(gpa: Allocator) !void {
-    _ = gpa;
-    fatal("repl not implemented", .{});
+    var repl_engine = try repl.Repl.init(gpa, undefined);
+    _ = try ReplDriver.init(gpa, &repl_engine);
 }
 
 /// Reads, parses, formats, and overwrites all Roc files at the given paths.
@@ -2067,4 +2069,5 @@ pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
 // Include tests from other files
 test {
     _ = @import("test_shared_memory_system.zig");
+    _ = @import("ReplDriver.zig");
 }
