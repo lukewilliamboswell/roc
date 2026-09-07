@@ -3632,6 +3632,30 @@ pub fn build(b: *std.Build) void {
             run_check_glue_abi_step.dependOn(&lock_obj.step);
         }
 
+        // Generated Zig names must be Zig: a tag that lowers to a keyword, or an
+        // alias naming a type the pure-enum form never emits, is a broken build
+        // for the platform author and no layout assertion can catch it.
+        const run_glue_names = b.addRunArtifact(roc_exe);
+        run_glue_names.addArgs(&.{ "glue", "--no-cache" });
+        run_glue_names.addFileArg(b.path("src/glue/src/ZigGlue.roc"));
+        const glue_names_dir = run_glue_names.addOutputDirectoryArg("glue-zig-names");
+        run_glue_names.addFileArg(b.path("test/glue/zig-name-collisions/main.roc"));
+        run_glue_names.has_side_effects = true;
+
+        const names_lock_obj = b.addObject(.{
+            .name = "glue_zig_name_collisions_lock",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("test/glue/zig_name_collisions_compile_lock.zig"),
+                .target = b.resolveTargetQuery(.{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl }),
+                .optimize = optimize,
+            }),
+        });
+        names_lock_obj.root_module.addImport("builtins", roc_modules.builtins);
+        names_lock_obj.root_module.addAnonymousImport("glue_abi", .{
+            .root_source_file = glue_names_dir.path(b, "roc_platform_abi.zig"),
+        });
+        run_check_glue_abi_step.dependOn(&names_lock_obj.step);
+
         const run_c_glue_abi = b.addRunArtifact(roc_exe);
         run_c_glue_abi.addArgs(&.{ "glue", "--no-cache" });
         run_c_glue_abi.addFileArg(b.path("src/glue/src/CGlue.roc"));
@@ -3668,6 +3692,16 @@ pub fn build(b: *std.Build) void {
             _ = compile_c_lock.addOutputFileArg(b.fmt("c-abi-lock-{s}.o", .{lock_target.name}));
             run_check_glue_abi_step.dependOn(&compile_c_lock.step);
         }
+
+        // The payload-free alias defect is not Zig's alone: RustGlue decides the
+        // same two ways, so the same platform is generated with the same two
+        // dangling aliases and rustc rejects it too.
+        const run_rust_glue_names = b.addRunArtifact(roc_exe);
+        run_rust_glue_names.addArgs(&.{ "glue", "--no-cache" });
+        run_rust_glue_names.addFileArg(b.path("src/glue/src/RustGlue.roc"));
+        const rust_glue_names_dir = run_rust_glue_names.addOutputDirectoryArg("glue-rust-names");
+        run_rust_glue_names.addFileArg(b.path("test/glue/zig-name-collisions/main.roc"));
+        run_rust_glue_names.has_side_effects = true;
 
         const run_rust_glue_abi = b.addRunArtifact(roc_exe);
         run_rust_glue_abi.addArgs(&.{ "glue", "--no-cache" });
@@ -3706,6 +3740,25 @@ pub fn build(b: *std.Build) void {
             compile_rust_lock.addArg("-o");
             _ = compile_rust_lock.addOutputFileArg(b.fmt("rust-abi-lock-{s}.rmeta", .{lock_target.name}));
             run_check_glue_abi_step.dependOn(&compile_rust_lock.step);
+        }
+
+        if (native_rust_target) |triple| {
+            const compile_rust_names = b.addSystemCommand(&.{
+                "rustc",
+                "--edition=2021",
+                "-D",
+                "warnings",
+                "--crate-type=lib",
+                "--emit=metadata",
+                "--cfg",
+                "no_roc_std_helpers",
+                "--target",
+                triple,
+            });
+            compile_rust_names.addFileArg(rust_glue_names_dir.path(b, "roc_platform_abi.rs"));
+            compile_rust_names.addArg("-o");
+            _ = compile_rust_names.addOutputFileArg("rust-name-collisions-lock.rmeta");
+            run_check_glue_abi_step.dependOn(&compile_rust_names.step);
         }
     }
 
