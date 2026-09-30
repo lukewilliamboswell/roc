@@ -1,0 +1,103 @@
+[[approach]]
+= Approach
+
+The review follows a fixed method, so that another reviewer assessing the same commit would reach the same outcomes. Exact definitions are in <<definitions>>; the terms are in the <<glossary>>.
+
+== Two tracks
+
+Track A -- direct exposure::
+The advisory concerns a component in the <<sut,component inventory>>, including transitive and prebuilt parts. The review establishes:
++
+--
+. the version Roc ships;
+. whether that version is in the affected range;
+. whether the vulnerable code is built into Roc;
+. whether an adversary can reach it.
+--
++
+The outcome is a VEX status.
+
+Track B -- analogous failure mode::
+The advisory concerns a product Roc does not use. It is examined for a root-cause pattern that could also exist in Roc's own code or contracts. The CVE itself never applies to Roc, and the outcome is a weakness outcome, not a VEX status.
+
+== Units of review
+
+The review is divided into independent units, one per row of the component inventory (Track A) and one per class in the attack-surface map (Track B). Each unit is carried out end to end by a single reviewer:
+
+. sweep the vulnerability sources for its target;
+. triage every candidate;
+. write a full finding for each candidate that survives triage.
+
+Each unit is recorded in its own sweep record (<<coverage>>). That record holds every query, with its date and result count, and the disposition of every candidate.
+
+[[selection]]
+== Selection and stopping rule
+
+Thousands of advisories are published every year, so the review applies a fixed rule for what it includes and when each unit stops. The parameters for this report are:
+
+[cols="3,1",options="header"]
+|===
+|Parameter |Value
+|Look-back window for advisories |{lookback-months} months
+|Full findings per attack-surface class (Track B budget) |{track-b-budget}
+|Full findings in the whole review (cap) |{max-findings}
+|===
+
+Track A (exhaustive within the window)::
+Every advisory is included if it is against an inventory component and its affected range includes the shipped version. So is any advisory against the component published within the look-back window whose range is unclear.
++
+Each one is triaged out with evidence, or receives a full finding. A Track A unit ends only when it is *complete*.
+
+Track B (ranked and bounded)::
+Candidates are ranked by these criteria, in order:
++
+--
+. the root-cause pattern maps to a specific Roc component or contract;
+. the triggering input is controlled by a third party or the network, rather than by the local user;
+. the reported impact;
+. whether it falls within the look-back window;
+. whether a fix commit is available to compare against.
+--
++
+Candidates are assessed in rank order. A unit stops when one of these happens:
++
+--
+* it reaches the budget (*budget-reached*);
+* two consecutive full findings add no root-cause pattern not already covered (*saturated*);
+* no candidates remain (*complete*).
+--
++
+Candidates that are not assessed are recorded as *deferred*, with their rank reason.
+
+Across the review::
+If the cap on full findings is reached, the lowest-ranked Track B candidates are deferred. Units are taken in order of who controls their input: third party or network first, then the source author, then local only.
+
+The review is finished when every unit has reached an exit status and every finding meets its exit criteria (<<exit-criteria>>). Deferred candidates and any unit that did not finish are listed as limitations.
+
+== Evidence
+
+Every factual claim in a finding is labelled, so the reader can see how it was established:
+
+* *Examined-code*: the source was read at the pinned commit. The finding cites the exact line and quotes it.
+* *Examined-source*: a primary external document was read, such as the advisory, the CVE record or the fix commit.
+* *Tested*: something safe was run. The command and output are recorded.
+* *Inferred*: reasoned from other claims, which are listed.
+* *Unverified*: not established. The finding says why, and what check would settle it.
+
+Where exposure depends on a dependency's behaviour, such as Zig std's file APIs, the dependency's source is examined too. A finding whose claims are not all labelled is marked incomplete.
+
+== Outcomes and priority
+
+* Track A outcomes are VEX statuses: `not_affected` (this review always records both a justification and an impact statement, which is stricter than CISA's minimum of one or the other), `affected` (with an action statement), `fixed` or `under_investigation`.
+* Track B outcomes are: pattern absent, weakness possible, weakness confirmed, hardening candidate, or undetermined.
+* Priority uses the SSVC *supplier* decision tree, which gives Defer, Scheduled, Out-of-Cycle or Immediate.
+* Upstream CVSS scores are shown for context only.
+
+The decision procedures are in <<definitions>>.
+
+include::standards.adoc[leveloffset=+1]
+
+[[handling]]
+== Handling of incidental discoveries
+
+If a finding reaches `affected` or _weakness confirmed_, the reviewer informs the Roc maintainers before the report is circulated. The report's distribution is then restricted until the issue has been handled, in the spirit of ISO/IEC 30111. Roc's own arrangements for security reports at the assessed commit are described in <<sut>>.

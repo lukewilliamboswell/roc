@@ -1,0 +1,42 @@
+[[glossary]]
+= Glossary
+
+Where a term comes from a published standard, the source is given in brackets. See <<standards>> for versions and verification status.
+
+[glossary]
+Advisory:: A published notice describing a vulnerability, the affected products and the remediation. [ISO/IEC 29147, paraphrase]
+Affected range:: The set of versions containing the vulnerability, expressed as OSV `introduced` / `fixed` / `last_affected` / `limit` events. [OSV schema]
+Analogous failure mode (Track B):: A vulnerability in a product Roc does not use, reviewed only as a source of a failure pattern. It never yields a VEX statement about Roc.
+Attack-surface map:: The table in <<sut>> that maps failure classes to Roc components, input controllers and entry points. It drives Track B sweeps.
+Component inventory:: The table in <<sut>> listing every shipped or linked component with its version and the evidence for that version. It drives Track A sweeps.
+Coverage:: The record of which sweeps were run and how every candidate was dispositioned. See <<coverage>>.
+CPE:: Common Platform Enumeration, a naming scheme for products used by NVD. [NISTIR 7695, CPE 2.3]
+CVE record state:: `PUBLISHED` or `REJECTED`. "Disputed" is a tag on a published record, not a state. [CVE Program]
+CVSS-B / BT / BE / BTE:: CVSS v4.0 score nomenclature: Base, Base+Threat, Base+Environmental, and all three. Recorded for context only. [FIRST CVSS v4.0]
+CWE:: Common Weakness Enumeration. Findings map the root cause to a Base- or Variant-level entry. [MITRE CWE mapping guidance]
+Direct exposure (Track A):: A vulnerability in a component listed in the inventory. VEX applies.
+Review:: One self-contained report, pinned to one Roc commit, rendered to PDF and archived with its sources.
+EPSS:: Exploit Prediction Scoring System: the estimated probability of exploitation within 30 days. [FIRST]
+Examine:: "The process of reviewing, inspecting, observing, studying, or analyzing one or more assessment objects (specifications, mechanisms, or activities) to facilitate understanding, achieve clarification, or obtain evidence." In this review: reading code, specifications or documents. [NIST SP 800-53A Rev. 5]
+Examined-code / Examined-source / Tested / Inferred / Unverified:: The claim labels defined in <<evidence-labels>>.
+Exposure path:: The chain of cited call sites from a user-facing entry point to the vulnerable code.
+Finding:: The full assessment of one candidate, stored in `findings/`. Its status is draft or complete; see <<exit-criteria>>.
+Impact statement:: The required explanation accompanying a `not_affected` status. [CISA VEX; OpenVEX `impact_statement`]
+Action statement:: The required remediation guidance accompanying an `affected` status. [CISA VEX; OpenVEX `action_statement`]
+KEV:: CISA's Known Exploited Vulnerabilities catalog.
+Likelihood / Impact:: The qualitative risk factors, on the scale Very Low, Low, Moderate, High, Very High. [NIST SP 800-30 Rev. 1]
+Mitigation:: A measure that reduces the risk of a vulnerability without removing it. [ISO/IEC 29147, paraphrase]
+Predisposing condition:: A condition that affects the likelihood of a threat event, for example a Windows host. [NIST SP 800-30]
+PURL:: Package URL, a portable package identifier. [purl-spec / ECMA-427, 1st edition, December 2025]
+Remediation:: A change that removes a vulnerability. [ISO/IEC 29147, paraphrase]
+Root cause:: The specific code construct that embodies the weakness, cited at line level.
+SSVC:: Stakeholder-Specific Vulnerability Categorization. This report uses the *supplier* tree, with decision points Exploitation (none, public PoC, active), Utility (laborious, efficient, super effective), Technical Impact (partial, total) and Public Safety Impact (minimal, significant), and outcomes Defer, Scheduled, Out-of-Cycle and Immediate. [CERT/CC SSVC release 2026.7.0, decision table DT_SP 1.0.0]
+Sweep (unit):: The unit of review: a systematic advisory search for one inventory row (Track A) or one attack-surface class (Track B), together with the triage of its candidates and their findings. It is carried out end to end by one reviewer and recorded in `sweeps/`.
+Disposition:: The result recorded for each candidate in a sweep: finding, triaged-out, deferred or pending. See <<exit-criteria>>.
+Saturated / budget-reached:: The Track B stopping conditions. See <<selection>>.
+Test (evidence):: To obtain evidence by executing something safe. [NIST SP 800-53A assessment method]
+Threat source:: The actor or circumstance that could exploit a weakness, for example a package author. [NIST SP 800-30]
+Triage:: Dispositioning a candidate without a full finding, which is allowed only with a one-line reason backed by evidence. See <<coverage>>.
+VEX status:: `not_affected`, `affected`, `fixed` or `under_investigation`. [CISA Minimum Requirements for VEX; OpenVEX; CSAF 2.0] In CSAF 2.0 these correspond to the `product_status` lists `known_not_affected`, `known_affected`, `fixed` and `under_investigation`.
+VEX justification:: The reason given for `not_affected`: `component_not_present`, `vulnerable_code_not_present`, `vulnerable_code_not_in_execute_path`, `vulnerable_code_cannot_be_controlled_by_adversary` or `inline_mitigations_already_exist`. [OpenVEX; CSAF 2.0 §3.2.3.5; CISA, which spells them with a leading capital, e.g. "Component_not_present"]
+Weakness outcome (Track B):: One of: pattern absent, weakness possible, weakness confirmed, hardening candidate, undetermined. These are internal terms, not VEX statuses. See <<outcomes>>.

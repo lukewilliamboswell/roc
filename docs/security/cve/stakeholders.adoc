@@ -1,0 +1,60 @@
+[[stakeholders]]
+= Stakeholders and trust relationships
+
+Roc sits between upstream code it ships and an ecosystem that builds on the contracts it specifies. The diagram shows who supplies what to whom, and where trust is extended. Every finding identifies which of these relationships it concerns. The trust boundaries themselves are detailed in the <<sut>> chapter.
+
+.Stakeholders and the flow of code, contracts and trust
+[mermaid,stakeholders,png,pdfwidth=85%]
+....
+flowchart TB
+  subgraph UP["Upstream"]
+    DEPS["Dependency maintainers<br/>Zig std, LLVM/LLD, zstd,<br/>zlib, bytebox, Binaryen"]
+    BOOT["roc-bootstrap<br/>prebuilt toolchain archives"]
+    VULN["Vulnerability sources<br/>CVE, NVD, OSV, GHSA"]
+  end
+
+  subgraph ROC["Roc project"]
+    CORE["Core contributors<br/>compiler, CLI, LSP, builtins"]
+    CONTRACT["Ecosystem contracts<br/>package identity and integrity,<br/>platform/host ABI, effects"]
+    REVIEW["This review"]
+  end
+
+  subgraph ECO["Ecosystem"]
+    PLAT["Platform authors<br/>host code, platform package"]
+    PKG["Package authors"]
+    HOST["Package hosting and network<br/>URL + content hash"]
+  end
+
+  subgraph USE["Use"]
+    APP["Application authors<br/>run roc on their source"]
+    END["End users<br/>run built Roc apps"]
+  end
+
+  DEPS -- "code we ship" --> CORE
+  BOOT -- "prebuilt LLVM, LLD, zlib" --> CORE
+  VULN -- "advisories" --> REVIEW
+  REVIEW -- "findings" --> CORE
+  CORE -- "specify" --> CONTRACT
+  CONTRACT -- "build against" --> PLAT
+  CONTRACT -- "build against" --> PKG
+  PKG -- "publish bundles" --> HOST
+  PLAT -- "publish platform + host objects" --> HOST
+  HOST -- "fetched at compile time" --> APP
+  CORE -- "roc compiler and CLI" --> APP
+  CORE -- "roc compiler and CLI<br/>build, bundle, glue, docs" --> PLAT
+  CORE -- "roc compiler and CLI<br/>check, bundle, docs" --> PKG
+  APP -- "compiled app linked with host" --> END
+  PLAT -. "host is fully trusted" .-> END
+....
+
+[cols="2,3,3,3",options="header"]
+|===
+|Stakeholder |Supplies |Trusts |Typical concern in a finding
+|Core contributors |the compiler, CLI, LSP and builtins; the ecosystem contracts |upstream dependencies and prebuilt archives |defects in our own code and in the contracts we specify
+|Dependency maintainers and roc-bootstrap |shipped code and prebuilt binaries |-- |direct exposure (Track A)
+|Platform authors |host code, platform packages, prebuilt objects |the compiler and CLI they build and bundle with; the host ABI contract |contract weaknesses inherited by every platform; the compiler and CLI as tools they run
+|Package authors |Roc packages as hashed bundles |the compiler and CLI they check and bundle with; the package contract |malicious or compromised packages; extraction and integrity; the compiler and CLI as tools they run
+|Package hosting and network |delivery of bundles |-- |tampering in transit (mitigated by https and the hash in the URL)
+|Application authors |application source |the compiler, and the packages and platforms they choose |compile-time evaluation of dependency code; package fetching
+|End users |-- |the application and its platform host |miscompilation and host behaviour that affect running programs
+|===

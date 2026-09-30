@@ -1,0 +1,90 @@
+[[standards]]
+= Alignment with published standards
+
+All entries were checked against the standard body's own publication on 2026-09-30. Exact strings the report depends on are quoted.
+
+[cols="2,2,4",options="header"]
+|===
+|Standard |Used for |How
+
+|CISA _Minimum Requirements for Vulnerability Exploitability eXchange (VEX)_, April 2023
+|Track A outcomes
+|Statuses (§2.7.1): `not_affected`, `affected`, `fixed`, `under_investigation`. For `not_affected`, a justification SHOULD be given, and if it is not, an `impact_statement` MUST be given (§2.7.1.1.1, §2.7.1.1.3). For `affected`, the statement "MUST include one [action_statement]" (§2.7.1.2.1). The five justifications appear in CISA's text with a leading capital ("Component_not_present", "Vulnerable_code_not_present", "Vulnerable_code_not_in_execute_path", "Vulnerable_code_cannot_be_controlled_by_adversary", "Inline_mitigations_already_exist"). This report writes them in lower case, as OpenVEX and CSAF do. The report is stricter than CISA: it always records both a justification and an impact statement.
+
+|OpenVEX Specification v0.2.0 (`@context` `https://openvex.dev/ns/v0.2.0`)
+|Track A serialisation
+|Same four statuses. Justification labels `component_not_present`, `vulnerable_code_not_present`, `vulnerable_code_not_in_execute_path`, `vulnerable_code_cannot_be_controlled_by_adversary`, `inline_mitigations_already_exist`. Fields `justification`, `impact_statement`, `action_statement` and `action_statement_timestamp`.
+
+|OASIS CSAF Version 2.0 (OASIS Standard, 18 November 2022), Profile 5: VEX (§4.5)
+|Track A mapping
+|The eight `product_status` properties (§3.2.3.9) are `first_affected`, `first_fixed`, `fixed`, `known_affected`, `known_not_affected`, `last_affected`, `recommended` and `under_investigation`. The flag `label` enum (§3.2.3.5) has exactly the five justification strings above. For `known_not_affected`, the VEX profile requires an impact statement, given as a flag or as a `threats` item with category `impact`. For `known_affected`, it requires an action statement in `remediations`. `/document/category` is `csaf_vex`. CSAF 2.1 is not yet an OASIS Standard: the latest tag is Committee Specification Draft 03 (`csaf-2.1-csd-03-20260911-rc1`).
+
+|SSVC (CERT/CC), release 2026.7.0; decision table _Supplier Patch Development Priority_ `DT_SP` 1.0.0
+|Priority
+|Decision points: Exploitation `ssvc:E:1.1.0` (None, Public PoC, Active); Utility `ssvc:U:1.0.1` (Laborious, Efficient, Super Effective); Technical Impact `ssvc:TI:1.0.0` (Partial, Total); Public Safety Impact `ssvc:PSI:2.0.1` (Minimal, Significant). Outcome group `ssvc:DSOI:1.0.0`: Defer, Scheduled, Out-of-Cycle, Immediate.
+
+|CVSS v4.0 Specification Document (FIRST)
+|Context
+|Upstream scores are shown with their nomenclature: CVSS-B (Base), CVSS-BT (Base + Threat), CVSS-BE (Base + Environmental), CVSS-BTE (all three). Roc gets no CVSS score of its own.
+
+|EPSS (FIRST), API v1; CISA Known Exploited Vulnerabilities Catalog
+|Exploitation input
+|EPSS gives the probability of exploitation activity within the next 30 days, taken from `+https://api.first.org/data/v1/epss?cve=CVE-...+` (fields `epss`, `percentile`, `date`). KEV is checked in the catalog JSON feed. Both are recorded as of the access date.
+
+|CWE Root Cause Mapping Guidance, Document Version 1.1 (released 2024-03-22)
+|Weakness classification
+|One CWE per finding, at Base or Variant level "whenever possible". Class is allowed only "if there is no accurate Base or Variant level CWE". Categories are never used. Each entry's "Usage for Mapping" value is respected (Allowed, Allowed-with-Review, Discouraged, Prohibited).
+
+|NIST SP 800-53A Rev. 5 (January 2022)
+|Evidence vocabulary
+|Assessment methods. Examine: "the process of reviewing, inspecting, observing, studying, or analyzing one or more assessment objects (i.e., specifications, mechanisms, or activities) to facilitate assessor understanding, achieve clarification, or obtain evidence". Test: "the process of exercising one or more assessment objects (i.e., activities or mechanisms) under specified conditions to compare the actual state of the object to the desired state or expected behavior of the object". Interview is not used, because no people are interviewed.
+
+|NIST SP 800-30 Rev. 1 (September 2012)
+|Risk narrative
+|Threat source, threat event, predisposing condition, likelihood and impact, on the qualitative scale Very Low, Low, Moderate, High, Very High (Appendices G and H).
+
+|OSV Schema v1.9.1; Package-URL (ECMA-427, 1st edition, December 2025); CPE Naming Specification 2.3 (NISTIR 7695, August 2011)
+|Identifiers
+|Affected ranges are written as OSV `affected[].ranges[].events` using `introduced`, `fixed`, `last_affected` and `limit`, with `schema_version` given as SemVer with no leading "v". Components are identified by PURL, or by CPE 2.3 formatted strings.
+
+|CVE Record Format (CVE JSON 5.x schema, CVE Program)
+|Identifier state
+|`state` is `PUBLISHED` or `REJECTED`. "Disputed" is the CNA/ADP tag `disputed`, not a state.
+
+|ISO/IEC 29147:2018 (2nd edition) and ISO/IEC 30111:2019 (2nd edition)
+|Terminology and handling
+|"Vulnerability", "remediation", "mitigation" and "advisory"; handling of incidental discoveries. Both are the current editions. A revision of 29147 is at the approved-work-item stage (ISO/IEC AWI 29147).
+|===
+
+== Sources
+
+All accessed 2026-09-30.
+
+* https://www.cisa.gov/sites/default/files/2023-04/minimum-requirements-for-vex-508c.pdf[CISA, Minimum Requirements for VEX (April 2023)]
+* https://github.com/openvex/spec/blob/main/OPENVEX-SPEC.md[OpenVEX Specification v0.2.0]
+* https://docs.oasis-open.org/csaf/csaf/v2.0/os/csaf-v2.0-os.html[OASIS CSAF Version 2.0]
+* https://github.com/oasis-tcs/csaf/releases[OASIS CSAF TC releases (CSAF 2.1 status)]
+* https://certcc.github.io/SSVC/[CERT/CC SSVC documentation]
+* https://github.com/CERTCC/SSVC/tree/main/data/json/decision_tables/ssvc[SSVC decision table and decision point JSON (release 2026.7.0)]
+* https://www.first.org/cvss/v4-0/specification-document[FIRST CVSS v4.0 Specification Document]
+* https://www.first.org/epss/[FIRST EPSS]
+* https://api.first.org/data/v1/epss[FIRST EPSS API]
+* https://www.cisa.gov/known-exploited-vulnerabilities-catalog[CISA KEV Catalog]
+* https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json[CISA KEV JSON feed]
+* https://cwe.mitre.org/documents/cwe_usage/guidance.html[CWE Root Cause Mapping Guidance v1.1]
+* https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-53Ar5.pdf[NIST SP 800-53A Rev. 5]
+* https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-30r1.pdf[NIST SP 800-30 Rev. 1]
+* https://ossf.github.io/osv-schema/[OSV Schema] and https://github.com/ossf/osv-schema/releases[OSV Schema releases (v1.9.1)]
+* https://ecma-international.org/publications-and-standards/standards/ecma-427/[ECMA-427 Package-URL specification]
+* https://github.com/package-url/purl-spec[purl-spec repository]
+* https://csrc.nist.gov/pubs/ir/7695/final[NISTIR 7695, CPE Naming Specification 2.3]
+* https://github.com/CVEProject/cve-schema[CVE Record Format schema, including `schema/tags/cna-tags.json`]
+* https://www.iso.org/standard/72311.html[ISO/IEC 29147:2018], https://www.iso.org/standard/69725.html[ISO/IEC 30111:2019] and https://www.iso.org/standard/92945.html[ISO/IEC AWI 29147]
+
+== Verification status
+
+Checked against primary sources on 2026-09-30: CISA VEX minimum requirements, OpenVEX v0.2.0, CSAF 2.0 (product status, flag labels, VEX profile) and CSAF 2.1 status, the SSVC supplier table and its decision points, CVSS v4.0 nomenclature, the EPSS API (a live query was answered), the KEV JSON feed (HTTP 200), CWE mapping guidance v1.1, the SP 800-53A Rev. 5 method definitions, the SP 800-30 Rev. 1 scale, the OSV schema fields and release, ECMA-427, NISTIR 7695, and the CVE record states and the `disputed` tag.
+
+Not checked against a primary source: the exact ISO/IEC 29147 and 30111 wording for "vulnerability", "remediation", "mitigation" and "advisory". The ISO Online Browsing Platform (iso.org/obp) returned a bot-protection challenge to automated access, and the full texts are paywalled. The editions and their status were confirmed from the iso.org catalogue. The glossary's ISO-attributed definitions are paraphrases and must not be read as quotations.
+
+The OpenSSF Best Practices badge is not used in this table.

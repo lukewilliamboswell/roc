@@ -1,0 +1,62 @@
+= Roc Compiler Vulnerability Applicability Review: Published Vulnerabilities Assessed Against Roc
+:doctype: book
+:toc:
+:toclevels: 2
+:sectnums:
+:sectnumlevels: 2
+:report-id: 2026-09
+:report-status: DRAFT -- skeleton; the review has not been conducted
+:roc-commit: da73825fb7a159ecd24a70b93a1e1a2bb4648140
+:revnumber: {report-id}
+// Review parameters: the selection and stopping rule (approach.adoc) and
+// tools/review.py read these. Set them before the review starts.
+:lookback-months: 24
+:track-b-budget: 3
+:max-findings: 60
+:revremark: {report-status}
+
+include::_generated/stats.adoc[]
+
+[preface]
+== Document control
+
+[cols="1,3"]
+|===
+|Report |{report-id}
+|Status |{report-status}
+|Distribution |Roc contributors. If any finding is `affected` or _weakness confirmed_, distribution is restricted to Roc maintainers until it has been handled (<<handling>>).
+|Roc revision assessed |`{roc-commit}`
+|Review period |_YYYY-MM-DD to YYYY-MM-DD_
+|Prepared by |_Agent and model, or the person who conducted the review_
+|Reviewed by |_Human reviewer, and date_
+|===
+
+include::summary.adoc[leveloffset=+1]
+
+include::introduction.adoc[leveloffset=+1]
+
+include::stakeholders.adoc[leveloffset=+1]
+
+include::system-under-test.adoc[leveloffset=+1]
+
+include::approach.adoc[leveloffset=+1]
+
+[[findings]]
+== Findings
+
+Each finding is self-contained. It opens with a short statement for contributors, followed by the evidence. Findings about another product's CVE (Track B) carry a notice saying that the CVE does not apply to Roc as such.
+
+include::_generated/findings.adoc[]
+
+include::recommendations.adoc[leveloffset=+1]
+
+include::conclusions.adoc[leveloffset=+1]
+
+[appendix]
+include::appendix-definitions.adoc[leveloffset=+1]
+
+[appendix]
+include::coverage.adoc[leveloffset=+1]
+
+[appendix]
+include::glossary.adoc[leveloffset=+1]

@@ -1,0 +1,32 @@
+[[conclusions]]
+= Conclusions
+
+== Objectives
+
+Review totals: {stat-sweeps-done} of {stat-sweeps} units exited; {stat-candidates} candidates; {stat-findings} full findings ({stat-findings-complete} complete); {stat-triaged} triaged out; {stat-deferred} deferred; {stat-pending} pending; {stat-recommendations} recommendations; {stat-escalations} escalations under <<handling>>.
+
+[cols="3,2,5",options="header"]
+|===
+|Objective |Result |Basis
+|O1 System under test |_Met, partly met or not met_ |_Evidence, and what remains Unverified._
+|O2 Direct exposure |_Met, partly met or not met_ |_Track A units exited, advisories found, VEX statuses assigned; see <<coverage>>._
+|O3 Analogous failure modes |_Met, partly met or not met_ |_Classes swept; candidates triaged; findings written._
+|O4 Checkable conclusions |_Met, partly met or not met_ |_Number of claims in each label; any incomplete findings._
+|O5 Actionable recommendations |_Met, partly met or not met_ |_Number of recommendations by priority._
+|===
+
+[[limitations]]
+== Limitations
+
+_List everything that bounds the conclusions, for example:_
+
+* components or classes not swept, and why;
+* candidates deferred instead of assessed;
+* Unverified claims that affect an outcome;
+* standards entries not confirmed against primary sources;
+* platforms that could not be tested, for example Windows hosts;
+* database coverage gaps, for example ecosystems OSV does not index.
+
+== Summary judgement
+
+_One paragraph for contributors: what this review allows us to say about Roc at `{roc-commit}`, and what it does not._

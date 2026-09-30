@@ -1,0 +1,12 @@
+[[summary]]
+= Executive summary
+
+// The table and coverage figures are generated from findings/ and sweeps/. Write the prose last. It must be readable on its own in under two minutes.
+
+*Answer.* _One paragraph: overall, is Roc at `{roc-commit}` affected by the published vulnerabilities reviewed, and where is attention needed?_
+
+*Coverage.* Units that reached their exit criteria: {stat-sweeps-done} of {stat-sweeps}. Candidates identified: {stat-candidates}. Of these, fully assessed: {stat-findings}; triaged out with evidence: {stat-triaged}; deferred: {stat-deferred}; still pending: {stat-pending} (see <<coverage>>).
+
+include::_generated/summary-table.adoc[]
+
+*Principal limitations.* _The most important things this review did not establish (see <<limitations>>)._

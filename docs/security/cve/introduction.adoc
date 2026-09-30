@@ -1,0 +1,49 @@
+[[introduction]]
+= Introduction
+
+== Purpose
+
+This report is for Roc contributors. It answers one question for every published vulnerability it examines: *does this affect Roc, and if so, where in our code or contracts, and under what conditions?*
+
+A vulnerability can concern Roc in three places that Roc is responsible for:
+
+* *our own code*: the compiler, the CLI, package fetching and caching, the language server;
+* *code we ship*: dependencies such as the Zig standard library, LLVM/LLD and zstd;
+* *the contracts we specify for the ecosystem*: the rules package and platform authors build against. These include package identity and integrity, the platform/host interface, and what the compiler trusts a platform to supply. A weakness in a contract is inherited by every package or platform that follows it correctly.
+
+Published CVEs are the lens used to examine these. An advisory against a component we ship is a *direct exposure* (Track A). An advisory against another toolchain or ecosystem shows an *analogous failure mode* (Track B), which is then checked for in our own code and contracts.
+
+[[objectives]]
+== Objectives and success criteria
+
+[cols="1,4,4",options="header"]
+|===
+|# |Objective |Met when
+|O1 |Describe the system under test at the pinned commit. |The component inventory, attack-surface map and trust boundaries are complete, and every statement carries an evidence label.
+|O2 |Determine Roc's exposure to published advisories against every component it ships. |Every inventory component has been swept, and every advisory found has a VEX status with evidence.
+|O3 |Determine whether failure modes published against comparable products are present in Roc's code or contracts. |Every attack-surface class has been swept, and every candidate is triaged with evidence or has a full finding.
+|O4 |Make every conclusion checkable. |Every claim in every finding cites code at the pinned commit, a primary source, or a recorded test, or is marked Unverified with the check that would settle it.
+|O5 |Give contributors prioritised, actionable recommendations. |Every finding that needs action appears in <<recommendations>> with a location, priority and suggested action.
+|===
+
+<<conclusions>> reports whether each objective was met.
+
+== Scope
+
+In scope::
+* The Zig implementation of the Roc compiler and CLI (`src/`), the language server, and the build dependencies it ships or links.
+* The package and platform contracts Roc specifies.
+* Published advisories available from the sources listed in <<approach>> during the review period.
+
+Out of scope::
+* The legacy Rust implementation (`crates/`).
+* Third-party platforms and packages themselves. Contracts they inherit from Roc are in scope; their own implementations are not.
+* Discovering new, unpublished vulnerabilities in Roc. Any found incidentally are handled as described in <<handling>>.
+* Fixing issues, and building proofs of concept.
+
+== Audience and how to read this report
+
+* *All contributors*: read the <<summary>> and the <<recommendations>>.
+* *Contributors who own a component named in a finding*: read that finding. Each one is self-contained.
+* *Anyone assessing Roc's security posture*: <<stakeholders>> and <<sut>> describe who trusts whom, and what Roc accepts as input.
+* *Anyone checking the method*: <<approach>> gives an overview, and <<definitions>> the exact rules.

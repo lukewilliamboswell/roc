@@ -1,0 +1,8 @@
+[[recommendations]]
+= Recommendations
+
+One row per finding that recommends an action, ordered by track and priority. The report recommends; it does not make changes. Owners are "unassigned" until a maintainer assigns one.
+
+include::_generated/recommendations-table.adoc[]
+
+Actions are drawn from a fixed vocabulary: fix, investigate (naming the check), add a regression test, add a fuzz target, accept risk, or no action.

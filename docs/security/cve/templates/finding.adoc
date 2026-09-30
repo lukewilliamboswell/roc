@@ -1,0 +1,83 @@
+// FINDING TEMPLATE -- copy to findings/<ID>.adoc (ID = CVE id, or GHSA id if no CVE).
+// Owned by the reviewer of the unit (sweep) that produced it. Rules: appendix-definitions.adoc.
+// Every attribute below must be present in every finding (use an empty value where
+// optional); findings are included one after another, so an omitted attribute would
+// inherit the previous finding's value. tools/review.py reads these attributes to build
+// the summary, recommendations and coverage tables -- do not edit those tables by hand.
+:finding-id: CVE-YYYY-NNNNN
+:finding-aliases: GHSA-xxxx-xxxx-xxxx
+:finding-title: <short title in Roc-reader terms>
+:finding-track: <A or B>
+:finding-sweep: <sweep-id of the unit that produced this finding>
+:finding-component: <inventory row or attack-surface class, exactly as in the SUT tables>
+:finding-location: <`src/path.zig`, `symbol`>
+:finding-outcome: <Track A: not_affected, affected, fixed, under_investigation; Track B: pattern absent, weakness possible, weakness confirmed, hardening candidate, undetermined>
+:finding-justification: <Track A not_affected only: one of the five VEX justifications; else empty>
+:finding-scope: <e.g. (Windows hosts only); else empty>
+:finding-cwe: <CWE-NNN, Base or Variant>
+:finding-ssvc: <Immediate, Out-of-Cycle, Scheduled, Defer, or n/a where no priority is required>
+:finding-ssvc-points: <Exploitation: x; Utility: x; Technical Impact: x; Public Safety Impact: x (tree version)>
+:finding-upstream-score: <CVSS-B x.y or CVSS v3.1 x.y; EPSS x (date); KEV yes/no>
+:finding-about: <one sentence: what the upstream bug is>
+:finding-ask: <one sentence: what, if anything, contributors are asked to do>
+:finding-action: <fix, investigate, add regression test, add fuzz target, accept risk, no action>
+:finding-action-detail: <one sentence; empty for no action>
+:finding-owner: unassigned
+:finding-status: draft
+:finding-assessed-by: <agent/model or person>
+
+[[cve-yyyy-nnnnn]]
+= {finding-id}: {finding-title}
+
+[cols="1,3"]
+|===
+|Aliases |{finding-aliases}
+|Track |{finding-track}
+|Roc component |{finding-component}: {finding-location}
+|Outcome |{finding-outcome} {finding-justification} {finding-scope}
+|CWE |{finding-cwe}
+|Priority (SSVC) |{finding-ssvc}. {finding-ssvc-points}
+|Upstream score |{finding-upstream-score} (context only)
+|Assessed |at `{roc-commit}` by {finding-assessed-by}
+|===
+
+// Track B only (required by tools/review.py):
+IMPORTANT: This CVE affects the cited upstream product; this record does not assert that this project has the same vulnerability.
+
+== For contributors
+// 3-5 plain sentences, written last: the upstream bug, what the corresponding Roc code or
+// contract does, the outcome, and what (if anything) is asked.
+
+== References
+// The CVE record first, then the vendor advisory, OSV/NVD, and the fix commit, as URL[label], with access dates.
+
+== Upstream facts
+// Product (PURL), affected range (OSV events), fix commit, root cause, impact, record state, disputes.
+
+== Claims
+
+// One row per line. Label: Examined-code | Examined-source | Tested | Inferred | Unverified.
+// Examined-code evidence MUST be: <pinned link>[`path:n`]: `exact text from line n`
+// tools/review.py checks that the quoted text appears at that line at {roc-commit}.
+[cols="1,4,2,4",options="header"]
+|===
+|# |Claim |Label |Evidence
+|C1 | |Examined-code |https://github.com/roc-lang/roc/blob/<sha>/src/path.zig#L1[`src/path.zig:1`]: `exact quoted text`
+|===
+
+== Root cause and exposure path
+// Track A: version -> built in -> reachable -> adversary control, each step citing a claim.
+// Track B: the Roc lines that embody (or refute) the pattern, compared with the upstream fix.
+// Contract: whether the weakness is in the specification or only in Roc's implementation.
+
+== Counter-evidence searched
+
+== Unverified claims and the checks that would settle them
+
+== Assessment
+// Outcome via appendix-definitions.adoc; impact statement (not_affected) or action statement
+// (affected); SSVC decision points with a rationale each; SP 800-30 narrative.
+
+== Recommendation
+
+== Conditions that would change this outcome

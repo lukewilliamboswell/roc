@@ -1,0 +1,32 @@
+// SWEEP (UNIT) TEMPLATE -- copy to sweeps/<sweep-id>.adoc, e.g. a-llvm.adoc, b-archive-extraction.adoc.
+// One reviewer owns this file and every finding it produces, end to end.
+// sweep-target must equal the first cell of a row in the SUT component inventory (Track A)
+// or attack-surface map (Track B). Rules: approach.adoc (selection and stopping rule) and
+// appendix-definitions.adoc (dispositions, exit criteria). tools/review.py reads this file.
+:sweep-id: <a-or-b>-<slug>
+:sweep-track: <A or B>
+:sweep-target: <exact first cell of the SUT row>
+:sweep-status: in-progress
+:sweep-stop-reason: <required when saturated; else empty>
+:sweep-by: <agent/model or person>
+
+[[a-or-b-slug]]
+= {sweep-target}
+
+// 2-4 sentences: what was searched for and why, what the target covers in Roc, and how the unit ended.
+
+.Queries
+[cols="2,2,5,1",options="header"]
+|===
+|Date |Source |Exact query |Results
+|YYYY-MM-DD |OSV |`POST /v1/query {"package":{"purl":"pkg:..."}}` |0
+|===
+
+.Candidates
+// One row per line: id | disposition | reason and evidence (triaged-out/deferred) or finding link.
+// Disposition: finding | duplicate | triaged-out | deferred | pending (pending only while in progress).
+[cols="2,1,6",options="header"]
+|===
+|Candidate |Disposition |Reason, evidence or finding
+|CVE-YYYY-NNNNN |finding |<<cve-yyyy-nnnnn>>
+|===

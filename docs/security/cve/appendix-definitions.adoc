@@ -1,0 +1,100 @@
+[[definitions]]
+= Definitions and decision rules
+
+This appendix holds the exact rules behind the outcomes in this report, so that a reader can check how each outcome was reached.
+
+[[evidence-labels]]
+== Evidence labels
+
+[cols="1,4",options="header"]
+|===
+|Label |Meaning and required citation
+|Examined-code |The source was read at the pinned commit. The claim cites the exact `path:line` and quotes the lines. For Zig std, it cites a path under the Zig `lib_dir` plus the Zig version.
+|Examined-source |A primary external document was read: the advisory, the CVE record, the fix commit or a specification. The claim cites the URL and access date.
+|Tested |Something safe was executed. The claim records the command, the platform, the output and its limitations.
+|Inferred |Reasoned from other claims, which are listed by claim number.
+|Unverified |Not established. The claim states why, and which check would settle it.
+|===
+
+A finding in which any claim lacks a label, or in which an outcome-determining claim is Unverified without naming its check, is *incomplete*. An incomplete finding can hold only `under_investigation` (Track A) or _undetermined_ (Track B).
+
+[[outcomes]]
+== Track A: VEX status
+
+The first rule that applies determines the status.
+
+. The CVE facts are not established from primary sources: `under_investigation`.
+. The shipped version is outside the affected range: `not_affected`. The justification is `component_not_present` if the component is absent, otherwise `vulnerable_code_not_present`.
+. The vulnerable code is not compiled into or linked into Roc: `not_affected` / `vulnerable_code_not_present`.
+. The code is present but no Roc path reaches it: `not_affected` / `vulnerable_code_not_in_execute_path`.
+. The code is reachable, but an adversary cannot control the triggering input: `not_affected` / `vulnerable_code_cannot_be_controlled_by_adversary`.
+. A Roc-side mitigation neutralises it, examined at code level: `not_affected` / `inline_mitigations_already_exist`.
+. The code is reachable with adversary-controlled input, and every hop is examined: `affected`, with an action statement.
+. Roc already ships a version or change that removes it: `fixed`, citing the commit.
+. Anything else: `under_investigation`, naming the blocking check.
+
+Every `not_affected` status also carries an impact statement: one or two sentences summarising the evidence.
+
+== Track B: weakness outcome
+
+These are internal terms, deliberately distinct from VEX statuses.
+
+[cols="1,4",options="header"]
+|===
+|Outcome |Meaning
+|pattern absent |The comparable component or contract was examined, and the root-cause pattern is demonstrably not present.
+|weakness possible |The pattern is present, but exploitability depends on a named Unverified claim.
+|weakness confirmed |The pattern is present and reachable, and every hop is examined or tested. This triggers <<handling>>.
+|hardening candidate |The pattern is absent, but nothing (no test or guard) would catch it being introduced.
+|undetermined |The evidence standard is not met.
+|===
+
+An outcome may carry a scope, such as "(Windows hosts only)". For a contract, the finding states whether the weakness lies in the specification, so that every conforming package or platform inherits it, or only in Roc's implementation.
+
+== Priority: SSVC supplier tree
+
+Findings that are `affected`, `under_investigation`, _weakness possible_ or _weakness confirmed_ record each supplier decision point with a one-line rationale:
+
+* Exploitation (none, public PoC, active), informed by EPSS and KEV;
+* Utility (laborious, efficient, super effective);
+* Technical Impact (partial, total);
+* Public Safety Impact (minimal, significant).
+
+The outcome (Defer, Scheduled, Out-of-Cycle or Immediate) is read from the published tree: SSVC release 2026.7.0, decision table DT_SP 1.0.0.
+
+An accompanying NIST SP 800-30 narrative names the threat source, the predisposing conditions, and the likelihood and impact on the Very Low to Very High scale.
+
+== Triage and dispositions
+
+Every candidate found in a sweep receives exactly one disposition:
+
+finding:: A full finding was written.
+duplicate:: The same advisory was found by another unit, which wrote the finding. The reason names that finding.
+triaged-out:: No full finding, because a one-line reason with evidence shows the candidate cannot apply. For example, "wrong version" must cite both the shipped version and the affected range.
+deferred:: Not assessed, because of the selection and stopping rule (<<selection>>). The rank reason is recorded.
+pending:: Not yet dispositioned. This is allowed only while the unit is in progress.
+
+[[exit-criteria]]
+== Exit criteria
+
+A finding is *complete* when:
+
+* every claim carries an evidence label, and every Examined-code claim has a pinned link whose quoted text matches the cited line at the assessed commit (this is checked automatically);
+* every Unverified claim names the check that would settle it;
+* the outcome follows from the decision rules above, and the priority is assigned where required;
+* the "for contributors" statement, recommendation and conditions are written, with no placeholder text.
+
+A unit (sweep) has exited when:
+
+* its status is *complete* (all candidates dispositioned), *saturated* (with the reason stated) or *budget-reached* (Track B only);
+* no candidate is pending, and every finding it produced is complete.
+
+The review has exited when:
+
+* every inventory row and attack-surface class has a unit that has exited;
+* the system-under-test chapter carries evidence labels throughout;
+* the summary, conclusions and document control are written.
+
+== Validity
+
+A finding is valid for the pinned commit only. Each finding lists the conditions that would change its outcome.

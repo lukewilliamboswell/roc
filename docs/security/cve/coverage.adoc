@@ -1,0 +1,10 @@
+[[coverage]]
+= Coverage and triage
+
+This appendix shows the extent of the review. There is one row for every component in the inventory and every class in the attack-surface map (<<sut>>). A row whose status is not `complete`, `saturated` or `budget-reached` is a limitation of this review. The inclusion and stopping rule is in <<selection>>.
+
+include::_generated/coverage-table.adoc[]
+
+Each sweep below records the queries made, with dates and result counts, and the disposition of every candidate found.
+
+include::_generated/sweeps.adoc[]
